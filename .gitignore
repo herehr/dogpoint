@@ -1,0 +1,17 @@
+# Ignore node dependencies
+**/node_modules
+
+# Ignore output builds
+frontend/dist
+backend/dist
+
+# Ignore environment files
+*.env
+.env.*
+
+# Ignore logs
+*.log
+npm-debug.log*
+
+# Ignore Docker volumes (optional)
+pgdata
