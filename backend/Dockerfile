@@ -9,19 +9,23 @@ COPY package*.json ./
 RUN npm ci
 RUN npm install typescript@latest
 
-# Copy the rest of the application code
+# Copy everything else
 COPY . .
 
+# Make wait-for script executable
+RUN chmod +x wait-for.sh
+
+# Generate Prisma client
 RUN npx prisma generate
 
 # Print TypeScript version (diagnostic)
 RUN npx tsc --version
 
-# Build the TypeScript code
+# Build the TypeScript project
 RUN npm run build
 
-# Expose port 3000
+# Expose port
 EXPOSE 3000
 
-# Start the server
-CMD ["./waitfor.sh", "db:5432", "--", "sh", "-c", "echo '📦 DB ready'; npx prisma migrate deploy && echo '🧪 Migrated'; npm run seed && echo '🌱 Seed completed'; npm start"]
+# Debug-aware CMD for DO App Platform
+CMD ["./wait-for.sh", "db:5432", "--", "sh", "-c", "echo '📦 DB ready'; npx prisma migrate deploy && echo '🧪 Migrated'; npm run seed && echo '🌱 Seed complete'; npm start"]
