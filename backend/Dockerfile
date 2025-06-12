@@ -24,4 +24,4 @@ RUN npm run build
 EXPOSE 3000
 
 # Start the server
-CMD ["./wait-for.sh", "db:5432", "--", "sh", "-c", "npx prisma migrate deploy && npm run seed && npm start"]
+CMD ["./waitfor.sh", "db:5432", "--", "sh", "-c", "echo '📦 DB ready'; npx prisma migrate deploy && echo '🧪 Migrated'; npm run seed && echo '🌱 Seed completed'; npm start"]
