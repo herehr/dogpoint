@@ -1,13 +1,27 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import mkcert from 'vite-plugin-mkcert';
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), mkcert()],
   server: {
     port: 5173,
-    proxy: {
-      '/api': 'http://localhost:5050',
-      '/upload': 'http://localhost:5050'  // 👈 Proxy upload to backend
-    }
-  }
+    https: false,
+  },
+  preview: {
+    port: 8080,
+    host: true,
+    allowedHosts: ['.ondigitalocean.app'], // or just 'dogpoint-uk3y8.ondigitalocean.app'
+  },
+  build: {
+    outDir: 'dist',
+  },
+  resolve: {
+    alias: {
+      '@': '/src',
+    },
+  },
+  optimizeDeps: {
+    include: ['react', 'react-dom', 'react-router-dom'],
+  },
 });
