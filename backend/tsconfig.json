@@ -12,6 +12,6 @@
     "forceConsistentCasingInFileNames": true,
     "moduleResolution": "node"
   },
-  "include": ["src"],
+  "include": ["src", "node_modules/@prisma/client"],
   "exclude": ["node_modules"]
 }
