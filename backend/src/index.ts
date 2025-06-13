@@ -4,10 +4,10 @@ import cors from 'cors';
 import { Role } from '@prisma/client';
 
 import authRoutes from './routes/authRoutes';
-import animalRoutes from './routes/animalRoutes';         // ✅ MISSING IMPORT ADDED
+import animalRoutes from './routes/animalRoutes';
 import moderatorRoutes from './routes/moderatorRoutes';
 import adminRoutes from './routes/adminRoutes';
-import uploadRoutes from './routes/uploadRoutes'; // ✅ CORRECT
+import uploadRoutes from './routes/uploadRoutes';
 
 dotenv.config();
 
@@ -15,7 +15,7 @@ const app = express();
 
 // --- Middleware ---
 app.use(cors({
-  origin: 'http://localhost:5173',
+  origin: ['http://localhost:5173', 'https://dogpoint-uk3y8.ondigitalocean.app'],
   credentials: true,
 }));
 app.use(express.json());
@@ -24,9 +24,8 @@ app.use(express.json());
 app.use('/api/auth', authRoutes);
 app.use('/api/animals', animalRoutes);
 app.use('/api/moderators', moderatorRoutes);
-app.use('/api/admin', adminRoutes); // ✅ MOUNTED
-app.use('/api/upload', uploadRoutes); // ✅ CORRECT
-
+app.use('/api/admin', adminRoutes);
+app.use('/api/upload', uploadRoutes);
 
 // --- Custom Typing for req.user ---
 declare module 'express-serve-static-core' {
