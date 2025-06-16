@@ -1,27 +1,24 @@
-
-console.log('🔐 DO_SPACE_KEY:', process.env.DO_SPACE_KEY);
-console.log('🔐 DO_SPACE_SECRET:', process.env.DO_SPACE_SECRET);
-console.log('🪣 DO_SPACE_BUCKET:', process.env.DO_SPACE_BUCKET);
-console.log('🌍 DO_SPACE_REGION:', process.env.DO_SPACE_REGION);
-console.log('📦 DO_SPACE_ENDPOINT:', process.env.DO_SPACE_ENDPOINT);
-
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { v4 as uuidv4 } from 'uuid';
 
 const {
-  DO_SPACE_KEY,
-  DO_SPACE_SECRET,
+  DO_SPACE_ACCESS_KEY,
+  DO_SPACE_SECRET_KEY,
   DO_SPACE_BUCKET,
   DO_SPACE_REGION,
-  DO_SPACE_ENDPOINT,
+  DO_SPACE_URL, // should be: https://dogpoint.fra1.digitaloceanspaces.com
 } = process.env;
 
+if (!DO_SPACE_ACCESS_KEY || !DO_SPACE_SECRET_KEY || !DO_SPACE_BUCKET || !DO_SPACE_REGION || !DO_SPACE_URL) {
+  throw new Error('Missing DigitalOcean Spaces configuration');
+}
+
 const s3 = new S3Client({
-  region: DO_SPACE_REGION!,
-  endpoint: DO_SPACE_ENDPOINT,
+  region: DO_SPACE_REGION,
+  endpoint: `https://${DO_SPACE_REGION}.digitaloceanspaces.com`,
   credentials: {
-    accessKeyId: DO_SPACE_KEY!,
-    secretAccessKey: DO_SPACE_SECRET!,
+    accessKeyId: DO_SPACE_ACCESS_KEY,
+    secretAccessKey: DO_SPACE_SECRET_KEY,
   },
 });
 
@@ -48,5 +45,5 @@ export async function uploadToSpace(file: Express.Multer.File): Promise<string> 
   });
 
   await s3.send(command);
-  return `${DO_SPACE_ENDPOINT}/${DO_SPACE_BUCKET}/${key}`;
+  return `${DO_SPACE_URL}/${key}`; // e.g. https://dogpoint.fra1.digitaloceanspaces.com/uploads/image.jpg
 }
