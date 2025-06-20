@@ -1,17 +1,13 @@
+# adopt/.gitignore
+
 # Ignore node dependencies
 **/node_modules
-
-# Ignore output builds
-frontend/dist
-backend/dist
+**/dist
 
 # Ignore environment files
-*.env
-.env.*
+**/.env
+**/.env.local
 
-# Ignore logs
-*.log
-npm-debug.log*
-
-# Ignore Docker volumes (optional)
-pgdata
+# Editor settings
+.vscode/
+.DS_Store

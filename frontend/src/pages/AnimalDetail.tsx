@@ -66,82 +66,51 @@ const AnimalDetail: React.FC = () => {
 
   return (
     <Container sx={{ py: 4 }}>
-      <Typography variant="h4" gutterBottom>{animal.name}</Typography>
+      <Typography variant="h4" gutterBottom>
+        {animal.name}
+      </Typography>
       <Typography variant="subtitle1" gutterBottom>
         Druh: {animal.species} | Věk: {animal.age} let
       </Typography>
+      <Typography variant="body1" sx={{ mb: 4 }}>
+        {animal.description}
+      </Typography>
 
-      <Box sx={{ my: 2 }}>
-        <Button
-          variant="contained"
-          size="large"
-          onClick={() => navigate(`/adopce/${animal.id}`)}
-        >
-          Chci pomoci / adoptovat
-        </Button>
-      </Box>
-
-      <Tabs value={tab} onChange={(_, newVal) => setTab(newVal)} sx={{ mb: 2 }}>
-        <Tab label="Informace" />
+      <Tabs value={tab} onChange={(_, newValue) => setTab(newValue)} sx={{ mb: 2 }}>
         <Tab label="Galerie" />
         <Tab label="Aktualizace" />
       </Tabs>
 
-      {/* Tab 1: Informace */}
       {tab === 0 && (
-        <Box>
-          <Typography>{animal.description}</Typography>
-        </Box>
-      )}
-
-      {/* Tab 2: Galerie */}
-      {tab === 1 && (
         <Grid container spacing={2}>
-          {animal.galerie?.length ? (
-            animal.galerie.map((media, index) => (
-              <Grid item xs={6} sm={4} key={index}>
-                {media.type === 'image' ? (
-                  <Box
-                    component="img"
-                    src={media.url}
-                    alt={`Foto ${animal.name}`}
-                    sx={{
-                      width: '100%',
-                      borderRadius: 2,
-                      objectFit: 'cover',
-                      height: 200,
-                    }}
-                  />
-                ) : (
-                  <video
-                    src={media.url}
-                    controls
-                    style={{
-                      width: '100%',
-                      borderRadius: 8,
-                      objectFit: 'cover',
-                      height: 200,
-                    }}
-                  />
-                )}
-              </Grid>
-            ))
-          ) : (
-            <Grid item xs={12}>
-              <Typography variant="body2" color="text.secondary">
-                Galerie není dostupná.
-              </Typography>
+          {animal.galerie?.map((media, index) => (
+            <Grid item xs={12} sm={6} md={4} key={index}>
+              {media.type === 'image' ? (
+                <Box
+                  component="img"
+                  src={media.url}
+                  alt={`media-${index}`}
+                  sx={{ width: '100%', borderRadius: 2 }}
+                />
+              ) : (
+                <Box component="video" controls src={media.url} sx={{ width: '100%', borderRadius: 2 }} />
+              )}
             </Grid>
-          )}
+          ))}
         </Grid>
       )}
 
-      {/* Tab 3: Aktualizace */}
-      {tab === 2 && (
-        <Typography>
-          Aktualizace tohoto zvířete budou brzy k dispozici.
+      {tab === 1 && (
+        <Typography variant="body2" color="text.secondary">
+          Zde budou aktualizace (např. příběhy, komentáře).
         </Typography>
       )}
+
+      <Box sx={{ mt: 4 }}>
+        <Button variant="contained" onClick={() => navigate(-1)}>
+          Zpět
+        </Button>
+      </Box>
     </Container>
   );
 };
