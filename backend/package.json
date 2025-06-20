@@ -1,19 +1,16 @@
 {
   "name": "adopt-backend",
   "version": "1.0.0",
-  "main": "src/index.ts",
+  "main": "dist/index.js",
   "scripts": {
-    "dev": "ts-node-dev src/index.ts",
-    "build": "npx prisma generate && tsc",
+    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
+    "build": "tsc",
     "start": "node dist/index.js",
-    "prisma": "prisma",
+    "generate": "prisma generate",
     "migrate": "prisma migrate deploy",
-    "seed": "ts-node src/prisma/seed.ts",
-    "lint": "eslint . --ext .ts",
-    "format": "prettier --write ."
+    "seed": "ts-node src/prisma/seed.ts"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.825.0",
     "@prisma/client": "^6.8.2",
     "bcrypt": "^6.0.0",
     "cors": "^2.8.5",
@@ -29,13 +26,9 @@
     "@types/jsonwebtoken": "^9.0.9",
     "@types/multer": "^1.4.12",
     "@types/node": "^20.17.43",
-    "@types/uuid": "^10.0.0",
     "prisma": "^6.8.2",
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.8.3"
-  },
-  "engines": {
-    "node": ">=18.0.0"
   }
 }
