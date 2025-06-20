@@ -2,14 +2,15 @@ import express from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
 import { Role } from '@prisma/client';
+import fs from 'fs';
+
+dotenv.config();
 
 import authRoutes from './routes/authRoutes';
 import animalRoutes from './routes/animalRoutes';
 import moderatorRoutes from './routes/moderatorRoutes';
 import adminRoutes from './routes/adminRoutes';
 import uploadRoutes from './routes/uploadRoutes';
-
-dotenv.config();
 
 const app = express();
 
@@ -19,6 +20,12 @@ app.use(cors({
   credentials: true,
 }));
 app.use(express.json());
+
+// --- Health check ---
+app.get('/api/ping', (_req, res) => {
+  res.json({ message: 'pong' });
+});
+
 
 // --- API Routes ---
 app.use('/api/auth', authRoutes);
@@ -37,8 +44,19 @@ declare module 'express-serve-static-core' {
   }
 }
 
+// --- 404 handler ---
+app.use((_req, res) => {
+  res.status(404).json({ error: 'Not found' });
+});
+
+// --- Error handler (optional) ---
+app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error('💥 Error:', err);
+  res.status(500).json({ error: 'Internal server error' });
+});
+
 // --- Server Start ---
-const PORT = process.env.PORT || 3000;
+const PORT = Number(process.env.PORT) || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
 });
