@@ -1,25 +1,22 @@
-# -------- Step 1: Build Layer --------
-FROM node:18 AS build
-
+# Stage 1: Build
+FROM node:18 AS builder
 WORKDIR /app
 
 COPY package*.json ./
 RUN npm install
 
 COPY . .
-RUN npx prisma generate
 RUN npm run build
+RUN npx prisma generate
 
-# -------- Step 2: Runtime Layer --------
-FROM node:18
-
+# Stage 2: Run
+FROM node:18 AS runner
 WORKDIR /app
 
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/dist ./dist
-COPY --from=build /app/package.json ./
-COPY --from=build /app/prisma ./prisma
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/package.json ./package.json
 
-EXPOSE 3000
-
+ENV NODE_ENV=production
 CMD ["node", "dist/index.js"]
