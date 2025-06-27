@@ -9,6 +9,9 @@
     "start": "node dist/index.js",
     "postinstall": "tsc && prisma generate"
   },
+  "engines": {
+    "node": "18.x"
+  },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.500.0",
     "@prisma/client": "^5.22.0",
@@ -21,6 +24,7 @@
     "uuid": "^9.0.0"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",
     "prisma": "^5.22.0",
     "ts-node": "^10.9.2",
