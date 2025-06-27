@@ -1,24 +1,25 @@
-# Stage 1 – build
-FROM node:20 AS builder
+# Stage 1 – Build
+FROM node:18.20.2 AS builder
 
 WORKDIR /app
 
-# Copy everything needed for build
-COPY package*.json tsconfig.json prisma ./ 
+# Copy install files and install dependencies
+COPY package*.json tsconfig.json prisma ./
 RUN npm install
 
-# Copy rest of the source files
-COPY . .
+# Copy source files
+COPY ./src ./src
 
-# Compile TypeScript and generate Prisma client
+# Build TypeScript and generate Prisma client
 RUN npm run build
 RUN npx prisma generate
 
-# Stage 2 – production
-FROM node:20
+# Stage 2 – Production
+FROM node:18.20.2
 
 WORKDIR /app
 
+# Copy only the built app and runtime deps
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package*.json ./
