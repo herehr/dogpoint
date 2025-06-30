@@ -12,6 +12,7 @@ COPY ./src ./src
 RUN npm install
 RUN npm run build
 RUN npx prisma generate
+RUN npm install -g npm@11.4.2
 
 # Stage 2: Production
 FROM node:20.19.0

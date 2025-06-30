@@ -1,16 +1,22 @@
 import { Router } from 'express';
+import { PrismaClient } from '@prisma/client';
 
 const router = Router();
-
-// Sample animal list (you can later connect this to a database)
-const animals = [
-  { id: '1', name: 'Fluffy', species: 'Dog', age: 3 },
-  { id: '2', name: 'Whiskers', species: 'Cat', age: 2 },
-];
+const prisma = new PrismaClient();
 
 // GET /api/animals
-router.get('/', (_req, res) => {
-  res.json(animals);
+router.get('/', async (_req, res) => {
+  try {
+    const animals = await prisma.animal.findMany({
+      include: {
+        galerie: true, // ✅ this must match model
+      },
+    });
+    res.json(animals);
+  } catch (error) {
+    console.error('❌ Error in /api/animals:', error);
+    res.status(500).json({ error: 'Failed to fetch animals' });
+  }
 });
 
 export default router;
