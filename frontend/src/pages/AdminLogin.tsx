@@ -22,17 +22,20 @@ const AdminLogin: React.FC = () => {
     setError(null);
 
     try {
-      const res = await axios.post(`${import.meta.env.VITE_API_BASE_URL}/api/auth/admin-login`, {
-        email,
-        password,
-      });
+      const res = await axios.post(
+        `${import.meta.env.VITE_API_BASE_URL}/auth/admin-login`, // ✅ FIXED LINE
+        {
+          email,
+          password,
+        }
+      );
 
       const { token } = res.data;
 
-      // ✅ Store the JWT token in sessionStorage
+      // ✅ Store the JWT token
       sessionStorage.setItem('adminToken', token);
 
-      // ✅ Redirect to moderator management
+      // ✅ Redirect to admin area
       navigate('/admin/moderators');
     } catch (err: any) {
       const message =
@@ -49,7 +52,7 @@ const AdminLogin: React.FC = () => {
 
       {error && <Alert severity="error">{error}</Alert>}
 
-      <Box component="form" onSubmit={handleLogin}>
+      <Box component="form" onSubmit={handleLogin} sx={{ mt: 2 }}>
         <Stack spacing={2}>
           <TextField
             label="Email"
