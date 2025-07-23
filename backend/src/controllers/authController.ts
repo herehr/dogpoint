@@ -3,56 +3,56 @@ import prisma from '../prisma';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 
-export const loginAdmin = async (req: Request, res: Response): Promise<void> => {
+// ✅ No explicit return type — TypeScript infers it automatically
+export const loginAdmin = async (req: Request, res: Response) => {
   try {
     const { email, password } = req.body;
     console.log('🟡 Incoming admin login request:', { email });
 
-
-    // 🔵 Validate input
-    if (typeof email !== 'string' || typeof password !== 'string') {
-      console.log('🔴 Missing or invalid email/password format');
-      return res.status(400).json({ error: 'Email a heslo jsou povinné.' });
+    if (!email || !password) {
+      console.log('🔴 Missing email or password');
+      res.status(400).json({ error: 'Email a heslo jsou povinné.' });
+      return;
     }
 
-    // 🔵 Lookup admin by email
     const admin = await prisma.user.findUnique({ where: { email } });
+    console.log('🟢 Admin fetched from DB:', admin);
 
     if (!admin) {
-      console.log('🔴 Admin not found for email:', email);
-      return res.status(401).json({ error: 'Neplatné přihlašovací údaje.' });
+      console.log('🔴 Admin not found');
+      res.status(401).json({ error: 'Neplatné přihlašovací údaje.' });
+      return;
     }
 
     if (admin.role !== 'ADMIN') {
-      console.log(`🔴 Přístup odepřen: role je ${admin.role}`);
-      return res.status(403).json({ error: 'Nemáte oprávnění.' });
+      console.log('🔴 User role is not ADMIN:', admin.role);
+      res.status(403).json({ error: 'Nemáte oprávnění.' });
+      return;
     }
 
-    // 🔵 Check password
     const isMatch = await bcrypt.compare(password, admin.password);
+    console.log('🟢 Password match:', isMatch);
+
     if (!isMatch) {
-      console.log('🔴 Heslo nesouhlasí');
-      return res.status(401).json({ error: 'Neplatné přihlašovací údaje.' });
+      console.log('🔴 Password mismatch');
+      res.status(401).json({ error: 'Neplatné přihlašovací údaje.' });
+      return;
     }
 
-    // 🔵 Ensure JWT secret is defined
-    const jwtSecret = process.env.JWT_SECRET;
-    if (!jwtSecret) {
-      console.error('❌ JWT_SECRET není definován v .env');
-      return res.status(500).json({ error: 'Chybí JWT tajný klíč.' });
+    if (!process.env.JWT_SECRET) {
+      console.log('❌ JWT_SECRET is not defined!');
+      res.status(500).json({ error: 'Chybí JWT tajný klíč.' });
+      return;
     }
 
-    // ✅ Create token
-    const token = jwt.sign({ id: admin.id, role: admin.role }, jwtSecret, {
+    const token = jwt.sign({ id: admin.id, role: admin.role }, process.env.JWT_SECRET, {
       expiresIn: '1d',
     });
 
-    console.log('✅ Admin login successful:', { adminId: admin.id });
-
-    return res.json({ token });
-
+    console.log('✅ Token generated for admin:', token);
+    res.json({ token });
   } catch (err) {
-    console.error('❌ Serverová chyba při přihlášení admina:', err);
-    return res.status(500).json({ error: 'Serverová chyba.' });
+    console.error('❌ Serverová chyba při přihlašování admina:', err);
+    res.status(500).json({ error: 'Serverová chyba.' });
   }
 };
