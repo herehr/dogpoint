@@ -23,24 +23,18 @@ const AdminLogin: React.FC = () => {
 
     try {
       const res = await axios.post(
-  `${import.meta.env.VITE_API_BASE_URL}/auth/admin-login`,
-  {
-    email,
-    password,
-  },
-  {
-    headers: {
-      'Content-Type': 'application/json',
-    },
-  }
-);
+        `${import.meta.env.VITE_API_BASE_URL}/auth/admin-login`,
+        { email, password },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        }
+      );
 
       const { token } = res.data;
 
-      // ✅ Store the JWT token
       sessionStorage.setItem('adminToken', token);
-
-      // ✅ Redirect to admin area
       navigate('/admin/moderators');
     } catch (err: any) {
       const message =
