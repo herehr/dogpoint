@@ -2,7 +2,7 @@ import express from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
 import animalRoutes from './routes/animals';
-import authRoutes from './routes/authRoutes'; // ✅ import auth routes
+import authRoutes from './routes/auth'; // ✅ Import auth routes
 
 dotenv.config();
 
@@ -10,13 +10,10 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// ✅ Mount your auth routes under /api/auth
-app.use('/api/auth', authRoutes);
-
-// 🐾 Mount animal routes under /api/animals
+// Mount routes
 app.use('/api/animals', animalRoutes);
+app.use('/api/auth', authRoutes); // ✅ Add this line
 
-// Base route
 app.get('/', (_req, res) => {
   res.send('Dogpoint backend is running.');
 });
