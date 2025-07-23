@@ -1,9 +1,11 @@
+// vite.config.ts
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import mkcert from 'vite-plugin-mkcert';
 
 export default defineConfig({
   plugins: [react(), mkcert()],
+  base: '/', // ✅ ADD THIS LINE
   server: {
     port: 5173,
     https: false,
@@ -11,7 +13,7 @@ export default defineConfig({
   preview: {
     port: 8080,
     host: true,
-    allowedHosts: ['.ondigitalocean.app'], // or just 'dogpoint-uk3y8.ondigitalocean.app'
+    allowedHosts: ['.ondigitalocean.app'],
   },
   build: {
     outDir: 'dist',
