@@ -1,24 +1,22 @@
 import express from 'express';
-import dotenv from 'dotenv';
 import cors from 'cors';
-import animalRoutes from './routes/animals';
-import authRoutes from './routes/auth'; // ✅ Import auth routes
+import dotenv from 'dotenv';
+import authRoutes from './routes/auth';
 
 dotenv.config();
 
 const app = express();
+const PORT = process.env.PORT || 8080;
+
 app.use(cors());
 app.use(express.json());
 
-// Mount routes
-app.use('/api/animals', animalRoutes);
-app.use('/api/auth', authRoutes); // ✅ Add this line
+app.use('/api/auth', authRoutes); // ✅ Important
 
-app.get('/', (_req, res) => {
-  res.send('Dogpoint backend is running.');
+app.get('/', (req, res) => {
+  res.send('Dogpoint backend running');
 });
 
-const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
