@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import authRoutes from './routes/auth';
+import animalRoutes from './routes/animal';
 
 dotenv.config();
 
@@ -12,6 +13,7 @@ app.use(cors());
 app.use(express.json());
 
 app.use('/api/auth', authRoutes); // ✅ Important
+app.use('/api/animals', animalRoutes);
 
 app.get('/', (req, res) => {
   res.send('Dogpoint backend running');
