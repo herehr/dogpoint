@@ -3,11 +3,11 @@ import prisma from '../prisma';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 
-export const loginAdmin = async (req: Request, res: Response) => {
+export const loginAdmin = async (req: Request, res: Response): Promise<void> => {
   try {
     const { email, password } = req.body;
+    console.log('🟡 Incoming admin login request:', { email });
 
-    console.log('🟡 Admin login attempt:', { email });
 
     // 🔵 Validate input
     if (typeof email !== 'string' || typeof password !== 'string') {
