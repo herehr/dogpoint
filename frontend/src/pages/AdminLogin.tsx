@@ -23,12 +23,17 @@ const AdminLogin: React.FC = () => {
 
     try {
       const res = await axios.post(
-        `${import.meta.env.VITE_API_BASE_URL}/auth/admin-login`, // ✅ FIXED LINE
-        {
-          email,
-          password,
-        }
-      );
+  `${import.meta.env.VITE_API_BASE_URL}/auth/admin-login`,
+  {
+    email,
+    password,
+  },
+  {
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  }
+);
 
       const { token } = res.data;
 
