@@ -9,6 +9,9 @@
     "dev": "ts-node-dev src/index.ts",
     "postinstall": "tsc && prisma generate"
   },
+  "prisma": {
+    "seed": "ts-node prisma/seed.ts"
+  },
   "engines": {
     "node": ">=20.0.0 <21"
   },
