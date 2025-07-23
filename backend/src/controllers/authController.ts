@@ -5,19 +5,21 @@ import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
-export const loginAdmin = async (req: Request, res: Response) => {
+export const loginAdmin = async (req: Request, res: Response): Promise<void> => {
   const { email, password } = req.body;
 
   try {
     const admin = await prisma.user.findUnique({ where: { email } });
 
     if (!admin || admin.role !== 'ADMIN') {
-      return res.status(401).json({ error: 'Neplatné přihlašovací údaje.' });
+      res.status(401).json({ error: 'Neplatné přihlašovací údaje.' });
+      return;
     }
 
     const isMatch = await bcrypt.compare(password, admin.password);
     if (!isMatch) {
-      return res.status(401).json({ error: 'Neplatné heslo.' });
+      res.status(401).json({ error: 'Neplatné heslo.' });
+      return;
     }
 
     const token = jwt.sign(

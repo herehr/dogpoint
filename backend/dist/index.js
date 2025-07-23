@@ -6,14 +6,15 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = __importDefault(require("express"));
 const dotenv_1 = __importDefault(require("dotenv"));
 const cors_1 = __importDefault(require("cors"));
-const animals_1 = __importDefault(require("./routes/animals")); // ✅ add this line
+const animals_1 = __importDefault(require("./routes/animals"));
+const auth_1 = __importDefault(require("./routes/auth")); // ✅ Import auth routes
 dotenv_1.default.config();
 const app = (0, express_1.default)();
 app.use((0, cors_1.default)());
 app.use(express_1.default.json());
-// 🐾 Mount animal routes
-app.use('/api/animals', animals_1.default); // ✅ enable this
-// Base test route
+// Mount routes
+app.use('/api/animals', animals_1.default);
+app.use('/api/auth', auth_1.default); // ✅ Add this line
 app.get('/', (_req, res) => {
     res.send('Dogpoint backend is running.');
 });
