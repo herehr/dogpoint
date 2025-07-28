@@ -2,13 +2,15 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import mkcert from 'vite-plugin-mkcert';
+import path from 'path';
 
 export default defineConfig({
   plugins: [react(), mkcert()],
-  base: '/', // ✅ ADD THIS LINE
+  base: '/', // ✅ stays like this
   server: {
     port: 5173,
     https: false,
+    historyApiFallback: true,
   },
   preview: {
     port: 8080,
@@ -20,7 +22,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@': '/src',
+      '@': path.resolve(__dirname, './src'),
     },
   },
   optimizeDeps: {
