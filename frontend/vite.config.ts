@@ -5,10 +5,12 @@ import path from 'path';
 
 export default defineConfig({
   plugins: [react(), mkcert()],
-  base: '/', // keep this
+  base: '/',
   server: {
     port: 5173,
-    https: false
+    https: false,
+    // 👇 Required so that `/admin` or `/zvirata` works locally
+    historyApiFallback: true,
   },
   preview: {
     port: 8080,
