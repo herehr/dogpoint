@@ -1,4 +1,3 @@
-// vite.config.ts
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import mkcert from 'vite-plugin-mkcert';
@@ -6,11 +5,10 @@ import path from 'path';
 
 export default defineConfig({
   plugins: [react(), mkcert()],
-  base: '/', // ✅ stays like this
+  base: '/', // keep this
   server: {
     port: 5173,
-    https: false,
-    historyApiFallback: true,
+    https: false
   },
   preview: {
     port: 8080,
