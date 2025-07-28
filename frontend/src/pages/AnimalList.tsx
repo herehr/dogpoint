@@ -21,8 +21,8 @@ interface Animal {
   name: string;
   species: string;
   age: number;
-  description: string;
-  isActive: boolean;
+  description?: string;
+  isActive?: boolean;
   galerie?: { url: string; type: string }[];
 }
 
@@ -41,7 +41,7 @@ const AnimalList: React.FC = () => {
   }, []);
 
   const filtered = animals.filter((a) =>
-    a.isActive &&
+    (a.isActive ?? true) &&
     a.name.toLowerCase().includes(search.toLowerCase()) &&
     (!speciesFilter || a.species === speciesFilter) &&
     (!ageFilter || a.age.toString() === ageFilter)
@@ -163,9 +163,11 @@ const AnimalList: React.FC = () => {
                     {animal.species} • {animal.age} let
                   </Typography>
                   <Typography variant="body2" sx={{ mt: 1 }}>
-                    {animal.description.length > 100
-                      ? `${animal.description.slice(0, 100)}…`
-                      : animal.description}
+                    {animal.description?.length
+                      ? animal.description.length > 100
+                        ? `${animal.description.slice(0, 100)}…`
+                        : animal.description
+                      : 'Bez popisu'}
                   </Typography>
                 </CardContent>
               </Card>

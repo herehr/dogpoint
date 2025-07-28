@@ -17,7 +17,7 @@ interface Animal {
   name: string;
   species: string;
   age: number;
-  description: string;
+  description?: string;
   galerie?: { url: string; type: string }[];
 }
 
@@ -80,7 +80,7 @@ const AnimalPage: React.FC = () => {
                       Druh: {animal.species} | Věk: {animal.age} let
                     </Typography>
                     <Typography variant="body2" sx={{ mt: 1, minHeight: 60 }}>
-                      {animal.description}
+                      {animal.description ?? 'Bez popisu'}
                     </Typography>
                   </CardContent>
                   <Button

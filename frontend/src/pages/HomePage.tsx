@@ -25,18 +25,22 @@ const HomePage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
-  useEffect(() => {
-    fetch(`${import.meta.env.VITE_API_BASE_URL}/api/animals?all=true`)
-      .then((res) => res.json())
-      .then((data) => {
-        const active = data.filter((a: Animal) => a.isActive).slice(0, 5);
-        setAnimals(active);
-      })
-      .catch((err) => {
-        console.error('❌ Failed to load homepage animals:', err);
-      })
-      .finally(() => setLoading(false));
-  }, []);
+ useEffect(() => {
+  const url = `${import.meta.env.VITE_API_BASE_URL}/api/animals?all=true`;
+  console.log('🌐 Fetching animals from:', url); // 👈 Add this
+
+  fetch(url)
+    .then((res) => res.json())
+    .then((data) => {
+      console.log('✅ Animals fetched:', data); // 👈 Add this
+      const active = data.filter((a: Animal) => a.isActive).slice(0, 5);
+      setAnimals(active);
+    })
+    .catch((err) => {
+      console.error('❌ Failed to load homepage animals:', err); // Already here
+    })
+    .finally(() => setLoading(false));
+}, []);
 
   return (
     <Container sx={{ py: 6 }}>
