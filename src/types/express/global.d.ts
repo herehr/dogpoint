@@ -1,4 +1,4 @@
-// types/services/global.d.ts
+// types/express/global.d.ts
 import { Role } from '@prisma/client';
 import { Multer } from 'multer';
 
@@ -8,6 +8,6 @@ declare namespace Express {
       id: string;
       role: Role;
     };
-    file?: Multer.File; // Optional, but helpful if you use multer
+    file?: Express.Multer.File; // ✅ Use this, not Multer.File
   }
 }
