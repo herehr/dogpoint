@@ -5,7 +5,13 @@ export default defineConfig({
   plugins: [react()],
   server: { port: 5173 },
   build: {
-    sourcemap: true,   // enable source maps for prod to debug the error
-    target: 'es2019'   // broad browser compatibility
+    // Inline so DO will always serve them with the bundle
+    sourcemap: 'inline',
+    // Better stack names in minified code
+    target: 'es2019',
+    cssMinify: true
+  },
+  esbuild: {
+    keepNames: true
   }
 })
