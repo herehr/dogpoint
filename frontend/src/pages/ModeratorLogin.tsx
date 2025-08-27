@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { loginModerator } from '../services/api';
 
 export default function ModeratorLogin() {
   const [email, setEmail] = useState('');
@@ -12,11 +13,7 @@ export default function ModeratorLogin() {
     e.preventDefault();
     setErr(null);
     try {
-      // TODO: replace with real API:
-      // const { token } = await loginModerator(email, password)
-      // sessionStorage.setItem('accessToken', token)
-      // temporary fake token so you can test navigation
-      sessionStorage.setItem('accessToken', 'dev-token');
+      await loginModerator(email, password); // stores sessionStorage token
       const to = loc.state?.from?.pathname || '/admin';
       navigate(to, { replace: true });
     } catch (e: any) {
