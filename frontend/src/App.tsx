@@ -1,22 +1,10 @@
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
-import HomePage from './pages/HomePage'
-import AnimalsPage from './pages/AnimalsPage'
-import AnimalDetail from './pages/AnimalDetail'
-import ModeratorLogin from './pages/ModeratorLogin'
-import ModeratorDashboard from './pages/ModeratorDashboard'
+import React from 'react'
 
-function App() {
+export default function App() {
   return (
-    <Router>
-      <Routes>
-        <Route path="/" element={<HomePage />} />
-        <Route path="/zvirata" element={<AnimalsPage />} />
-        <Route path="/zvire/:id" element={<AnimalDetail />} />
-        <Route path="/moderator/login" element={<ModeratorLogin />} />
-        <Route path="/moderator/dashboard" element={<ModeratorDashboard />} />
-      </Routes>
-    </Router>
+    <main style={{padding:24,fontFamily:'system-ui'}}>
+      <h1>Dogpoint – shell OK</h1>
+      <p>Pokud tohle vidíte, React se načetl správně.</p>
+    </main>
   )
 }
-
-export default App
