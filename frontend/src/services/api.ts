@@ -1,48 +1,70 @@
-// frontend/src/services/api.ts
-// Centralized API helpers. Uses VITE_API_BASE_URL for prod (DO) & local.
-
 const BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
+if (!BASE_URL) { console.warn('VITE_API_BASE_URL is not defined. Set it in your environment (DO or local).'); }
 
-if (!BASE_URL) {
-  // Helpful during misconfig
-  // eslint-disable-next-line no-console
-  console.warn('VITE_API_BASE_URL is not defined. Set it in your environment (DO or local).');
+function authHeader() {
+  const token = sessionStorage.getItem('accessToken');
+  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-export type GalerieMedia = {
-  id?: string;
-  url: string;
-  typ?: 'image' | 'video';
-};
-
-export type Animal = {
-  id: string;
-  name?: string;        // EN
-  jmeno?: string;       // CZ
-  description?: string; // EN
-  popis?: string;       // CZ
-  galerie?: GalerieMedia[];
-};
-
-async function getJSON<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
+async function req(path: string, init?: RequestInit) {
+  const res = await fetch(\`\${BASE_URL}\${path}\`, {
+    headers: { 'Content-Type': 'application/json', ...authHeader(), ...(init?.headers || {}) },
+    ...init,
   });
   if (!res.ok) {
-    throw new Error(`${res.status} ${res.statusText} for GET ${path}`);
+    const text = await res.text().catch(() => '');
+    throw new Error(\`\${res.status} \${res.statusText} for \${path} → \${text}\`);
   }
-  return res.json() as Promise<T>;
+  return res.json();
 }
 
-// --- Named exports used by pages/components ---
+export type GalerieMedia = { id?: string; url: string; typ?: 'image' | 'video' };
+export type Animal = { id: string; name?: string; jmeno?: string; description?: string; popis?: string; galerie?: GalerieMedia[]; active?: boolean };
 
-/** List all animals */
 export async function fetchAnimals(): Promise<Animal[]> {
-  return getJSON<Animal[]>('/api/animals');
+  return req('/api/animals');
 }
 
-/** Get single animal by id */
 export async function fetchAnimal(id: string): Promise<Animal> {
   if (!id) throw new Error('fetchAnimal: id is required');
-  return getJSON<Animal>(`/api/animals/${encodeURIComponent(id)}`);
+  return req(\`/api/animals/\${encodeURIComponent(id)}\`);
+}
+
+export async function loginModerator(email: string, password: string) {
+  const data = await req('/api/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
+  sessionStorage.setItem('accessToken', data.token);
+  return data;
+}
+
+export function logout() {
+  sessionStorage.removeItem('accessToken');
+}
+
+export async function createAnimal(payload: Partial<Animal>) {
+  return req('/api/animals', { method: 'POST', body: JSON.stringify(payload) });
+}
+
+export async function updateAnimal(id: string, payload: Partial<Animal>) {
+  return req(\`/api/animals/\${encodeURIComponent(id)}\`, { method: 'PATCH', body: JSON.stringify(payload) });
+}
+
+export async function deleteAnimal(id: string) {
+  return req(\`/api/animals/\${encodeURIComponent(id)}\`, { method: 'DELETE' });
+}
+
+export async function uploadMedia(file: File): Promise<{ url: string }> {
+  const form = new FormData();
+  form.append('file', file);
+  const token = sessionStorage.getItem('accessToken');
+  const res = await fetch(\`\${BASE_URL}/api/upload\`, {
+    method: 'POST',
+    headers: token ? { Authorization: \`Bearer \${token}\` } : {},
+    body: form,
+  });
+  if (!res.ok) throw new Error(\`Upload failed: \${res.status}\`);
+  return res.json();
+}
+
+export async function listModerators() {
+  return req('/api/admin/moderators');
 }
