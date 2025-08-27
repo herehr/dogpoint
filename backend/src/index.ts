@@ -1,56 +1,47 @@
-import express from 'express';
+import express, { Request, Response } from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
-import { prisma } from './prisma';          // ← import shared Prisma client
 import animalRoutes from './routes/animals';
+import authRoutes from './routes/auth';
+import { prisma } from './prisma';
 
 dotenv.config();
 
-const app = express();
-
-// CORS — allow localhost (dev) and your DO frontend (prod)
 const allowedOrigins = [
   'http://localhost:5173',
-  // ⬇️ replace with your real DO frontend URL
   'https://dogpoint-frontend-eoikq.ondigitalocean.app',
+  'https://herehr.github.io',
 ];
 
-app.use(
-  cors({
-    origin: allowedOrigins,
-    methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    credentials: true,
-  })
-);
-
+const app = express();
+app.use(cors({ origin: allowedOrigins, credentials: true }));
 app.use(express.json());
 
-// Routes
+// API routes
 app.use('/api/animals', animalRoutes);
+app.use('/api/auth', authRoutes);
 
-// Base test route
-app.get('/', (_req, res) => {
+// Base
+app.get('/', (_req: Request, res: Response): void => {
   res.send('Dogpoint backend is running.');
 });
 
-// Health checks
-app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', server: true });
+// Health
+app.get('/health', (_req: Request, res: Response): void => {
+  res.status(200).json({ status: 'ok', server: true });
 });
 
-app.get('/health/db', async (_req, res) => {
+app.get('/health/db', async (_req: Request, res: Response): Promise<void> => {
   try {
     await prisma.$queryRaw`SELECT 1`;
-    res.json({ status: 'ok', db: true });
-  } catch (e) {
-    res
-      .status(500)
-      .json({ status: 'error', db: false, error: (e as Error).message });
+    res.status(200).json({ status: 'ok', db: true });
+  } catch (e: any) {
+    res.status(500).json({ status: 'error', db: false, error: e.message });
   }
 });
 
-const PORT = Number(process.env.PORT || 3000);
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
+  // eslint-disable-next-line no-console
   console.log(`Server running on port ${PORT}`);
 });
