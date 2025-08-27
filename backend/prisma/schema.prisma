@@ -8,16 +8,32 @@ datasource db {
 }
 
 model Animal {
-  id        String   @id @default(uuid())
-  name      String
-  age       Int
-  species   String
-  galerie   GalerieMedia[]
+  id       String         @id @default(uuid())
+  name     String
+  age      Int?
+  species  String?
+  isActive Boolean        @default(true)
+  galerie  GalerieMedia[]
 }
 
 model GalerieMedia {
-  id        String   @id @default(uuid())
-  url       String
-  animalId  String
-  animal    Animal   @relation(fields: [animalId], references: [id])
+  id       String @id @default(uuid())
+  url      String
+  animalId String
+  animal   Animal @relation(fields: [animalId], references: [id])
+}
+
+model User {
+  id        String   @id
+  email     String   @unique
+  password  String
+  role      Role
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+enum Role {
+  ADMIN
+  MODERATOR
+  USER
 }
