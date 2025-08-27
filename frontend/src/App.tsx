@@ -1,9 +1,9 @@
 import React from 'react'
 import { Routes, Route, Link } from 'react-router-dom'
+import AnimalsPage from './pages/AnimalsPage'
 
 function Home() { return <div style={{padding:24}}><h2>Home OK</h2></div> }
 function AdminLite() { return <div style={{padding:24}}><h2>Admin lite OK</h2></div> }
-function ZvLite() { return <div style={{padding:24}}><h2>Zvířata lite OK</h2></div> }
 
 export default function App() {
   return (
@@ -16,7 +16,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Home/>} />
         <Route path="/admin" element={<AdminLite/>} />
-        <Route path="/zvirata" element={<ZvLite/>} />
+        <Route path="/zvirata" element={<AnimalsPage/>} />
         <Route path="*" element={<div style={{padding:24}}>404 – SPA OK</div>} />
       </Routes>
     </>
