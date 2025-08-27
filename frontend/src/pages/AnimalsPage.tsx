@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import AnimalCard from '../components/AnimalCard'
-import { fetchAnimals } from '../services/api'
+import { fetchAnimal } from '../services/api'
 import { Container, Typography, Grid } from '@mui/material'
 
 interface Animal {
@@ -13,9 +13,10 @@ interface Animal {
 const AnimalsPage: React.FC = () => {
   const [animals, setAnimals] = useState<Animal[]>([])
 
-  useEffect(() => {
-    fetchAnimals().then(setAnimals).catch(console.error)
-  }, [])
+useEffect(() => {
+  if (!id) return;
+  fetchAnimal(id as string).then(setAnimal).catch(setError);
+}, [id]);
 
   return (
     <Container sx={{ py: 4 }}>

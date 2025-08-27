@@ -1,31 +1,38 @@
-import React, { useState } from 'react'
-import { loginModerator, saveToken } from '../auth/authService'
-import { useNavigate } from 'react-router-dom'
-import { Container, TextField, Button, Typography } from '@mui/material'
+import React, { useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 
-const ModeratorLogin: React.FC = () => {
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const navigate = useNavigate()
+export default function ModeratorLogin() {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [err, setErr] = useState<string | null>(null);
+  const navigate = useNavigate();
+  const loc = useLocation() as any;
 
-  const handleLogin = async () => {
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setErr(null);
     try {
-      const token = await loginModerator(email, password)
-      saveToken(token)
-      navigate('/moderator/dashboard')
-    } catch {
-      alert('Chyba přihlášení')
+      // TODO: replace with real API:
+      // const { token } = await loginModerator(email, password)
+      // sessionStorage.setItem('accessToken', token)
+      // temporary fake token so you can test navigation
+      sessionStorage.setItem('accessToken', 'dev-token');
+      const to = loc.state?.from?.pathname || '/admin';
+      navigate(to, { replace: true });
+    } catch (e: any) {
+      setErr(e?.message || 'Přihlášení selhalo');
     }
   }
 
   return (
-    <Container maxWidth="sm" sx={{ py: 6 }}>
-      <Typography variant="h4" gutterBottom>Přihlášení moderátora</Typography>
-      <TextField fullWidth margin="normal" label="Email" value={email} onChange={e => setEmail(e.target.value)} />
-      <TextField fullWidth margin="normal" label="Heslo" type="password" value={password} onChange={e => setPassword(e.target.value)} />
-      <Button variant="contained" fullWidth sx={{ mt: 2 }} onClick={handleLogin}>Přihlásit se</Button>
-    </Container>
-  )
+    <main style={{ padding: 24, maxWidth: 420 }}>
+      <h1>Moderátor přihlášení</h1>
+      <form onSubmit={onSubmit} style={{ display: 'grid', gap: 12, marginTop: 12 }}>
+        <input placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} />
+        <input placeholder="Heslo" type="password" value={password} onChange={e => setPassword(e.target.value)} />
+        <button type="submit">Přihlásit</button>
+        {err && <p style={{ color: 'crimson' }}>{err}</p>}
+      </form>
+    </main>
+  );
 }
-
-export default ModeratorLogin
