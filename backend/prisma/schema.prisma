@@ -1,3 +1,5 @@
+// backend/prisma/schema.prisma
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -5,22 +7,6 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
-}
-
-model Animal {
-  id       String         @id @default(uuid())
-  name     String
-  age      Int?
-  species  String?
-  isActive Boolean        @default(true)
-  galerie  GalerieMedia[]
-}
-
-model GalerieMedia {
-  id       String @id @default(uuid())
-  url      String
-  animalId String
-  animal   Animal @relation(fields: [animalId], references: [id])
 }
 
 enum Role {
@@ -32,9 +18,45 @@ enum Role {
 model User {
   id           String   @id @default(cuid())
   email        String   @unique
-  passwordHash String
+  passwordHash String?
   role         Role     @default(MODERATOR)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 }
 
+model Animal {
+  id               String            @id @default(cuid())
+  name             String?
+  jmeno            String?
+  description      String?
+  popis            String?
+  active           Boolean           @default(true)
+  galerie          GalerieMedia[]
+  adoptionRequests AdoptionRequest[]
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+}
+
+model GalerieMedia {
+  id        String   @id @default(cuid())
+  url       String
+  typ       String   @default("image")
+  animal    Animal?  @relation(fields: [animalId], references: [id], onDelete: Cascade)
+  animalId  String?
+  createdAt DateTime @default(now())
+}
+
+model AdoptionRequest {
+  id        String   @id @default(cuid())
+  animal    Animal   @relation(fields: [animalId], references: [id], onDelete: Cascade)
+  animalId  String
+  name      String
+  email     String
+  phone     String?
+  message   String?
+  status    String   @default("NEW")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([animalId])
+}
