@@ -1,26 +1,29 @@
-import './debug-errors'
+// frontend/src/main.tsx
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import { BrowserRouter } from 'react-router-dom'
-import App from './App'
+import { createBrowserRouter, RouterProvider } from 'react-router-dom'
 
-try {
-  const rootEl = document.getElementById('root')
-  if (!rootEl) throw new Error('#root not found')
-  const root = ReactDOM.createRoot(rootEl)
-  root.render(
-    <React.StrictMode>
-      <BrowserRouter>
-        <App />
-      </BrowserRouter>
-    </React.StrictMode>
-  )
-} catch (e) {
-  // eslint-disable-next-line no-console
-  console.error('[bootstrap error]', e)
-  const el = document.createElement('pre')
-  el.style.color = 'crimson'
-  el.style.padding = '16px'
-  el.textContent = 'Chyba při startu aplikace: ' + (e as any)?.message
-  document.body.appendChild(el)
-}
+import AppLayout from './App'
+import HomePage from './pages/HomePage'
+import AnimalsPage from './pages/AnimalsPage'
+import ModeratorLogin from './pages/ModeratorLogin'
+import Admin from './pages/Admin'
+
+const router = createBrowserRouter([
+  {
+    path: '/',
+    element: <AppLayout />,
+    children: [
+      { index: true, element: <HomePage /> },
+      { path: 'zvirata', element: <AnimalsPage /> },
+      { path: 'moderator/login', element: <ModeratorLogin /> },
+      { path: 'admin', element: <Admin /> },
+    ],
+  },
+])
+
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <RouterProvider router={router} />
+  </React.StrictMode>
+)

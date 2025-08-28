@@ -1,32 +1,23 @@
-import React from 'react';
-import { Routes, Route, Link } from 'react-router-dom';
-import AnimalsPage from './pages/AnimalsPage';
-import Admin from './pages/Admin';
-import ModeratorLogin from './pages/ModeratorLogin';
-import ProtectedRoute from './components/ProtectedRoute';
+// frontend/src/App.tsx
+import React from 'react'
+import { Outlet, Link } from 'react-router-dom'
+import { AppBar, Toolbar, Button, Container, Stack } from '@mui/material'
 
-export default function App() {
+export default function AppLayout() {
   return (
     <>
-      <nav style={{ padding:12, borderBottom:'1px solid #eee', display:'flex', gap:12 }}>
-        <Link to="/">Domů</Link>
-        <Link to="/zvirata">Zvířata</Link>
-        <Link to="/admin">Admin</Link>
-      </nav>
-      <Routes>
-        <Route path="/" element={<AnimalsPage/>} />
-        <Route path="/zvirata" element={<AnimalsPage/>} />
-        <Route path="/moderator/login" element={<ModeratorLogin/>} />
-        <Route
-          path="/admin"
-          element={
-            <ProtectedRoute>
-              <Admin/>
-            </ProtectedRoute>
-          }
-        />
-        <Route path="*" element={<div style={{ padding: 24 }}>Stránka nenalezena</div>} />
-      </Routes>
+      <AppBar position="sticky" color="default" elevation={0}>
+        <Toolbar>
+          <Container maxWidth="lg" sx={{ display: 'flex', justifyContent: 'space-between' }}>
+            <Stack direction="row" spacing={1}>
+              <Button component={Link} to="/" color="primary">Domů</Button>
+              <Button component={Link} to="/zvirata" color="primary">Zvířata</Button>
+              <Button component={Link} to="/admin" color="primary">Admin</Button>
+            </Stack>
+          </Container>
+        </Toolbar>
+      </AppBar>
+      <Outlet />
     </>
-  );
+  )
 }
