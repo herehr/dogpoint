@@ -32,7 +32,13 @@ export default function HomePage() {
                 Přidejte se – adoptujte, dočasně pečujte nebo nás podpořte.
               </Typography>
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-                <Button component={RouterLink} to="/zvirata" size="large" variant="contained" startIcon={<PetsIcon />}>
+                <Button
+                  component={RouterLink}
+                  to="/zvirata"
+                  size="large"
+                  variant="contained"
+                  startIcon={<PetsIcon fontSize="large" />}  // ✅ fixed import + explicit size
+                >
                   Najít psa k adopci
                 </Button>
                 <Button href="#jak-to-funguje" size="large" variant="outlined" endIcon={<ArrowForwardIcon />}>
@@ -60,7 +66,8 @@ export default function HomePage() {
           <Grid item xs={12} md={4}>
             <Card variant="outlined"><CardContent>
               <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 1 }}>
-                <PetsIcon /><Typography variant="h6" sx={{ fontWeight: 700 }}>Adopce</Typography>
+                <PetsIcon />  {/* small icon is fine here */}
+                <Typography variant="h6" sx={{ fontWeight: 700 }}>Adopce</Typography>
               </Stack>
               <Typography color="text.secondary" sx={{ mb: 2 }}>Vyberte si psa, který vám padne do oka.</Typography>
               <Button component={RouterLink} to="/zvirata" size="small" endIcon={<ArrowForwardIcon />}>Prohlédnout psy</Button>
