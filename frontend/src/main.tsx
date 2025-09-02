@@ -1,29 +1,13 @@
 // frontend/src/main.tsx
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import { createBrowserRouter, RouterProvider } from 'react-router-dom'
+import { BrowserRouter } from 'react-router-dom'
+import App from './App'
 
-import AppLayout from './App'
-import HomePage from './pages/HomePage'
-import AnimalsPage from './pages/AnimalsPage'
-import ModeratorLogin from './pages/ModeratorLogin'
-import Admin from './pages/Admin'
-
-const router = createBrowserRouter([
-  {
-    path: '/',
-    element: <AppLayout />,
-    children: [
-      { index: true, element: <HomePage /> },
-      { path: 'zvirata', element: <AnimalsPage /> },
-      { path: 'moderator/login', element: <ModeratorLogin /> },
-      { path: 'admin', element: <Admin /> },
-    ],
-  },
-])
-
-ReactDOM.createRoot(document.getElementById('root')!).render(
+ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
-    <RouterProvider router={router} />
+    <BrowserRouter>
+      <App />
+    </BrowserRouter>
   </React.StrictMode>
 )

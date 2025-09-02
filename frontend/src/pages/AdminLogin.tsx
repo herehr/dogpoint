@@ -9,7 +9,6 @@ export default function AdminLogin() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     console.log('Admin login attempt:', { email, password })
-    // TODO: integrate with backend /api/auth/admin-login
   }
 
   return (
@@ -20,25 +19,9 @@ export default function AdminLogin() {
         </Typography>
         <Box component="form" onSubmit={handleSubmit}>
           <Stack spacing={2}>
-            <TextField
-              label="E-mail"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              fullWidth
-              required
-            />
-            <TextField
-              label="Heslo"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              fullWidth
-              required
-            />
-            <Button type="submit" variant="contained" size="large">
-              Přihlásit se
-            </Button>
+            <TextField label="E-mail" type="email" value={email} onChange={(e) => setEmail(e.target.value)} fullWidth required />
+            <TextField label="Heslo" type="password" value={password} onChange={(e) => setPassword(e.target.value)} fullWidth required />
+            <Button type="submit" variant="contained" size="large">Přihlásit se</Button>
           </Stack>
         </Box>
       </Paper>
