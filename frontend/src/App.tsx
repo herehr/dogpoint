@@ -3,11 +3,14 @@ import React from 'react'
 import { Routes, Route, Link, Outlet, Navigate } from 'react-router-dom'
 import { AppBar, Toolbar, Button, Container, Stack } from '@mui/material'
 
-// Pages
 import HomePage from './pages/HomePage'
 import AnimalsPage from './pages/AnimalsPage'
 import AdminLogin from './pages/AdminLogin'
+import AdminDashboard from './pages/AdminDashboard'
 import ModeratorLogin from './pages/ModeratorLogin'
+import ModeratorDashboard from './pages/ModeratorDashboard'
+import RequireModerator from './routes/RequireModerator'
+import RequireAdmin from './routes/RequireAdmin'
 
 function AppLayout() {
   return (
@@ -45,9 +48,25 @@ export default function App() {
       <Route element={<AppLayout />}>
         <Route path="/" element={<HomePage />} />
         <Route path="/zvirata" element={<AnimalsPage />} />
+
+        {/* Admin */}
         <Route path="/admin/login" element={<AdminLogin />} />
+        <Route path="/admin" element={
+          <RequireAdmin>
+            <AdminDashboard />
+          </RequireAdmin>
+        } />
         <Route path="/admin-login" element={<Navigate to="/admin/login" replace />} />
+
+        {/* Moderator */}
         <Route path="/moderator/login" element={<ModeratorLogin />} />
+        <Route path="/moderator" element={
+          <RequireModerator>
+            <ModeratorDashboard />
+          </RequireModerator>
+        } />
+
+        {/* Fallback */}
         <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>

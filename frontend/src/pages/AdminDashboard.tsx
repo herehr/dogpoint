@@ -1,13 +1,18 @@
+// frontend/src/pages/AdminDashboard.tsx
 import React from 'react'
-import { Container, Typography } from '@mui/material'
+import { Container, Typography, Paper } from '@mui/material'
 
-const AdminDashboard: React.FC = () => {
+export default function AdminDashboard() {
   return (
-    <Container sx={{ py: 4 }}>
-      <Typography variant="h4">Admin panel</Typography>
-      <p>Správa moderátorů, uživatelů a obsahu celé aplikace.</p>
+    <Container maxWidth="lg" sx={{ py: 6 }}>
+      <Typography variant="h5" sx={{ fontWeight: 900, mb: 2 }}>
+        Admin panel
+      </Typography>
+      <Paper variant="outlined" sx={{ p: 3, borderRadius: 3 }}>
+        <Typography color="text.secondary">
+          Úspěšné přihlášení. Sem přijde správa dat (zvířata, galerie, adopce, uživatelé…)
+        </Typography>
+      </Paper>
     </Container>
   )
 }
-
-export default AdminDashboard
