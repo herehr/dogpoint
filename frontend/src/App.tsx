@@ -11,7 +11,7 @@ import AdminDashboard from './pages/AdminDashboard'
 import AdminModerators from './pages/AdminModerators'
 import ModeratorLogin from './pages/ModeratorLogin'
 import ModeratorDashboard from './pages/ModeratorDashboard'
-import AnimalsManager from './pages/AnimalsManager'
+import AnimalsManager from './pages/AnimalsManager'   // ✅ IMPORT
 
 // Guards
 import RequireModerator from './routes/RequireModerator'
@@ -74,7 +74,7 @@ export default function App() {
           }
         />
         <Route
-          path="/admin/animals"
+          path="/admin/animals"                     // ✅ ROUTE
           element={
             <RequireAdmin>
               <AnimalsManager />
@@ -94,7 +94,7 @@ export default function App() {
           }
         />
         <Route
-          path="/moderator/animals"
+          path="/moderator/animals"                 // ✅ (optional for moderators)
           element={
             <RequireModerator>
               <AnimalsManager />

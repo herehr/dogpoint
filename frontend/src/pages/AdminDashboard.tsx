@@ -21,7 +21,31 @@ export default function AdminDashboard() {
       </Paper>
 
       <Grid container spacing={2}>
-        {/* Moderátoři — the thing you need now */}
+        {/* Zvířata — now enabled */}
+        <Grid item xs={12} sm={6} md={4}>
+          <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, height: '100%' }}>
+            <Stack spacing={1.5}>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <PetsIcon />
+                <Typography variant="h6" sx={{ fontWeight: 800 }}>Zvířata</Typography>
+              </Stack>
+              <Typography color="text.secondary">
+                Přehled a správa záznamů zvířat.
+              </Typography>
+              <Button
+                component={RouterLink}
+                to="/admin/animals"   // ✅ LINK
+                variant="contained"
+                size="small"
+                sx={{ alignSelf: 'flex-start' }}
+              >
+                Otevřít
+              </Button>
+            </Stack>
+          </Paper>
+        </Grid>
+
+        {/* Moderátoři */}
         <Grid item xs={12} sm={6} md={4}>
           <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, height: '100%' }}>
             <Stack spacing={1.5}>
@@ -45,24 +69,7 @@ export default function AdminDashboard() {
           </Paper>
         </Grid>
 
-        {/* Placeholder tiles you can wire later */}
-        <Grid item xs={12} sm={6} md={4}>
-          <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, height: '100%' }}>
-            <Stack spacing={1.5}>
-              <Stack direction="row" spacing={1} alignItems="center">
-                <PetsIcon />
-                <Typography variant="h6" sx={{ fontWeight: 800 }}>Zvířata</Typography>
-              </Stack>
-              <Typography color="text.secondary">
-                Přehled a správa záznamů zvířat.
-              </Typography>
-              <Button disabled size="small" variant="outlined" sx={{ alignSelf: 'flex-start' }}>
-                Brzy
-              </Button>
-            </Stack>
-          </Paper>
-        </Grid>
-
+        {/* Placeholders */}
         <Grid item xs={12} sm={6} md={4}>
           <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, height: '100%' }}>
             <Stack spacing={1.5}>
@@ -70,9 +77,7 @@ export default function AdminDashboard() {
                 <PhotoLibraryIcon />
                 <Typography variant="h6" sx={{ fontWeight: 800 }}>Galerie</Typography>
               </Stack>
-              <Typography color="text.secondary">
-                Soubory a obrázky ke zvířatům.
-              </Typography>
+              <Typography color="text.secondary">Soubory a obrázky ke zvířatům.</Typography>
               <Button disabled size="small" variant="outlined" sx={{ alignSelf: 'flex-start' }}>
                 Brzy
               </Button>
@@ -87,9 +92,7 @@ export default function AdminDashboard() {
                 <DescriptionIcon />
                 <Typography variant="h6" sx={{ fontWeight: 800 }}>Adopce</Typography>
               </Stack>
-              <Typography color="text.secondary">
-                Správa žádostí o adopci.
-              </Typography>
+              <Typography color="text.secondary">Správa žádostí o adopci.</Typography>
               <Button disabled size="small" variant="outlined" sx={{ alignSelf: 'flex-start' }}>
                 Brzy
               </Button>
