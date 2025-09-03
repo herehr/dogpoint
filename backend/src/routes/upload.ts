@@ -1,20 +1,19 @@
 // backend/src/routes/upload.ts
 import { Router, Request, Response } from 'express'
-import multer from 'multer'
+import multer, { FileFilterCallback } from 'multer'
 import { S3Client, PutObjectCommand, HeadBucketCommand } from '@aws-sdk/client-s3'
 import { lookup as mimeLookup } from 'mime-types'
 import crypto from 'crypto'
 
-// ---- Env (supports both DO_SPACE_* and SPACES_* names) ----
+// ---- Env (supports DO_SPACE_* or SPACES_* names) ----
 const ENDPOINT_HOST =
   (process.env.DO_SPACE_ENDPOINT || process.env.SPACES_ENDPOINT || 'fra1.digitaloceanspaces.com')
     .replace(/^https?:\/\//, '')
-    .replace(/\/+$/, '') // e.g. "fra1.digitaloceanspaces.com"
+    .replace(/\/+$/, '')
 const SIGN_REGION = (process.env.DO_SPACE_REGION || process.env.SPACES_REGION || 'us-east-1') // DO recommends us-east-1 signing
 const BUCKET = process.env.DO_SPACE_BUCKET || process.env.SPACES_BUCKET || ''
 const ACCESS_KEY = process.env.DO_SPACE_KEY || process.env.SPACES_KEY || ''
 const SECRET_KEY = process.env.DO_SPACE_SECRET || process.env.SPACES_SECRET || ''
-// Optional CDN/public base, e.g. "https://my-bucket.fra1.cdn.digitaloceanspaces.com"
 const PUBLIC_BASE = (process.env.DO_SPACE_PUBLIC_BASE || process.env.SPACES_PUBLIC_BASE || '').replace(/\/+$/, '')
 
 const router = Router()
@@ -23,7 +22,7 @@ const router = Router()
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 25 * 1024 * 1024 }, // 25 MB
-  fileFilter: (_req, file, cb) => {
+  fileFilter: (_req: Request, file: Express.Multer.File, cb: FileFilterCallback) => {
     if (/^(image|video)\//.test(file.mimetype)) return cb(null, true)
     cb(new Error('Unsupported file type: ' + file.mimetype))
   },
@@ -42,7 +41,7 @@ function publicUrl(bucket: string, key: string): string {
   return `https://${bucket}.${ENDPOINT_HOST}/${key}`   // virtual-hosted style
 }
 
-// ---- Diagnostics endpoint: HEAD bucket to verify creds/permissions ----
+// ---- Diagnostics endpoint: verify bucket/creds quickly ----
 router.get('/selftest', async (_req: Request, res: Response) => {
   try {
     if (!BUCKET) return res.status(500).json({ ok: false, error: 'BUCKET_MISSING' })
@@ -55,7 +54,6 @@ router.get('/selftest', async (_req: Request, res: Response) => {
       publicBase: PUBLIC_BASE || `https://${BUCKET}.${ENDPOINT_HOST}`,
     })
   } catch (e: any) {
-    // expose S3 error info to ease debugging
     return res.status(500).json({
       ok: false,
       error: e?.name || 'HeadBucketError',
@@ -72,7 +70,10 @@ router.post('/', upload.single('file'), async (req: Request, res: Response): Pro
   try {
     if (!req.file) { res.status(400).json({ error: 'FILE_MISSING' }); return }
     if (!BUCKET || !ACCESS_KEY || !SECRET_KEY) {
-      res.status(500).json({ error: 'SPACES_NOT_CONFIGURED', detail: { BUCKET: !!BUCKET, ACCESS_KEY: !!ACCESS_KEY, SECRET_KEY: !!SECRET_KEY } })
+      res.status(500).json({
+        error: 'SPACES_NOT_CONFIGURED',
+        detail: { BUCKET: !!BUCKET, ACCESS_KEY: !!ACCESS_KEY, SECRET_KEY: !!SECRET_KEY }
+      })
       return
     }
 
@@ -93,12 +94,9 @@ router.post('/', upload.single('file'), async (req: Request, res: Response): Pro
 
     res.json({ url: publicUrl(BUCKET, key) })
   } catch (e: any) {
-    // log more context server-side
+    // eslint-disable-next-line no-console
     console.error('[upload] error:', {
-      name: e?.name,
-      message: e?.message,
-      code: e?.code,
-      $metadata: e?.$metadata,
+      name: e?.name, message: e?.message, code: e?.code, $metadata: e?.$metadata
     })
     res.status(500).json({
       error: 'UPLOAD_FAILED',
