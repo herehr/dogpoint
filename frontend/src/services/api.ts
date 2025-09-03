@@ -96,13 +96,23 @@ export async function loginModerator(email: string, password: string) {
    Animals
    ========================= */
 
+function normalizeAnimal(a: any): Animal {
+  // if backend uses `gallery`, mirror it to `galerie`
+  const g = Array.isArray(a?.galerie) ? a.galerie
+        : Array.isArray(a?.gallery) ? a.gallery
+        : []
+  return { ...a, galerie: g }
+}
+
 export async function fetchAnimals(): Promise<Animal[]> {
-  return req<Animal[]>('/api/animals')
+  const list = await req<any[]>('/api/animals')
+  return list.map(normalizeAnimal)
 }
 
 export async function fetchAnimal(id: string): Promise<Animal> {
   if (!id) throw new Error('fetchAnimal: id is required')
-  return req<Animal>('/api/animals/' + encodeURIComponent(id))
+  const a = await req<any>('/api/animals/' + encodeURIComponent(id))
+  return normalizeAnimal(a)
 }
 
 export async function createAnimal(payload: Partial<Animal>): Promise<Animal> {

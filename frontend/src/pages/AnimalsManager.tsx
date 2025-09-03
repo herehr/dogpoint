@@ -86,12 +86,16 @@ export default function AnimalsManager() {
     e.preventDefault()
     setErr(null); setOk(null); setLoading(true)
     try {
-      const payload = {
+      const cleanGallery = (form.galerie || []).filter(x => (x.url || '').trim() !== '')
+       const payload: any = {
         jmeno: form.jmeno?.trim(),
         popis: form.popis?.trim(),
         active: !!form.active,
-        galerie: (form.galerie || []).filter(x => (x.url || '').trim() !== ''),
-      }
+        // Czech key used by your UI:
+       galerie: cleanGallery,
+        // English key for compatibility with some backends:
+    gallery: cleanGallery,
+}
       if (isEdit && form.id) {
         await updateAnimal(form.id, payload)
         setOk('Záznam upraven')
@@ -118,9 +122,17 @@ export default function AnimalsManager() {
     try {
       // batch upload with progress updates
       const urls = await uploadMediaMany(arr, (index, total) => {
-        setUploadNote(`Nahrávám ${index + 1} / ${total}…`)
-      })
-      setForm(f => ({ ...f, galerie: [...(f.galerie || []), ...urls.map(url => ({ url }))] }))
+  setUploadNote(`Nahrávám ${index + 1} / ${total}…`)
+})
+// add cache-buster to preview; save without it later
+const now = Date.now()
+setForm(f => ({
+  ...f,
+  galerie: [
+    ...(f.galerie || []),
+    ...urls.map(raw => ({ url: `${raw}${raw.includes('?') ? '&' : '?'}v=${now}` }))
+  ]
+}))
       setOk('Soubor(y) nahrány')
     } catch (e: any) {
       setErr(e?.message || 'Nahrání selhalo')
@@ -317,27 +329,35 @@ export default function AnimalsManager() {
 
                 {/* Existing URLs list (editable) */}
                 <Stack spacing={1}>
-                  {(form.galerie || []).map((g, i) => (
-                    <Stack key={i} direction="row" spacing={1} alignItems="center">
-                      <TextField
-                        size="small"
-                        value={g.url}
-                        onChange={(e) => {
-                          const v = e.target.value
-                          setForm(f => {
-                            const copy = [...(f.galerie || [])]
-                            copy[i] = { url: v }
-                            return { ...f, galerie: copy }
-                          })
-                        }}
-                        fullWidth
-                      />
-                      <Button color="error" onClick={() => removeGalleryIndex(i)} size="small">Odebrat</Button>
-                    </Stack>
-                  ))}
-                </Stack>
-              </Stack>
-            </Stack>
+  {(form.galerie || []).map((g, i) => (
+    <Stack key={i} direction="row" spacing={1} alignItems="center">
+      <img
+        src={(g.url || '').trim() ? g.url : '/no-image.jpg'}
+        alt="náhled"
+        style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 8, border: '1px solid #eee' }}
+        onError={(ev) => {
+          // mark broken preview
+          (ev.currentTarget as HTMLImageElement).style.opacity = '0.3'
+        }}
+      />
+      <TextField
+        size="small"
+        value={g.url}
+        onChange={(e) => {
+          const v = e.target.value
+          setForm(f => {
+            const copy = [...(f.galerie || [])]
+            copy[i] = { url: v }
+            return { ...f, galerie: copy }
+          })
+        }}
+        fullWidth
+      />
+      <Button component="a" href={g.url} target="_blank" rel="noreferrer" size="small">Otevřít</Button>
+      <Button color="error" onClick={() => removeGalleryIndex(i)} size="small">Odebrat</Button>
+    </Stack>
+  ))}
+</Stack>
           </DialogContent>
           <DialogActions>
             <Button onClick={() => setOpen(false)}>Zrušit</Button>
