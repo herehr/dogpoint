@@ -1,6 +1,6 @@
 // frontend/src/services/api.ts
-// Centralized API helpers — NO template literals in URLs.
-// Works with VITE_API_BASE_URL (set in DO Frontend → Environment Variables).
+// Centralized API helpers — no template literals in URLs.
+// Uses VITE_API_BASE_URL (set in DO Frontend → Environment Variables).
 
 /* =========================
    Base & helpers
@@ -45,10 +45,9 @@ async function req<T = any>(path: string, init?: RequestInit): Promise<T> {
     try { text = await res.text() } catch {}
     throw new Error(String(res.status) + ' ' + res.statusText + ' for ' + path + ' → ' + text)
   }
-  // Some endpoints (e.g., DELETE) may respond with empty body
   const ct = res.headers.get('content-type') || ''
   if (!ct.includes('application/json')) {
-    // @ts-expect-error: allow returning void/unknown
+    // @ts-expect-error allow void
     return undefined
   }
   return res.json() as Promise<T>
@@ -86,16 +85,15 @@ async function login(email: string, password: string): Promise<LoginResponse> {
   return data
 }
 
-// Aliases for clarity in pages:
 export async function loginAdmin(email: string, password: string) {
-  return login(email, password) // backend may return role; UI can check if needed
+  return login(email, password)
 }
 export async function loginModerator(email: string, password: string) {
   return login(email, password)
 }
 
 /* =========================
-   Animals (public + protected)
+   Animals
    ========================= */
 
 export async function fetchAnimals(): Promise<Animal[]> {
@@ -140,7 +138,7 @@ export async function uploadMedia(file: File): Promise<{ url: string }> {
 
   const res = await fetch(BASE_URL + '/api/upload', {
     method: 'POST',
-    headers: headers, // no Content-Type; browser sets multipart boundary
+    headers: headers, // do not set Content-Type; browser sets boundary
     body: form,
   })
   if (!res.ok) throw new Error('Upload failed: ' + res.status)
@@ -148,14 +146,9 @@ export async function uploadMedia(file: File): Promise<{ url: string }> {
 }
 
 /* =========================
-   Admin utilities (example)
+   Admin → Moderators
    ========================= */
 
-export async function listModerators(): Promise<Array<{ id: string; email: string; role: string; active?: boolean }>> {
-  return req<Array<{ id: string; email: string; role: string; active?: boolean }>>('/api/admin/moderators')
-}
-
-// === Moderators (admin) ===
 export async function listModerators() {
   return req<Array<{ id: string; email: string; role: string; active?: boolean }>>('/api/admin/moderators')
 }
@@ -181,7 +174,7 @@ export async function resetModeratorPassword(id: string, password: string) {
 }
 
 /* =========================
-   Session helpers (optional)
+   Session helpers
    ========================= */
 
 export function isAuthenticated(): boolean {
