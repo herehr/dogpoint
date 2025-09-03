@@ -11,6 +11,38 @@ import ModeratorLogin from './pages/ModeratorLogin'
 import ModeratorDashboard from './pages/ModeratorDashboard'
 import RequireModerator from './routes/RequireModerator'
 import RequireAdmin from './routes/RequireAdmin'
+import AdminModerators from './pages/AdminModerators'
+
+export default function App() {
+  return (
+    <Routes>
+      <Route element={<AppLayout />}>
+        {/* ...existing routes... */}
+
+        {/* Admin */}
+        <Route path="/admin/login" element={<AdminLogin />} />
+        <Route
+          path="/admin"
+          element={
+            <RequireAdmin>
+              <AdminDashboard />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/moderators"
+          element={
+            <RequireAdmin>
+              <AdminModerators />
+            </RequireAdmin>
+          }
+        />
+
+        {/* ...rest unchanged... */}
+      </Route>
+    </Routes>
+  )
+}
 
 function AppLayout() {
   return (

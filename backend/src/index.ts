@@ -1,11 +1,13 @@
 import express, { Request, Response } from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
+import adminModeratorsRoutes from './routes/adminModerators';
 import animalRoutes from './routes/animals';
 import authRoutes from './routes/auth';
 import uploadRoutes from './routes/upload';
 import adoptionRoutes from './routes/adoption';
 import { prisma } from './prisma';
+
 
 dotenv.config();
 
@@ -20,6 +22,7 @@ app.use(cors({ origin: allowedOrigins, credentials: true }));
 app.use(express.json());
 
 // API routes
+app.use('/api/admin', adminModeratorsRoutes)
 app.use('/api/animals', animalRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/upload', uploadRoutes);

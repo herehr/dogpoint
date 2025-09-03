@@ -155,6 +155,31 @@ export async function listModerators(): Promise<Array<{ id: string; email: strin
   return req<Array<{ id: string; email: string; role: string; active?: boolean }>>('/api/admin/moderators')
 }
 
+// === Moderators (admin) ===
+export async function listModerators() {
+  return req<Array<{ id: string; email: string; role: string; active?: boolean }>>('/api/admin/moderators')
+}
+
+export async function createModerator(email: string, password: string) {
+  return req<{ id: string; email: string; role: string }>('/api/admin/moderators', {
+    method: 'POST',
+    body: JSON.stringify({ email, password })
+  })
+}
+
+export async function deleteModerator(id: string) {
+  return req<{ ok: true }>('/api/admin/moderators/' + encodeURIComponent(id), {
+    method: 'DELETE'
+  })
+}
+
+export async function resetModeratorPassword(id: string, password: string) {
+  return req<{ ok: true }>('/api/admin/moderators/' + encodeURIComponent(id) + '/password', {
+    method: 'PATCH',
+    body: JSON.stringify({ password })
+  })
+}
+
 /* =========================
    Session helpers (optional)
    ========================= */
