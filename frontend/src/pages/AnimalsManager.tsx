@@ -1,18 +1,20 @@
 // frontend/src/pages/AnimalsManager.tsx
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Container, Typography, Paper, Stack, Button, TextField, Checkbox, FormControlLabel,
   Table, TableHead, TableRow, TableCell, TableBody, IconButton, Dialog, DialogTitle,
-  DialogContent, DialogActions, Alert
+  DialogContent, DialogActions, Alert, Box, LinearProgress
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
 import UploadIcon from '@mui/icons-material/UploadFile'
+import PhotoCameraIcon from '@mui/icons-material/PhotoCamera'
 
 import {
   fetchAnimals, type Animal,
-  createAnimal, updateAnimal, deleteAnimal, uploadMedia
+  createAnimal, updateAnimal, deleteAnimal,
+  uploadMedia, uploadMediaMany
 } from '../services/api'
 
 type FormAnimal = {
@@ -33,6 +35,12 @@ export default function AnimalsManager() {
   const [open, setOpen] = useState(false)
   const [form, setForm] = useState<FormAnimal>({ jmeno: '', popis: '', active: true, galerie: [] })
   const isEdit = useMemo(() => !!form.id, [form.id])
+
+  // Upload state
+  const [uploading, setUploading] = useState(false)
+  const [uploadNote, setUploadNote] = useState<string>('') // “Nahrávám 2/3…”
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const cameraInputRef = useRef<HTMLInputElement>(null)
 
   async function refresh() {
     setErr(null)
@@ -82,7 +90,7 @@ export default function AnimalsManager() {
         jmeno: form.jmeno?.trim(),
         popis: form.popis?.trim(),
         active: !!form.active,
-        galerie: (form.galerie || []).filter(x => x.url.trim() !== ''),
+        galerie: (form.galerie || []).filter(x => (x.url || '').trim() !== ''),
       }
       if (isEdit && form.id) {
         await updateAnimal(form.id, payload)
@@ -100,17 +108,48 @@ export default function AnimalsManager() {
     }
   }
 
-  async function onUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
+  /* ---------- Upload helpers ---------- */
+
+  async function handleFiles(files: FileList | File[]) {
+    const arr = Array.from(files).filter(f => f && f.size > 0)
+    if (arr.length === 0) return
+    setUploading(true)
+    setErr(null)
     try {
-      const { url } = await uploadMedia(file)
-      setForm(f => ({ ...f, galerie: [...(f.galerie || []), { url }] }))
+      // batch upload with progress updates
+      const urls = await uploadMediaMany(arr, (index, total) => {
+        setUploadNote(`Nahrávám ${index + 1} / ${total}…`)
+      })
+      setForm(f => ({ ...f, galerie: [...(f.galerie || []), ...urls.map(url => ({ url }))] }))
+      setOk('Soubor(y) nahrány')
     } catch (e: any) {
       setErr(e?.message || 'Nahrání selhalo')
     } finally {
-      e.target.value = ''
+      setUploading(false)
+      setUploadNote('')
     }
+  }
+
+  function onPickFiles(e: React.ChangeEvent<HTMLInputElement>) {
+    if (e.target.files) handleFiles(e.target.files)
+    e.target.value = ''
+  }
+
+  function onPickCamera(e: React.ChangeEvent<HTMLInputElement>) {
+    if (e.target.files) handleFiles(e.target.files)
+    e.target.value = ''
+  }
+
+  function onDrop(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault()
+    e.stopPropagation()
+    const files = e.dataTransfer?.files
+    if (files && files.length) handleFiles(files)
+  }
+
+  function onDragOver(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault()
+    e.stopPropagation()
   }
 
   function removeGalleryIndex(i: number) {
@@ -127,7 +166,7 @@ export default function AnimalsManager() {
       {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
       {ok && <Alert severity="success" sx={{ mb: 2 }}>{ok}</Alert>}
 
-      <Paper variant="outlined" sx={{ p: 0, borderRadius: 3 }}>
+      <Paper variant="outlined" sx={{ p: 0, borderRadius: 3, mb: 3 }}>
         <Table size="small">
           <TableHead>
             <TableRow>
@@ -194,16 +233,47 @@ export default function AnimalsManager() {
                 label="Aktivní (zobrazit na webu)"
               />
 
-              {/* Galerie URLs */}
+              {/* Galerie uploader */}
               <Stack spacing={1}>
                 <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>Galerie</Typography>
+
+                {/* Controls */}
                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center">
-                  <Button component="label" startIcon={<UploadIcon />} variant="outlined">
-                    Nahrát soubor
-                    <input type="file" hidden accept="image/*,video/*" onChange={onUpload} />
+                  <Button
+                    onClick={() => fileInputRef.current?.click()}
+                    startIcon={<UploadIcon />}
+                    variant="outlined"
+                  >
+                    Vybrat soubory
                   </Button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    hidden
+                    multiple
+                    accept="image/*,video/*"
+                    onChange={onPickFiles}
+                  />
+
+                  <Button
+                    onClick={() => cameraInputRef.current?.click()}
+                    startIcon={<PhotoCameraIcon />}
+                    variant="outlined"
+                  >
+                    Vyfotit (telefon)
+                  </Button>
+                  <input
+                    ref={cameraInputRef}
+                    type="file"
+                    hidden
+                    // Most mobile browsers will open the camera with capture attr:
+                    accept="image/*"
+                    capture="environment"
+                    onChange={onPickCamera}
+                  />
+
                   <TextField
-                    label="Přidat URL obrázku (vložením)"
+                    label="Přidat URL obrázku (Enter)"
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
                         e.preventDefault()
@@ -218,6 +288,34 @@ export default function AnimalsManager() {
                     fullWidth
                   />
                 </Stack>
+
+                {/* Drag & Drop area */}
+                <Box
+                  onDrop={onDrop}
+                  onDragOver={onDragOver}
+                  sx={{
+                    mt: 1,
+                    p: 2,
+                    border: '2px dashed',
+                    borderColor: 'divider',
+                    borderRadius: 2,
+                    textAlign: 'center',
+                    color: 'text.secondary',
+                    cursor: 'copy',
+                    userSelect: 'none'
+                  }}
+                >
+                  Přetáhněte sem fotografie nebo videa
+                </Box>
+
+                {uploading && (
+                  <Stack spacing={1} sx={{ mt: 1 }}>
+                    <LinearProgress />
+                    <Typography variant="caption" color="text.secondary">{uploadNote}</Typography>
+                  </Stack>
+                )}
+
+                {/* Existing URLs list (editable) */}
                 <Stack spacing={1}>
                   {(form.galerie || []).map((g, i) => (
                     <Stack key={i} direction="row" spacing={1} alignItems="center">
@@ -243,7 +341,7 @@ export default function AnimalsManager() {
           </DialogContent>
           <DialogActions>
             <Button onClick={() => setOpen(false)}>Zrušit</Button>
-            <Button type="submit" variant="contained" disabled={loading}>
+            <Button type="submit" variant="contained" disabled={loading || uploading}>
               {isEdit ? 'Uložit změny' : 'Vytvořit'}
             </Button>
           </DialogActions>

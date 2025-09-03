@@ -145,6 +145,20 @@ export async function uploadMedia(file: File): Promise<{ url: string }> {
   return res.json()
 }
 
+// Batch upload with simple progress callback
+export async function uploadMediaMany(
+  files: File[],
+  onProgress?: (index: number, total: number) => void
+): Promise<string[]> {
+  const urls: string[] = []
+  for (let i = 0; i < files.length; i++) {
+    onProgress?.(i, files.length)
+    const { url } = await uploadMedia(files[i])
+    urls.push(url)
+  }
+  return urls
+}
+
 /* =========================
    Admin → Moderators
    ========================= */
