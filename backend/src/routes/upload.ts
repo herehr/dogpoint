@@ -1,6 +1,6 @@
 // backend/src/routes/upload.ts
 import { Router, Request, Response } from 'express'
-import multer, { FileFilterCallback } from 'multer'
+import multer from 'multer'
 import { S3Client, PutObjectCommand, HeadBucketCommand } from '@aws-sdk/client-s3'
 import { lookup as mimeLookup } from 'mime-types'
 import crypto from 'crypto'
@@ -19,26 +19,27 @@ const PUBLIC_BASE = (process.env.DO_SPACE_PUBLIC_BASE || process.env.SPACES_PUBL
 const router = Router()
 
 // ---- Multer (memory) ----
+// NOTE: no FileFilterCallback import — we type inline to avoid TS compatibility hiccups.
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 25 * 1024 * 1024 }, // 25 MB
-  fileFilter: (_req: Request, file: Express.Multer.File, cb: FileFilterCallback) => {
+  fileFilter: (_req: Request, file: Express.Multer.File, cb: (error: Error | null, acceptFile: boolean) => void) => {
     if (/^(image|video)\//.test(file.mimetype)) return cb(null, true)
-    cb(new Error('Unsupported file type: ' + file.mimetype))
+    cb(new Error('Unsupported file type: ' + file.mimetype), false)
   },
 })
 
 // ---- S3 client for DO Spaces ----
 const s3 = new S3Client({
-  region: SIGN_REGION,                                 // keep 'us-east-1' for signing
-  endpoint: `https://${ENDPOINT_HOST}`,                // e.g. https://fra1.digitaloceanspaces.com
+  region: SIGN_REGION,
+  endpoint: `https://${ENDPOINT_HOST}`, // e.g. https://fra1.digitaloceanspaces.com
   credentials: { accessKeyId: ACCESS_KEY, secretAccessKey: SECRET_KEY },
 })
 
 // helper: build public URL
 function publicUrl(bucket: string, key: string): string {
   if (PUBLIC_BASE) return `${PUBLIC_BASE}/${key}`
-  return `https://${bucket}.${ENDPOINT_HOST}/${key}`   // virtual-hosted style
+  return `https://${bucket}.${ENDPOINT_HOST}/${key}` // virtual-hosted
 }
 
 // ---- Diagnostics endpoint: verify bucket/creds quickly ----
