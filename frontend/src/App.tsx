@@ -3,46 +3,18 @@ import React from 'react'
 import { Routes, Route, Link, Outlet, Navigate } from 'react-router-dom'
 import { AppBar, Toolbar, Button, Container, Stack } from '@mui/material'
 
+// Pages
 import HomePage from './pages/HomePage'
 import AnimalsPage from './pages/AnimalsPage'
 import AdminLogin from './pages/AdminLogin'
 import AdminDashboard from './pages/AdminDashboard'
+import AdminModerators from './pages/AdminModerators'
 import ModeratorLogin from './pages/ModeratorLogin'
 import ModeratorDashboard from './pages/ModeratorDashboard'
+
+// Guards
 import RequireModerator from './routes/RequireModerator'
 import RequireAdmin from './routes/RequireAdmin'
-import AdminModerators from './pages/AdminModerators'
-
-export default function App() {
-  return (
-    <Routes>
-      <Route element={<AppLayout />}>
-        {/* ...existing routes... */}
-
-        {/* Admin */}
-        <Route path="/admin/login" element={<AdminLogin />} />
-        <Route
-          path="/admin"
-          element={
-            <RequireAdmin>
-              <AdminDashboard />
-            </RequireAdmin>
-          }
-        />
-        <Route
-          path="/admin/moderators"
-          element={
-            <RequireAdmin>
-              <AdminModerators />
-            </RequireAdmin>
-          }
-        />
-
-        {/* ...rest unchanged... */}
-      </Route>
-    </Routes>
-  )
-}
 
 function AppLayout() {
   return (
@@ -78,25 +50,40 @@ export default function App() {
   return (
     <Routes>
       <Route element={<AppLayout />}>
+        {/* Public */}
         <Route path="/" element={<HomePage />} />
         <Route path="/zvirata" element={<AnimalsPage />} />
 
         {/* Admin */}
         <Route path="/admin/login" element={<AdminLogin />} />
-        <Route path="/admin" element={
-          <RequireAdmin>
-            <AdminDashboard />
-          </RequireAdmin>
-        } />
+        <Route
+          path="/admin"
+          element={
+            <RequireAdmin>
+              <AdminDashboard />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/moderators"
+          element={
+            <RequireAdmin>
+              <AdminModerators />
+            </RequireAdmin>
+          }
+        />
         <Route path="/admin-login" element={<Navigate to="/admin/login" replace />} />
 
         {/* Moderator */}
         <Route path="/moderator/login" element={<ModeratorLogin />} />
-        <Route path="/moderator" element={
-          <RequireModerator>
-            <ModeratorDashboard />
-          </RequireModerator>
-        } />
+        <Route
+          path="/moderator"
+          element={
+            <RequireModerator>
+              <ModeratorDashboard />
+            </RequireModerator>
+          }
+        />
 
         {/* Fallback */}
         <Route path="*" element={<NotFound />} />
