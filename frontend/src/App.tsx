@@ -6,12 +6,13 @@ import { AppBar, Toolbar, Button, Container, Stack } from '@mui/material'
 // Pages
 import HomePage from './pages/HomePage'
 import AnimalsPage from './pages/AnimalsPage'
+import AnimalDetail from './pages/AnimalDetail'            // ✅ detail page
 import AdminLogin from './pages/AdminLogin'
 import AdminDashboard from './pages/AdminDashboard'
 import AdminModerators from './pages/AdminModerators'
 import ModeratorLogin from './pages/ModeratorLogin'
 import ModeratorDashboard from './pages/ModeratorDashboard'
-import AnimalsManager from './pages/AnimalsManager' 
+import AnimalsManager from './pages/AnimalsManager'
 import UXPrototype from './prototypes/UXPrototype'
 
 // Guards
@@ -55,6 +56,7 @@ export default function App() {
         {/* Public */}
         <Route path="/" element={<HomePage />} />
         <Route path="/zvirata" element={<AnimalsPage />} />
+        <Route path="/zvirata/:id" element={<AnimalDetail />} />   {/* ✅ needed for Home cards */}
 
         {/* Admin */}
         <Route path="/admin/login" element={<AdminLogin />} />
@@ -75,7 +77,7 @@ export default function App() {
           }
         />
         <Route
-          path="/admin/animals"                     // ✅ ROUTE
+          path="/admin/animals"
           element={
             <RequireAdmin>
               <AnimalsManager />
@@ -95,18 +97,22 @@ export default function App() {
           }
         />
         <Route
-          path="/moderator/animals"                 // ✅ (optional for moderators)
+          path="/moderator/animals"
           element={
             <RequireModerator>
               <AnimalsManager />
             </RequireModerator>
           }
         />
-        <Route 
-        path="/proto/*" 
-        element={
-        <UXPrototype />
-        } 
+
+        {/* Prototype (optional: guard behind admin) */}
+        <Route
+          path="/proto/*"
+          element={
+            <RequireAdmin>
+              <UXPrototype />
+            </RequireAdmin>
+          }
         />
 
         {/* Fallback */}

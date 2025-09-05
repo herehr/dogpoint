@@ -1,5 +1,5 @@
 // frontend/src/services/api.ts
-// Centralized API helpers — no template literals in URLs.
+// Centralized API helpers — SPA-friendly, typed, resilient.
 // Uses VITE_API_BASE_URL (set in DO Frontend → Environment Variables).
 
 import type { Animal, Post } from '../types/models'
@@ -13,7 +13,9 @@ const BASE_URL: string = RAW.replace(/\/+$/, '')
 
 if (!BASE_URL) {
   // eslint-disable-next-line no-console
-  console.warn('VITE_API_BASE_URL is not defined. Set it in DO Frontend → Environment Variables.')
+  console.warn(
+    'VITE_API_BASE_URL is not defined. Set it in DO Frontend → Environment Variables.'
+  )
 }
 
 function getToken(): string | null {
@@ -33,7 +35,7 @@ function authHeader(): Record<string, string> {
   return token ? { Authorization: 'Bearer ' + token } : {}
 }
 
-// core JSON request helper (handles non-JSON gracefully)
+// Core JSON request helper (tolerates non-JSON responses)
 async function req<T = any>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(BASE_URL + path, {
     headers: Object.assign(
@@ -43,11 +45,13 @@ async function req<T = any>(path: string, init?: RequestInit): Promise<T> {
     ),
     ...(init || {}),
   })
+
   if (!res.ok) {
     let text = ''
     try { text = await res.text() } catch {}
     throw new Error(String(res.status) + ' ' + res.statusText + ' for ' + path + ' → ' + text)
   }
+
   const ct = res.headers.get('content-type') || ''
   if (!ct.includes('application/json')) {
     // @ts-expect-error allow void return for non-JSON endpoints
@@ -82,6 +86,7 @@ async function login(email: string, password: string): Promise<LoginResponse> {
 export async function loginAdmin(email: string, password: string) {
   return login(email, password)
 }
+
 export async function loginModerator(email: string, password: string) {
   return login(email, password)
 }
@@ -90,18 +95,30 @@ export async function loginModerator(email: string, password: string) {
    Animals
    ========================= */
 
+// Normalize any backend variants (galerie/gallery, main fallback, legacy names)
 function normalizeAnimal(a: any): Animal {
-  const g = Array.isArray(a?.galerie)
+  const galerie = Array.isArray(a?.galerie)
     ? a.galerie
     : Array.isArray(a?.gallery)
     ? a.gallery
     : []
-  return { ...a, galerie: g }
+  const main = a?.main || galerie?.[0]?.url || '/no-image.jpg'
+
+  return {
+    id: String(a?.id ?? ''),
+    jmeno: a?.jmeno ?? a?.name ?? '',
+    druh: a?.druh,           // 'pes' | 'kočka' | 'jiné' | undefined
+    vek: a?.vek,             // string | undefined
+    popis: a?.popis ?? a?.description ?? '',
+    main,
+    galerie,
+    active: a?.active ?? true,
+  } as Animal
 }
 
 export async function fetchAnimals(): Promise<Animal[]> {
   const list = await req<any[]>('/api/animals')
-  return list.map(normalizeAnimal)
+  return (list || []).map(normalizeAnimal)
 }
 
 export async function fetchAnimal(id: string): Promise<Animal> {
@@ -111,6 +128,7 @@ export async function fetchAnimal(id: string): Promise<Animal> {
 }
 
 export async function createAnimal(payload: Partial<Animal>): Promise<Animal> {
+  // Accepts Czech/English keys; backend maps to its schema
   return req<Animal>('/api/animals', {
     method: 'POST',
     body: JSON.stringify(payload),
@@ -134,6 +152,7 @@ export async function deleteAnimal(id: string): Promise<{ ok: true }> {
    Upload (multipart)
    ========================= */
 
+// Do NOT set Content-Type; browser sets multipart boundary automatically.
 export async function uploadMedia(file: File): Promise<{ url: string }> {
   const form = new FormData()
   form.append('file', file)
@@ -143,7 +162,7 @@ export async function uploadMedia(file: File): Promise<{ url: string }> {
 
   const res = await fetch(BASE_URL + '/api/upload', {
     method: 'POST',
-    headers, // do not set Content-Type; browser sets boundary
+    headers, // leave Content-Type unset
     body: form,
   })
   if (!res.ok) {
@@ -188,7 +207,7 @@ export async function startAdoption(animalId: string) {
 }
 
 /* =========================
-   Posts (news / adopter stories)
+   Posts (public & adopter stories)
    ========================= */
 
 export async function listPostsPublic(params?: { animalId?: string }): Promise<Post[]> {
@@ -196,7 +215,7 @@ export async function listPostsPublic(params?: { animalId?: string }): Promise<P
   return req<Post[]>('/api/posts' + query)
 }
 
-// Secured endpoints (Moderator/Admin) exist elsewhere; this one is used post-adoption by user:
+// Secured create (token required)
 export async function createPost(payload: Partial<Post> & { animalId?: string }) {
   return req<Post>('/api/posts', {
     method: 'POST',
@@ -209,7 +228,9 @@ export async function createPost(payload: Partial<Post> & { animalId?: string })
    ========================= */
 
 export async function listModerators() {
-  return req<Array<{ id: string; email: string; role: string; active?: boolean }>>('/api/admin/moderators')
+  return req<Array<{ id: string; email: string; role: string; active?: boolean }>>(
+    '/api/admin/moderators'
+  )
 }
 
 export async function createModerator(email: string, password: string) {
@@ -226,10 +247,13 @@ export async function deleteModerator(id: string) {
 }
 
 export async function resetModeratorPassword(id: string, password: string) {
-  return req<{ ok: true }>('/api/admin/moderators/' + encodeURIComponent(id) + '/password', {
-    method: 'PATCH',
-    body: JSON.stringify({ password }),
-  })
+  return req<{ ok: true }>(
+    '/api/admin/moderators/' + encodeURIComponent(id) + '/password',
+    {
+      method: 'PATCH',
+      body: JSON.stringify({ password }),
+    }
+  )
 }
 
 /* =========================
