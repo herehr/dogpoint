@@ -1,4 +1,3 @@
-// frontend/src/pages/ModeratorLogin.tsx
 import React, { useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
@@ -6,10 +5,12 @@ import {
 } from '@mui/material'
 import LockIcon from '@mui/icons-material/Lock'
 import { loginModerator } from '../services/api'
+import { useAuth } from '../context/AuthContext'
 
 type FromState = { from?: { pathname?: string } } | null
 
 export default function ModeratorLogin() {
+  const auth = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [err, setErr] = useState<string | null>(null)
@@ -24,8 +25,9 @@ export default function ModeratorLogin() {
     setErr(null)
     setSubmitting(true)
     try {
-      await loginModerator(email, password) // expects to store sessionStorage token
-      const to = state?.from?.pathname || '/moderator' // ✅ was '/admin'
+      const data = await loginModerator(email, password)
+      auth.login(data.token, data.role as any, email)  // update context
+      const to = state?.from?.pathname || '/moderator'
       navigate(to, { replace: true })
     } catch (e: any) {
       setErr(e?.message || 'Přihlášení selhalo')

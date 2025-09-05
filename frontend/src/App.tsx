@@ -11,7 +11,8 @@ import AdminDashboard from './pages/AdminDashboard'
 import AdminModerators from './pages/AdminModerators'
 import ModeratorLogin from './pages/ModeratorLogin'
 import ModeratorDashboard from './pages/ModeratorDashboard'
-import AnimalsManager from './pages/AnimalsManager'   // ✅ IMPORT
+import AnimalsManager from './pages/AnimalsManager' 
+import UXPrototype from './prototypes/UXPrototype'
 
 // Guards
 import RequireModerator from './routes/RequireModerator'
@@ -100,6 +101,12 @@ export default function App() {
               <AnimalsManager />
             </RequireModerator>
           }
+        />
+        <Route 
+        path="/proto/*" 
+        element={
+        <UXPrototype />
+        } 
         />
 
         {/* Fallback */}

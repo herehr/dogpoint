@@ -1,111 +1,87 @@
-// backend/src/routes/upload.ts
-import { Router, Request, Response } from 'express'
+import { Router, type Request, type Response } from 'express'
 import multer from 'multer'
-import { S3Client, PutObjectCommand, HeadBucketCommand } from '@aws-sdk/client-s3'
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
 import { lookup as mimeLookup } from 'mime-types'
 import crypto from 'crypto'
 
-// ---- Env (supports DO_SPACE_* or SPACES_* names) ----
-const ENDPOINT_HOST =
-  (process.env.DO_SPACE_ENDPOINT || process.env.SPACES_ENDPOINT || 'fra1.digitaloceanspaces.com')
-    .replace(/^https?:\/\//, '')
-    .replace(/\/+$/, '')
-const SIGN_REGION = (process.env.DO_SPACE_REGION || process.env.SPACES_REGION || 'us-east-1') // DO recommends us-east-1 signing
-const BUCKET = process.env.DO_SPACE_BUCKET || process.env.SPACES_BUCKET || ''
-const ACCESS_KEY = process.env.DO_SPACE_KEY || process.env.SPACES_KEY || ''
-const SECRET_KEY = process.env.DO_SPACE_SECRET || process.env.SPACES_SECRET || ''
-const PUBLIC_BASE = (process.env.DO_SPACE_PUBLIC_BASE || process.env.SPACES_PUBLIC_BASE || '').replace(/\/+$/, '')
-
 const router = Router()
 
-// ---- Multer (memory) ----
-// NOTE: no FileFilterCallback import — we type inline to avoid TS compatibility hiccups.
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 25 * 1024 * 1024 }, // 25 MB
-  fileFilter: (_req: Request, file: Express.Multer.File, cb: (error: Error | null, acceptFile: boolean) => void) => {
-    if (/^(image|video)\//.test(file.mimetype)) return cb(null, true)
-    cb(new Error('Unsupported file type: ' + file.mimetype), false)
-  },
-})
+/**
+ * Multer v2: keep the callback loose enough for both accept/reject paths.
+ * Using `cb: any` avoids the null-vs-Error mismatch from stricter inferred types.
+ * Runtime API is the same: `cb(null, true/false)` or `cb(new Error(...))`.
+ */
+const fileFilter = (_req: Request, file: Express.Multer.File, cb: any) => {
+  const ext = (file.originalname.split('.').pop() || '').toLowerCase()
+  const ok =
+    (file.mimetype?.startsWith('image/') || file.mimetype?.startsWith('video/')) ||
+    ['jpg', 'jpeg', 'png', 'gif', 'webp', 'mp4', 'mov'].includes(ext)
 
-// ---- S3 client for DO Spaces ----
-const s3 = new S3Client({
-  region: SIGN_REGION,
-  endpoint: `https://${ENDPOINT_HOST}`, // e.g. https://fra1.digitaloceanspaces.com
-  credentials: { accessKeyId: ACCESS_KEY, secretAccessKey: SECRET_KEY },
-})
-
-// helper: build public URL
-function publicUrl(bucket: string, key: string): string {
-  if (PUBLIC_BASE) return `${PUBLIC_BASE}/${key}`
-  return `https://${bucket}.${ENDPOINT_HOST}/${key}` // virtual-hosted
+  if (ok) cb(null, true)
+  else cb(new Error('Unsupported file type'), false)
 }
 
-// ---- Diagnostics endpoint: verify bucket/creds quickly ----
-router.get('/selftest', async (_req: Request, res: Response) => {
-  try {
-    if (!BUCKET) return res.status(500).json({ ok: false, error: 'BUCKET_MISSING' })
-    await s3.send(new HeadBucketCommand({ Bucket: BUCKET }))
-    return res.json({
-      ok: true,
-      bucket: BUCKET,
-      endpoint: ENDPOINT_HOST,
-      region: SIGN_REGION,
-      publicBase: PUBLIC_BASE || `https://${BUCKET}.${ENDPOINT_HOST}`,
-    })
-  } catch (e: any) {
-    return res.status(500).json({
-      ok: false,
-      error: e?.name || 'HeadBucketError',
-      message: e?.message || String(e),
-      bucket: BUCKET,
-      endpoint: ENDPOINT_HOST,
-      region: SIGN_REGION,
-    })
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+  fileFilter
+})
+
+/**
+ * S3 client for DigitalOcean Spaces:
+ * - region is a signing value (DO accepts 'us-east-1')
+ * - endpoint is the actual Spaces endpoint, e.g. fra1
+ */
+const s3 = new S3Client({
+  region: process.env.DO_SPACE_REGION || 'us-east-1',
+  endpoint: (process.env.DO_SPACE_ENDPOINT || 'https://fra1.digitaloceanspaces.com').replace(/\/+$/, ''),
+  forcePathStyle: false,
+  credentials: {
+    accessKeyId: process.env.DO_SPACE_KEY || '',
+    secretAccessKey: process.env.DO_SPACE_SECRET || ''
   }
 })
 
-// ---- Upload endpoint ----
+router.get('/selftest', async (_req: Request, res: Response) => {
+  try {
+    const bucket = process.env.DO_SPACE_BUCKET
+    if (!bucket) return res.status(500).json({ ok: false, error: 'DO_SPACE_BUCKET missing' })
+    await s3.config.region()
+    res.json({
+      ok: true,
+      bucket,
+      endpoint: process.env.DO_SPACE_ENDPOINT || 'https://fra1.digitaloceanspaces.com'
+    })
+  } catch (e: any) {
+    res.status(500).json({ ok: false, error: e?.name || 'UnknownError', message: e?.message })
+  }
+})
+
 router.post('/', upload.single('file'), async (req: Request, res: Response): Promise<void> => {
   try {
-    if (!req.file) { res.status(400).json({ error: 'FILE_MISSING' }); return }
-    if (!BUCKET || !ACCESS_KEY || !SECRET_KEY) {
-      res.status(500).json({
-        error: 'SPACES_NOT_CONFIGURED',
-        detail: { BUCKET: !!BUCKET, ACCESS_KEY: !!ACCESS_KEY, SECRET_KEY: !!SECRET_KEY }
-      })
-      return
-    }
+    if (!req.file) { res.status(400).json({ error: 'file missing' }); return }
+    const bucket = process.env.DO_SPACE_BUCKET
+    if (!bucket) { res.status(500).json({ error: 'Server misconfigured: DO_SPACE_BUCKET missing' }); return }
 
-    const orig = req.file.originalname || 'upload'
-    const ext = (orig.split('.').pop() || '').toLowerCase() || 'bin'
-    const contentType = req.file.mimetype || String(mimeLookup(ext) || 'application/octet-stream')
-    const today = new Date().toISOString().slice(0, 10) // YYYY-MM-DD
-    const key = `uploads/${today}/${crypto.randomBytes(8).toString('hex')}.${ext}`
+    const ext = (req.file.originalname.split('.').pop() || '').toLowerCase()
+    const key = `uploads/${new Date().toISOString().slice(0,10)}/${crypto.randomUUID()}.${ext || 'bin'}`
+    const contentType = req.file.mimetype || (mimeLookup(ext) || 'application/octet-stream')
 
     await s3.send(new PutObjectCommand({
-      Bucket: BUCKET,
+      Bucket: bucket,
       Key: key,
       Body: req.file.buffer,
       ACL: 'public-read',
-      ContentType: contentType,
-      CacheControl: 'public, max-age=31536000, immutable',
+      ContentType: String(contentType)
     }))
 
-    res.json({ url: publicUrl(BUCKET, key) })
+    const base = (process.env.DO_SPACE_ENDPOINT || 'https://fra1.digitaloceanspaces.com').replace(/\/+$/, '')
+    const url = `${base}/${bucket}/${key}`
+    res.json({ url })
   } catch (e: any) {
     // eslint-disable-next-line no-console
-    console.error('[upload] error:', {
-      name: e?.name, message: e?.message, code: e?.code, $metadata: e?.$metadata
-    })
-    res.status(500).json({
-      error: 'UPLOAD_FAILED',
-      name: e?.name || undefined,
-      message: e?.message || String(e),
-      code: e?.code || undefined,
-      status: e?.$metadata?.httpStatusCode || undefined,
-    })
+    console.error('upload error', e)
+    res.status(500).json({ error: 'upload failed', detail: e.message })
   }
 })
 

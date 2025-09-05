@@ -4,10 +4,18 @@ import ReactDOM from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import App from './App'
 
+// NEW: global contexts
+import { AuthProvider } from './context/AuthContext'
+import { AccessProvider } from './context/AccessContext'
+
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
-    <BrowserRouter>
-      <App />
-    </BrowserRouter>
+    <AuthProvider>
+      <AccessProvider>
+        <BrowserRouter>
+          <App />
+        </BrowserRouter>
+      </AccessProvider>
+    </AuthProvider>
   </React.StrictMode>
 )

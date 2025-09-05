@@ -2,6 +2,8 @@
 // Centralized API helpers — no template literals in URLs.
 // Uses VITE_API_BASE_URL (set in DO Frontend → Environment Variables).
 
+import type { Animal, Post } from '../types/models'
+
 /* =========================
    Base & helpers
    ========================= */
@@ -31,6 +33,7 @@ function authHeader(): Record<string, string> {
   return token ? { Authorization: 'Bearer ' + token } : {}
 }
 
+// core JSON request helper (handles non-JSON gracefully)
 async function req<T = any>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(BASE_URL + path, {
     headers: Object.assign(
@@ -47,38 +50,29 @@ async function req<T = any>(path: string, init?: RequestInit): Promise<T> {
   }
   const ct = res.headers.get('content-type') || ''
   if (!ct.includes('application/json')) {
-    // @ts-expect-error allow void
+    // @ts-expect-error allow void return for non-JSON endpoints
     return undefined
   }
   return res.json() as Promise<T>
 }
 
-/* =========================
-   Types
-   ========================= */
-
-export type GalerieMedia = { id?: string; url: string; typ?: 'image' | 'video' }
-
-export type Animal = {
-  id: string
-  name?: string
-  jmeno?: string
-  description?: string
-  popis?: string
-  galerie?: GalerieMedia[]
-  active?: boolean
+function qs(params: Record<string, string | number | boolean | undefined | null>): string {
+  const entries = Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== '')
+  if (!entries.length) return ''
+  const s = new URLSearchParams(entries as Array<[string, string]>)
+  return '?' + s.toString()
 }
-
-export type LoginResponse = { token: string; role?: 'ADMIN' | 'MODERATOR' | 'USER' }
 
 /* =========================
    Auth (unified backend endpoint)
    ========================= */
 
+export type LoginResponse = { token: string; role?: 'ADMIN' | 'MODERATOR' | 'USER' }
+
 async function login(email: string, password: string): Promise<LoginResponse> {
   const data = await req<LoginResponse>('/api/auth/login', {
     method: 'POST',
-    body: JSON.stringify({ email: email, password: password }),
+    body: JSON.stringify({ email, password }),
   })
   if (!data || !data.token) throw new Error('Login failed: token missing')
   setToken(data.token)
@@ -97,10 +91,11 @@ export async function loginModerator(email: string, password: string) {
    ========================= */
 
 function normalizeAnimal(a: any): Animal {
-  // if backend uses `gallery`, mirror it to `galerie`
-  const g = Array.isArray(a?.galerie) ? a.galerie
-        : Array.isArray(a?.gallery) ? a.gallery
-        : []
+  const g = Array.isArray(a?.galerie)
+    ? a.galerie
+    : Array.isArray(a?.gallery)
+    ? a.gallery
+    : []
   return { ...a, galerie: g }
 }
 
@@ -148,14 +143,18 @@ export async function uploadMedia(file: File): Promise<{ url: string }> {
 
   const res = await fetch(BASE_URL + '/api/upload', {
     method: 'POST',
-    headers: headers, // do not set Content-Type; browser sets boundary
+    headers, // do not set Content-Type; browser sets boundary
     body: form,
   })
-  if (!res.ok) throw new Error('Upload failed: ' + res.status)
+  if (!res.ok) {
+    let text = ''
+    try { text = await res.text() } catch {}
+    throw new Error('Upload failed: ' + res.status + (text ? ` → ${text}` : ''))
+  }
   return res.json()
 }
 
-// Batch upload with simple progress callback
+// Batch upload with progress callback
 export async function uploadMediaMany(
   files: File[],
   onProgress?: (index: number, total: number) => void
@@ -170,6 +169,42 @@ export async function uploadMediaMany(
 }
 
 /* =========================
+   Adoption access
+   ========================= */
+
+// GET /api/adoption/access/:animalId → { access: boolean }
+export async function hasAccessForAnimal(animalId: string): Promise<{ access: boolean }> {
+  if (!animalId) throw new Error('hasAccessForAnimal: animalId is required')
+  return req<{ access: boolean }>('/api/adoption/access/' + encodeURIComponent(animalId))
+}
+
+// POST /api/adoption/start { animalId } → { ok: true }
+export async function startAdoption(animalId: string) {
+  if (!animalId) throw new Error('startAdoption: animalId is required')
+  return req<{ ok: true }>('/api/adoption/start', {
+    method: 'POST',
+    body: JSON.stringify({ animalId }),
+  })
+}
+
+/* =========================
+   Posts (news / adopter stories)
+   ========================= */
+
+export async function listPostsPublic(params?: { animalId?: string }): Promise<Post[]> {
+  const query = qs({ animalId: params?.animalId })
+  return req<Post[]>('/api/posts' + query)
+}
+
+// Secured endpoints (Moderator/Admin) exist elsewhere; this one is used post-adoption by user:
+export async function createPost(payload: Partial<Post> & { animalId?: string }) {
+  return req<Post>('/api/posts', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+/* =========================
    Admin → Moderators
    ========================= */
 
@@ -180,20 +215,20 @@ export async function listModerators() {
 export async function createModerator(email: string, password: string) {
   return req<{ id: string; email: string; role: string }>('/api/admin/moderators', {
     method: 'POST',
-    body: JSON.stringify({ email, password })
+    body: JSON.stringify({ email, password }),
   })
 }
 
 export async function deleteModerator(id: string) {
   return req<{ ok: true }>('/api/admin/moderators/' + encodeURIComponent(id), {
-    method: 'DELETE'
+    method: 'DELETE',
   })
 }
 
 export async function resetModeratorPassword(id: string, password: string) {
   return req<{ ok: true }>('/api/admin/moderators/' + encodeURIComponent(id) + '/password', {
     method: 'PATCH',
-    body: JSON.stringify({ password })
+    body: JSON.stringify({ password }),
   })
 }
 
