@@ -33,6 +33,11 @@ app.get('/', (_req: Request, res: Response): void => {
   res.send('Dogpoint backend is running.');
 });
 
+//proto
+app.get('/api/proto', (_req, res) => {
+  res.json({ ok: true, component: 'backend', route: '/api/proto' })
+})
+
 // Health
 app.get('/health', (_req: Request, res: Response): void => {
   res.status(200).json({ status: 'ok', server: true });
