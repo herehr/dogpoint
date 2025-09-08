@@ -29,6 +29,9 @@ router.get('/', async (_req: Request, res: Response): Promise<void> => {
       orderBy: { createdAt: 'desc' },
       include: { galerie: true },
     })
+    // If you want to expose a computed "main" to clients without DB column:
+    // const shaped = animals.map(a => ({ ...a, main: a.galerie[0]?.url ?? null }))
+    // res.json(shaped)
     res.json(animals)
   } catch (e: any) {
     console.error('GET /api/animals error:', e)
@@ -44,6 +47,8 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
       include: { galerie: true },
     })
     if (!a) { res.status(404).json({ error: 'Not found' }); return }
+    // const shaped = { ...a, main: a.galerie[0]?.url ?? null }
+    // res.json(shaped)
     res.json(a)
   } catch (e: any) {
     console.error('GET /api/animals/:id error:', e)
@@ -59,7 +64,6 @@ router.post('/', requireAuth, async (req: Request, res: Response): Promise<void>
   try {
     const body = (req.body || {}) as any
     const media = parseGalerie(body)
-    const main = body.main || media[0]?.url || null
 
     const created = await prisma.animal.create({
       data: {
@@ -68,10 +72,9 @@ router.post('/', requireAuth, async (req: Request, res: Response): Promise<void>
         description: body.description,
         popis: body.popis,
         active: Boolean(body.active),
-        // if you have vek/druh columns in schema, uncomment:
+        // If you later add vek/druh columns, uncomment:
         // vek: body.vek ?? null,
         // druh: body.druh ?? null,
-        main,
         galerie: media.length
           ? { create: media.map((g) => ({ url: g.url, typ: g.typ ?? 'image' })) }
           : undefined,
@@ -95,15 +98,6 @@ router.patch('/:id', requireAuth, async (req: Request, res: Response): Promise<v
   const media = parseGalerie(body)
 
   try {
-    // compute main: only change if body.main given OR gallery provided (then use first)
-    const mainUpdate =
-      body.main !== undefined
-        ? { main: body.main || null }
-        : media.length
-          ? { main: media[0].url }
-          : {}
-
-    // basic fields
     const baseUpdate: any = {
       name: body.name,
       jmeno: body.jmeno,
@@ -112,7 +106,6 @@ router.patch('/:id', requireAuth, async (req: Request, res: Response): Promise<v
       active: body.active,
       // vek: body.vek,
       // druh: body.druh,
-      ...mainUpdate,
     }
 
     // If gallery provided, replace it in a transaction
@@ -129,7 +122,6 @@ router.patch('/:id', requireAuth, async (req: Request, res: Response): Promise<v
             data: media.map((g) => ({ animalId: id, url: g.url, typ: g.typ ?? 'image' })),
           })
         }
-        // return with fresh gallery
         return tx.animal.findUnique({
           where: { id },
           include: { galerie: true },
