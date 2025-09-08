@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+// frontend/src/pages/AnimalDetail.tsx
+import React, { useEffect, useMemo, useState } from 'react'
+import { useParams } from 'react-router-dom'
 import {
   Container, Typography, Box, Stack, Chip, Alert, Skeleton, Grid, Button, Divider
 } from '@mui/material'
@@ -18,13 +19,43 @@ type LocalAnimal = {
   vek?: string
   popis?: string
   main?: string
-  galerie?: Media[]
+  galerie?: Media[]            // backend may send { url }, or you might later send strings
   active?: boolean
+}
+
+function isVideoUrl(u: string): boolean {
+  return /\.(mp4|webm|ogg)$/i.test(u) || u.startsWith('data:video')
+}
+
+function Tile({ url, h = 180 }: { url: string, h?: number }) {
+  const video = isVideoUrl(url)
+  return (
+    <Box
+      component="a"
+      href={url}
+      target="_blank"
+      rel="noreferrer"
+      sx={{
+        display: 'block',
+        width: '100%',
+        height: h,
+        borderRadius: 2,
+        overflow: 'hidden',
+        border: '1px solid',
+        borderColor: 'divider'
+      }}
+    >
+      {video ? (
+        <video src={url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} controls preload="metadata" />
+      ) : (
+        <img src={url} alt="media" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+      )}
+    </Box>
+  )
 }
 
 export default function AnimalDetail() {
   const { id } = useParams()
-  const navigate = useNavigate()
   const { hasAccess, grantAccess } = useAccess()
 
   const [animal, setAnimal] = useState<LocalAnimal | null>(null)
@@ -44,6 +75,20 @@ export default function AnimalDetail() {
     return () => { alive = false }
   }, [id])
 
+  const kind = animal?.druh === 'pes' ? 'Pes' : animal?.druh === 'kočka' ? 'Kočka' : 'Jiné'
+  const age = animal?.vek || 'neuvedeno'
+
+  // Build a flat list of media URLs: [main, ...galerie]
+  const mediaUrls: string[] = useMemo(() => {
+    if (!animal) return []
+    const raw = [
+      animal.main,
+      ...((animal.galerie || []).map((m: any) => typeof m === 'string' ? m : m?.url))
+    ].filter(Boolean) as string[]
+    // deduplicate
+    return Array.from(new Set(raw))
+  }, [animal])
+
   if (loading) {
     return (
       <Container sx={{ py: 4 }}>
@@ -61,9 +106,9 @@ export default function AnimalDetail() {
   }
   if (!animal || !id) return null
 
-  const kind = animal.druh === 'pes' ? 'Pes' : animal.druh === 'kočka' ? 'Kočka' : 'Jiné'
-  const age = animal.vek || 'neuvedeno'
-  const media = (animal.galerie || []).length ? (animal.galerie || []) : [{ url: animal.main || '/no-image.jpg' }]
+  // Ensure we always have at least one visual
+  const firstUrl = mediaUrls[0] || '/no-image.jpg'
+  const restUrls = mediaUrls.slice(1)
 
   return (
     <Container sx={{ py: 4 }}>
@@ -80,19 +125,7 @@ export default function AnimalDetail() {
       <Box sx={{ mt: 3 }}>
         <Grid container spacing={2}>
           <Grid item xs={12} md={6}>
-            <Box
-              component="a"
-              href={media[0]?.url}
-              target="_blank"
-              rel="noreferrer"
-              sx={{ display: 'block', borderRadius: 2, overflow: 'hidden', border: '1px solid', borderColor: 'divider' }}
-            >
-              <img
-                src={media[0]?.url}
-                alt="main"
-                style={{ width: '100%', height: 320, objectFit: 'cover' }}
-              />
-            </Box>
+            <Tile url={firstUrl} h={320} />
           </Grid>
           <Grid item xs={12} md={6}>
             <Typography variant="h6" sx={{ fontWeight: 800, mb: 1 }}>
@@ -129,36 +162,16 @@ export default function AnimalDetail() {
       </Box>
 
       {/* Additional gallery (blurred until unlock) */}
-      {media.length > 1 && (
+      {restUrls.length > 0 && (
         <Box sx={{ mt: 4 }}>
           <Typography variant="h6" sx={{ fontWeight: 800, mb: 1 }}>
             Další fotografie a videa
           </Typography>
           <BlurBox blurred={!unlocked}>
             <Grid container spacing={1.5}>
-              {media.slice(1).map((m, i) => (
+              {restUrls.map((u, i) => (
                 <Grid item xs={6} sm={4} md={3} key={i}>
-                  <Box
-                    component="a"
-                    href={m.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    sx={{
-                      display: 'block',
-                      width: '100%',
-                      height: 160,
-                      borderRadius: 2,
-                      overflow: 'hidden',
-                      border: '1px solid',
-                      borderColor: 'divider'
-                    }}
-                  >
-                    <img
-                      src={m.url}
-                      alt={`media-${i+1}`}
-                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                    />
-                  </Box>
+                  <Tile url={u} />
                 </Grid>
               ))}
             </Grid>
