@@ -3,19 +3,17 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import App from './App'
-
-// NEW: global contexts
-import { AuthProvider } from './context/AuthContext'
 import { AccessProvider } from './context/AccessContext'
+import { AuthProvider } from './context/AuthContext'
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
-    <AuthProvider>
-      <AccessProvider>
-        <BrowserRouter>
+    <BrowserRouter>
+      <AuthProvider>
+        <AccessProvider>
           <App />
-        </BrowserRouter>
-      </AccessProvider>
-    </AuthProvider>
+        </AccessProvider>
+      </AuthProvider>
+    </BrowserRouter>
   </React.StrictMode>
 )

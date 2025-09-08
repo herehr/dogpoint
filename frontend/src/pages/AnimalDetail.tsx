@@ -6,6 +6,7 @@ import {
 import { fetchAnimal, hasAccessForAnimal, startAdoption } from '../services/api'
 import { useAccess } from '../context/AccessContext'
 import { useAuth } from '../context/AuthContext'
+import PostsSection from '../components/PostsSection'
 
 interface Media { url: string }
 interface Animal {
@@ -106,6 +107,7 @@ const AnimalDetail: React.FC = () => {
           </Button>
         </Stack>
       ) : null}
+      {animal.id && <PostsSection animalId={animal.id} />}
     </Container>
   )
 }

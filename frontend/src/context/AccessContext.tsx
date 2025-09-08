@@ -1,52 +1,51 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react'
+// frontend/src/context/AccessContext.tsx
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 
-export type AccessMap = Record<string /* animalId */, boolean>
+// Small local cache so refresh keeps access; swap to server if you prefer
+type AccessMap = Record<string, boolean>
 
-type AccessCtx = {
+type AccessContextShape = {
   hasAccess: (animalId: string) => boolean
   grantAccess: (animalId: string) => void
   resetAccess: (animalId?: string) => void
-  snapshot: AccessMap
 }
 
-const AccessContext = createContext<AccessCtx | undefined>(undefined)
-const LS_KEY = 'adoptionAccessMap'
+const AccessContext = createContext<AccessContextShape | null>(null)
+
+function readFromStorage(): AccessMap {
+  try {
+    const raw = sessionStorage.getItem('access.map')
+    return raw ? JSON.parse(raw) : {}
+  } catch { return {} }
+}
+function writeToStorage(map: AccessMap) {
+  try { sessionStorage.setItem('access.map', JSON.stringify(map)) } catch {}
+}
 
 export function AccessProvider({ children }: { children: React.ReactNode }) {
-  const [map, setMap] = useState<AccessMap>({})
+  const [map, setMap] = useState<AccessMap>(() => readFromStorage())
 
-  // hydrate from localStorage (cache). Source of truth still backend.
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(LS_KEY)
-      if (raw) setMap(JSON.parse(raw))
-    } catch {}
+  useEffect(() => { writeToStorage(map) }, [map])
+
+  const hasAccess = useCallback((animalId: string) => !!map[animalId], [map])
+
+  const grantAccess = useCallback((animalId: string) => {
+    setMap(prev => ({ ...prev, [animalId]: true }))
   }, [])
 
-  // persist
-  useEffect(() => {
-    try { localStorage.setItem(LS_KEY, JSON.stringify(map)) } catch {}
-  }, [map])
+  const resetAccess = useCallback((animalId?: string) => {
+    setMap(prev => {
+      if (!animalId) return {}
+      const copy = { ...prev }; delete copy[animalId]; return copy
+    })
+  }, [])
 
-  const value = useMemo<AccessCtx>(() => ({
-    snapshot: map,
-    hasAccess: (id) => !!map[id],
-    grantAccess: (id) => setMap(m => ({ ...m, [id]: true })),
-    resetAccess: (id) => {
-      if (!id) { setMap({}); return }
-      setMap(m => {
-        const next = { ...m }
-        delete next[id]
-        return next
-      })
-    }
-  }), [map])
-
+  const value = useMemo(() => ({ hasAccess, grantAccess, resetAccess }), [hasAccess, grantAccess, resetAccess])
   return <AccessContext.Provider value={value}>{children}</AccessContext.Provider>
 }
 
-export function useAccess(): AccessCtx {
+export function useAccess() {
   const ctx = useContext(AccessContext)
-  if (!ctx) throw new Error('useAccess must be used inside <AccessProvider>')
+  if (!ctx) throw new Error('useAccess must be used within <AccessProvider>')
   return ctx
 }
