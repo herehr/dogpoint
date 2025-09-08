@@ -212,7 +212,13 @@ export async function startAdoption(animalId: string) {
 
 export async function listPostsPublic(params?: { animalId?: string }): Promise<Post[]> {
   const query = qs({ animalId: params?.animalId })
-  return req<Post[]>('/api/posts' + query)
+  try {
+    return await req<Post[]>('/api/posts' + query)
+  } catch (e: any) {
+    // If backend doesn't have /api/posts yet (404), show empty list gracefully.
+    if (String(e.message || '').includes('404')) return []
+    return []
+  }
 }
 
 // Secured create (token required)
