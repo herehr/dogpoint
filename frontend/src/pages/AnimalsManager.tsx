@@ -3,24 +3,27 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Container, Typography, Paper, Stack, Button, TextField, Checkbox, FormControlLabel,
   Table, TableHead, TableRow, TableCell, TableBody, IconButton, Dialog, DialogTitle,
-  DialogContent, DialogActions, Alert, Box, LinearProgress
+  DialogContent, DialogActions, Alert, Box, LinearProgress, MenuItem, Tooltip
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
 import UploadIcon from '@mui/icons-material/UploadFile'
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera'
+import PostAddIcon from '@mui/icons-material/PostAdd'
 
 import {
   fetchAnimals, type Animal,
   createAnimal, updateAnimal, deleteAnimal,
-  uploadMediaMany
+  uploadMedia, uploadMediaMany, createPost
 } from '../services/api'
 
 type FormAnimal = {
   id?: string
   jmeno?: string
   popis?: string
+  vek?: string
+  druh?: 'pes' | 'kočka' | 'jiné'
   active?: boolean
   galerie?: { url: string }[]
 }
@@ -31,16 +34,30 @@ export default function AnimalsManager() {
   const [err, setErr] = useState<string | null>(null)
   const [ok, setOk] = useState<string | null>(null)
 
-  // Dialog state
+  // Dialog: create/edit animal
   const [open, setOpen] = useState(false)
-  const [form, setForm] = useState<FormAnimal>({ jmeno: '', popis: '', active: true, galerie: [] })
+  const [form, setForm] = useState<FormAnimal>({
+    jmeno: '',
+    popis: '',
+    vek: '',
+    druh: 'pes',
+    active: true,
+    galerie: []
+  })
   const isEdit = useMemo(() => !!form.id, [form.id])
 
   // Upload state
   const [uploading, setUploading] = useState(false)
-  const [uploadNote, setUploadNote] = useState<string>('') // “Nahrávám 2/3…”
+  const [uploadNote, setUploadNote] = useState<string>('')
   const fileInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
+
+  // Dialog: create post for an animal
+  const [postOpen, setPostOpen] = useState(false)
+  const [postAnimalId, setPostAnimalId] = useState<string | null>(null)
+  const [postTitle, setPostTitle] = useState('')
+  const [postBody, setPostBody] = useState('')
+  const [postSaving, setPostSaving] = useState(false)
 
   async function refresh() {
     setErr(null)
@@ -55,15 +72,24 @@ export default function AnimalsManager() {
   useEffect(() => { refresh() }, [])
 
   function newAnimal() {
-    setForm({ jmeno: '', popis: '', active: true, galerie: [] })
+    setForm({
+      jmeno: '',
+      popis: '',
+      vek: '',
+      druh: 'pes',
+      active: true,
+      galerie: []
+    })
     setOpen(true)
   }
 
   function editAnimal(a: Animal) {
     setForm({
       id: a.id,
-      jmeno: a.jmeno || a.name || '',
-      popis: a.popis || a.description || '',
+      jmeno: a.jmeno || (a as any).name || '',
+      popis: a.popis || (a as any).description || '',
+      vek: (a as any).vek || '',
+      druh: (a as any).druh || 'pes',
       active: a.active ?? true,
       galerie: (a.galerie || []).map(g => ({ url: g.url }))
     })
@@ -90,10 +116,12 @@ export default function AnimalsManager() {
       const payload: any = {
         jmeno: form.jmeno?.trim(),
         popis: form.popis?.trim(),
+        vek: (form.vek || '').trim(),
+        druh: form.druh || 'pes',
         active: !!form.active,
-        // Czech key used by the UI
+        // Czech key used by UI/back-compat:
         galerie: cleanGallery,
-        // English key for backends expecting "gallery"
+        // English key for compatibility with some backends:
         gallery: cleanGallery,
       }
       if (isEdit && form.id) {
@@ -120,11 +148,9 @@ export default function AnimalsManager() {
     setUploading(true)
     setErr(null)
     try {
-      // batch upload with progress updates
       const urls = await uploadMediaMany(arr, (index, total) => {
         setUploadNote(`Nahrávám ${index + 1} / ${total}…`)
       })
-      // add cache-buster to preview; save without it later
       const now = Date.now()
       setForm(f => ({
         ...f,
@@ -168,6 +194,31 @@ export default function AnimalsManager() {
     setForm(f => ({ ...f, galerie: (f.galerie || []).filter((_, idx) => idx !== i) }))
   }
 
+  /* ---------- Post helpers ---------- */
+
+  function openPostDialog(animalId: string) {
+    setPostAnimalId(animalId)
+    setPostTitle('')
+    setPostBody('')
+    setPostOpen(true)
+  }
+
+  async function savePost(e: React.FormEvent) {
+    e.preventDefault()
+    if (!postAnimalId || !postTitle.trim()) return
+    setPostSaving(true); setErr(null); setOk(null)
+    try {
+      await createPost({ animalId: postAnimalId, title: postTitle.trim(), body: postBody.trim() })
+      setOk('Příspěvek uložen')
+      setPostOpen(false)
+      // optional: no need to refresh animals
+    } catch (e: any) {
+      setErr(e?.message || 'Uložení příspěvku selhalo')
+    } finally {
+      setPostSaving(false)
+    }
+  }
+
   return (
     <Container maxWidth="lg" sx={{ py: 6 }}>
       <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
@@ -183,6 +234,8 @@ export default function AnimalsManager() {
           <TableHead>
             <TableRow>
               <TableCell>Jméno</TableCell>
+              <TableCell>Věk</TableCell>
+              <TableCell>Druh</TableCell>
               <TableCell>Popis</TableCell>
               <TableCell>Aktivní</TableCell>
               <TableCell>Obrázků</TableCell>
@@ -192,21 +245,36 @@ export default function AnimalsManager() {
           <TableBody>
             {rows.map(a => (
               <TableRow key={a.id} hover>
-                <TableCell>{a.jmeno || a.name || '—'}</TableCell>
-                <TableCell sx={{ maxWidth: 420 }} title={a.popis || a.description || ''}>
-                  {(a.popis || a.description || '—').slice(0, 80)}{(a.popis || a.description || '').length > 80 ? '…' : ''}
+                <TableCell>{a.jmeno || (a as any).name || '—'}</TableCell>
+                <TableCell>{(a as any).vek || '—'}</TableCell>
+                <TableCell>{(a as any).druh || '—'}</TableCell>
+                <TableCell sx={{ maxWidth: 300 }} title={a.popis || (a as any).description || ''}>
+                  {(a.popis || (a as any).description || '—').slice(0, 60)}{(a.popis || (a as any).description || '').length > 60 ? '…' : ''}
                 </TableCell>
                 <TableCell>{a.active ? 'Ano' : 'Ne'}</TableCell>
                 <TableCell>{a.galerie?.length || 0}</TableCell>
                 <TableCell align="right">
-                  <IconButton size="small" onClick={() => editAnimal(a)} title="Upravit"><EditIcon fontSize="small" /></IconButton>
-                  <IconButton size="small" color="error" onClick={() => removeAnimal(a.id)} title="Smazat"><DeleteIcon fontSize="small" /></IconButton>
+                  <Tooltip title="Přidat příspěvek">
+                    <IconButton size="small" onClick={() => openPostDialog(a.id)}>
+                      <PostAddIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="Upravit">
+                    <IconButton size="small" onClick={() => editAnimal(a)}>
+                      <EditIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="Smazat">
+                    <IconButton size="small" color="error" onClick={() => removeAnimal(a.id)}>
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
                 </TableCell>
               </TableRow>
             ))}
             {rows.length === 0 && (
               <TableRow>
-                <TableCell colSpan={5} align="center" sx={{ py: 4, color: 'text.secondary' }}>
+                <TableCell colSpan={7} align="center" sx={{ py: 4, color: 'text.secondary' }}>
                   Zatím žádná zvířata
                 </TableCell>
               </TableRow>
@@ -228,6 +296,28 @@ export default function AnimalsManager() {
                 required
                 fullWidth
               />
+
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+                <TextField
+                  label="Věk"
+                  value={form.vek || ''}
+                  onChange={(e) => setForm(f => ({ ...f, vek: e.target.value }))}
+                  placeholder="např. 2 roky"
+                  fullWidth
+                />
+                <TextField
+                  label="Druh"
+                  select
+                  value={form.druh || 'pes'}
+                  onChange={(e) => setForm(f => ({ ...f, druh: e.target.value as FormAnimal['druh'] }))}
+                  fullWidth
+                >
+                  <MenuItem value="pes">Pes</MenuItem>
+                  <MenuItem value="kočka">Kočka</MenuItem>
+                  <MenuItem value="jiné">Jiné</MenuItem>
+                </TextField>
+              </Stack>
+
               <TextField
                 label="Popis"
                 value={form.popis || ''}
@@ -235,6 +325,7 @@ export default function AnimalsManager() {
                 multiline minRows={3}
                 fullWidth
               />
+
               <FormControlLabel
                 control={
                   <Checkbox
@@ -278,7 +369,6 @@ export default function AnimalsManager() {
                     ref={cameraInputRef}
                     type="file"
                     hidden
-                    // Most mobile browsers will open the camera with capture attr:
                     accept="image/*"
                     capture="environment"
                     onChange={onPickCamera}
@@ -327,7 +417,7 @@ export default function AnimalsManager() {
                   </Stack>
                 )}
 
-                {/* Existing URLs list (editable + previews) */}
+                {/* Existing URLs list (editable) */}
                 <Stack spacing={1}>
                   {(form.galerie || []).map((g, i) => (
                     <Stack key={i} direction="row" spacing={1} alignItems="center">
@@ -335,9 +425,7 @@ export default function AnimalsManager() {
                         src={(g.url || '').trim() ? g.url : '/no-image.jpg'}
                         alt="náhled"
                         style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 8, border: '1px solid #eee' }}
-                        onError={(ev) => {
-                          (ev.currentTarget as HTMLImageElement).style.opacity = '0.3'
-                        }}
+                        onError={(ev) => { (ev.currentTarget as HTMLImageElement).style.opacity = '0.3' }}
                       />
                       <TextField
                         size="small"
@@ -357,13 +445,45 @@ export default function AnimalsManager() {
                     </Stack>
                   ))}
                 </Stack>
-              </Stack> {/* ← closes Galerie uploader */}
-            </Stack>   {/* ← closes main form Stack */}
+              </Stack>
+            </Stack>
           </DialogContent>
           <DialogActions>
             <Button onClick={() => setOpen(false)}>Zrušit</Button>
             <Button type="submit" variant="contained" disabled={loading || uploading}>
               {isEdit ? 'Uložit změny' : 'Vytvořit'}
+            </Button>
+          </DialogActions>
+        </form>
+      </Dialog>
+
+      {/* Create Post dialog */}
+      <Dialog open={postOpen} onClose={() => setPostOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>Přidat příspěvek</DialogTitle>
+        <form onSubmit={savePost}>
+          <DialogContent>
+            <Stack spacing={2}>
+              <TextField
+                label="Titulek"
+                value={postTitle}
+                onChange={e => setPostTitle(e.target.value)}
+                required
+                fullWidth
+              />
+              <TextField
+                label="Text"
+                value={postBody}
+                onChange={e => setPostBody(e.target.value)}
+                multiline
+                minRows={3}
+                fullWidth
+              />
+            </Stack>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setPostOpen(false)}>Zrušit</Button>
+            <Button type="submit" variant="contained" disabled={postSaving}>
+              {postSaving ? 'Ukládám…' : 'Přidat'}
             </Button>
           </DialogActions>
         </form>
