@@ -31,6 +31,7 @@ model Animal {
   description      String?
   popis            String?
   active           Boolean           @default(true)
+  main             String? 
   galerie          GalerieMedia[]
   adoptionRequests AdoptionRequest[]
   createdAt        DateTime          @default(now())
