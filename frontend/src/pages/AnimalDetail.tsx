@@ -1,12 +1,14 @@
-// frontend/src/pages/AnimalDetail.tsx
 import React, { useEffect, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import {
-  Container, Typography, Box, Stack, Chip, Alert, Skeleton, Grid, Button
+  Container, Typography, Box, Stack, Chip, Alert, Skeleton, Grid, Button, Divider
 } from '@mui/material'
-import { fetchAnimal, startAdoption } from '../services/api'
+import { fetchAnimal } from '../services/api'
 import { useAccess } from '../context/AccessContext'
 import PostsSection from '../components/PostsSection'
+import BlurBox from '../components/BlurBox'
+import ReactionBar from '../components/ReactionBar'
+import AdoptionDialog from '../components/AdoptionDialog'
 
 type Media = { url: string; type?: 'image'|'video' }
 type LocalAnimal = {
@@ -22,12 +24,13 @@ type LocalAnimal = {
 
 export default function AnimalDetail() {
   const { id } = useParams()
+  const navigate = useNavigate()
   const { hasAccess, grantAccess } = useAccess()
 
   const [animal, setAnimal] = useState<LocalAnimal | null>(null)
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
-  const [adopting, setAdopting] = useState(false)
+  const [adoptOpen, setAdoptOpen] = useState(false)
   const unlocked = id ? hasAccess(id) : false
 
   useEffect(() => {
@@ -40,22 +43,6 @@ export default function AnimalDetail() {
       .finally(() => alive && setLoading(false))
     return () => { alive = false }
   }, [id])
-
-  async function onAdopt() {
-    if (!id) return
-    setAdopting(true); setErr(null)
-    try {
-      await startAdoption(id)         // MVP: server grants access immediately
-      grantAccess(id)                 // unlock posts locally
-      setTimeout(() => {
-        document.getElementById('posts')?.scrollIntoView({ behavior: 'smooth' })
-      }, 50)
-    } catch (e: any) {
-      setErr(e?.message || 'Zahájení adopce selhalo')
-    } finally {
-      setAdopting(false)
-    }
-  }
 
   if (loading) {
     return (
@@ -72,7 +59,7 @@ export default function AnimalDetail() {
       </Container>
     )
   }
-  if (!animal) return null
+  if (!animal || !id) return null
 
   const kind = animal.druh === 'pes' ? 'Pes' : animal.druh === 'kočka' ? 'Kočka' : 'Jiné'
   const age = animal.vek || 'neuvedeno'
@@ -89,76 +76,113 @@ export default function AnimalDetail() {
         </Stack>
       </Stack>
 
-      {/* Gallery — ALWAYS visible */}
+      {/* Main photo & description (always visible) */}
       <Box sx={{ mt: 3 }}>
-        <Typography variant="h6" sx={{ fontWeight: 800, mb: 1 }}>
-          Galerie
-        </Typography>
-        {media.length === 0 ? (
-          <Typography color="text.secondary">Žádné fotografie.</Typography>
-        ) : (
-          <Grid container spacing={1.5}>
-            {media.map((m, i) => (
-              <Grid item xs={6} sm={4} md={3} key={i}>
-                <Box
-                  component="a"
-                  href={m.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  sx={{
-                    display: 'block',
-                    width: '100%',
-                    height: 180,
-                    borderRadius: 2,
-                    overflow: 'hidden',
-                    border: '1px solid',
-                    borderColor: 'divider'
-                  }}
-                >
-                  <img
-                    src={m.url}
-                    alt={`media-${i}`}
-                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                  />
-                </Box>
-              </Grid>
-            ))}
+        <Grid container spacing={2}>
+          <Grid item xs={12} md={6}>
+            <Box
+              component="a"
+              href={media[0]?.url}
+              target="_blank"
+              rel="noreferrer"
+              sx={{ display: 'block', borderRadius: 2, overflow: 'hidden', border: '1px solid', borderColor: 'divider' }}
+            >
+              <img
+                src={media[0]?.url}
+                alt="main"
+                style={{ width: '100%', height: 320, objectFit: 'cover' }}
+              />
+            </Box>
           </Grid>
-        )}
+          <Grid item xs={12} md={6}>
+            <Typography variant="h6" sx={{ fontWeight: 800, mb: 1 }}>
+              Popis
+            </Typography>
+            <Typography variant="body1" sx={{ whiteSpace: 'pre-line' }}>
+              {animal.popis || 'Bez popisu.'}
+            </Typography>
+
+            <Divider sx={{ my: 2 }} />
+
+            <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 1 }}>
+              Reakce (viditelné jen pro vás)
+            </Typography>
+            <ReactionBar animalId={id} />
+
+            <Divider sx={{ my: 2 }} />
+
+            {!unlocked && (
+              <Box id="adopce">
+                <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>
+                  Chci adoptovat
+                </Typography>
+                <Typography color="text.secondary" sx={{ mb: 2 }}>
+                  Po adopci uvidíte další fotografie, videa a příspěvky.
+                </Typography>
+                <Button variant="contained" onClick={() => setAdoptOpen(true)}>
+                  Pokračovat k adopci
+                </Button>
+              </Box>
+            )}
+          </Grid>
+        </Grid>
       </Box>
 
-      {/* Description */}
-      <Box sx={{ mt: 3 }}>
-        <Typography variant="h6" sx={{ fontWeight: 800, mb: 1 }}>
-          Popis
-        </Typography>
-        <Typography variant="body1" sx={{ whiteSpace: 'pre-line' }}>
-          {animal.popis || 'Bez popisu.'}
-        </Typography>
-      </Box>
-
-      {/* Adoption CTA (to unlock POSTS only) */}
-      {!unlocked && (
-        <Box id="adopce" sx={{
-          mt: 3, p: 2, border: '1px dashed', borderColor: 'divider',
-          borderRadius: 2, background: '#fffef7'
-        }}>
-          <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>
-            Chci adoptovat
+      {/* Additional gallery (blurred until unlock) */}
+      {media.length > 1 && (
+        <Box sx={{ mt: 4 }}>
+          <Typography variant="h6" sx={{ fontWeight: 800, mb: 1 }}>
+            Další fotografie a videa
           </Typography>
-          <Typography color="text.secondary" sx={{ mb: 2 }}>
-            Po úspěšné adopci se zpřístupní část „Příspěvky“ (novinky, videa a fotky od pečovatelů).
-          </Typography>
-          <Button variant="contained" onClick={onAdopt} disabled={adopting}>
-            {adopting ? 'Zpracovávám…' : 'Pokračovat k adopci'}
-          </Button>
+          <BlurBox blurred={!unlocked}>
+            <Grid container spacing={1.5}>
+              {media.slice(1).map((m, i) => (
+                <Grid item xs={6} sm={4} md={3} key={i}>
+                  <Box
+                    component="a"
+                    href={m.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    sx={{
+                      display: 'block',
+                      width: '100%',
+                      height: 160,
+                      borderRadius: 2,
+                      overflow: 'hidden',
+                      border: '1px solid',
+                      borderColor: 'divider'
+                    }}
+                  >
+                    <img
+                      src={m.url}
+                      alt={`media-${i+1}`}
+                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                    />
+                  </Box>
+                </Grid>
+              ))}
+            </Grid>
+          </BlurBox>
+          {!unlocked && (
+            <Typography variant="caption" color="text.secondary">
+              Zamčeno – odemkne se po adopci.
+            </Typography>
+          )}
         </Box>
       )}
 
       {/* Posts (locked until adoption) */}
-      <Box id="posts">
+      <Box id="posts" sx={{ mt: 4 }}>
         <PostsSection animalId={animal.id} />
       </Box>
+
+      {/* Adoption dialog */}
+      <AdoptionDialog
+        open={adoptOpen}
+        onClose={() => setAdoptOpen(false)}
+        animalId={id}
+        onGranted={() => grantAccess(id)}
+      />
     </Container>
   )
 }

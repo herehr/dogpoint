@@ -5,7 +5,6 @@ import { AppBar, Toolbar, Button, Container, Stack } from '@mui/material'
 
 // Pages
 import HomePage from './pages/HomePage'
-import AnimalsPage from './pages/AnimalsPage'
 import AnimalDetail from './pages/AnimalDetail'            // ✅ detail page
 import AdminLogin from './pages/AdminLogin'
 import AdminDashboard from './pages/AdminDashboard'
@@ -27,7 +26,7 @@ function AppLayout() {
           <Container maxWidth="lg" sx={{ display: 'flex', justifyContent: 'space-between' }}>
             <Stack direction="row" spacing={1}>
               <Button component={Link} to="/" color="primary">Domů</Button>
-              <Button component={Link} to="/zvirata" color="primary">Zvířata</Button>
+              <Button component={Link} to="/#novinky" color="primary">Zvířata</Button>
               <Button component={Link} to="/admin/login" color="primary">Admin</Button>
               <Button component={Link} to="/moderator/login" color="primary">Moderátor</Button>
             </Stack>
@@ -55,7 +54,6 @@ export default function App() {
       <Route element={<AppLayout />}>
         {/* Public */}
         <Route path="/" element={<HomePage />} />
-        <Route path="/zvirata" element={<AnimalsPage />} />
         <Route path="/zvirata/:id" element={<AnimalDetail />} />   {/* ✅ needed for Home cards */}
 
         {/* Admin */}
