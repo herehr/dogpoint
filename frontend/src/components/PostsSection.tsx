@@ -27,6 +27,7 @@ export default function PostsSection({ animalId }: { animalId: string }) {
 
   async function refresh() {
     setErr(null)
+    setLoading(true) // ensure spinner is shown on subsequent refreshes
     try {
       const list = await listPostsPublic({ animalId })
       setPosts(list)
@@ -46,7 +47,7 @@ export default function PostsSection({ animalId }: { animalId: string }) {
     try {
       await createPost({ animalId, title: title.trim(), body: body.trim() })
       setTitle(''); setBody('')
-      refresh()
+      await refresh()
     } catch (e: any) {
       setErr(e?.message || 'Uložení selhalo')
     } finally {
@@ -62,6 +63,12 @@ export default function PostsSection({ animalId }: { animalId: string }) {
 
       {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
 
+      {!unlocked && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Příspěvky jsou viditelné po adopci. Dokončete adopci pro přístup k novinkám.
+        </Alert>
+      )}
+
       {loading ? (
         <Typography color="text.secondary">Načítám…</Typography>
       ) : posts.length === 0 ? (
@@ -69,10 +76,19 @@ export default function PostsSection({ animalId }: { animalId: string }) {
       ) : (
         <Stack spacing={1.5}>
           {posts.map(p => (
-            <Box key={p.id} sx={{ p: 1.5, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
+            <Box
+              key={p.id}
+              sx={{ p: 1.5, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}
+            >
               <Typography sx={{ fontWeight: 700 }}>{p.title}</Typography>
-              {p.body && <Typography color="text.secondary" sx={{ whiteSpace: 'pre-line' }}>{p.body}</Typography>}
-              <Typography variant="caption" color="text.secondary">{new Date(p.createdAt).toLocaleString()}</Typography>
+              {p.body && (
+                <Typography color="text.secondary" sx={{ whiteSpace: 'pre-line' }}>
+                  {p.body}
+                </Typography>
+              )}
+              <Typography variant="caption" color="text.secondary">
+                {new Date(p.createdAt).toLocaleString()}
+              </Typography>
             </Box>
           ))}
         </Stack>
@@ -82,9 +98,22 @@ export default function PostsSection({ animalId }: { animalId: string }) {
       {unlocked && (
         <Box component="form" onSubmit={onAdd} sx={{ mt: 2 }}>
           <Stack spacing={1}>
-            <TextField label="Titulek" value={title} onChange={e => setTitle(e.target.value)} required />
-            <TextField label="Text" value={body} onChange={e => setBody(e.target.value)} multiline minRows={2} />
-            <Button type="submit" variant="contained" disabled={saving}>{saving ? 'Ukládám…' : 'Přidat příspěvek'}</Button>
+            <TextField
+              label="Titulek"
+              value={title}
+              onChange={e => setTitle(e.target.value)}
+              required
+            />
+            <TextField
+              label="Text"
+              value={body}
+              onChange={e => setBody(e.target.value)}
+              multiline
+              minRows={2}
+            />
+            <Button type="submit" variant="contained" disabled={saving}>
+              {saving ? 'Ukládám…' : 'Přidat příspěvek'}
+            </Button>
           </Stack>
         </Box>
       )}
