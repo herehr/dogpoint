@@ -3,7 +3,7 @@ import React, { useEffect, useState, useMemo } from 'react'
 import { Link as RouterLink } from 'react-router-dom'
 import {
   Box, Container, Typography, Button, Stack, Grid, Card, CardContent, CardMedia,
-  Chip, Divider, Skeleton, Alert, Link
+  Chip, Divider, Skeleton, Alert, Link, Snackbar
 } from '@mui/material'
 import PetsIcon from '@mui/icons-material/Pets'
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward'
@@ -29,6 +29,7 @@ export default function HomePage() {
   const [animals, setAnimals] = useState<Animal[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [donateOpen, setDonateOpen] = useState(false)
 
   useEffect(() => {
     let mounted = true
@@ -134,6 +135,43 @@ export default function HomePage() {
             ))}
         </Grid>
       </Container>
+
+      {/* DONATE */}
+<Container maxWidth="lg" sx={{ py: { xs: 4, md: 6 } }}>
+  <Grid container spacing={4} alignItems="center">
+    <Grid item xs={12} md={7}>
+      <Typography variant="h5" sx={{ fontWeight: 800, mb: 1 }}>
+        Podpořte naši činnost
+      </Typography>
+      <Typography color="text.secondary" sx={{ mb: 2 }}>
+        Každá koruna zlepšuje život psům v naší péči. Děkujeme. ❤️
+      </Typography>
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+        <Button variant="contained" onClick={() => setDonateOpen(true)}>
+          Jednorázový dar
+        </Button>
+        <Button variant="outlined" onClick={() => setDonateOpen(true)}>
+          Pravidelná podpora
+        </Button>
+      </Stack>
+    </Grid>
+    <Grid item xs={12} md={5}>
+      <Card variant="outlined">
+        <CardContent>
+          <Typography sx={{ fontWeight: 700, mb: 1 }}>Transparentní účet</Typography>
+          <Typography color="text.secondary">Číslo účtu: 123456789/0100</Typography>
+        </CardContent>
+      </Card>
+    </Grid>
+  </Grid>
+</Container>
+
+<Snackbar
+  open={donateOpen}
+  autoHideDuration={3000}
+  onClose={() => setDonateOpen(false)}
+  message="Platební brána bude brzy implementována."
+/>
 
       {/* FOOTER MINI */}
       <Box sx={{ background: '#0e1320', color: '#fff', py: 5, mt: 4 }}>

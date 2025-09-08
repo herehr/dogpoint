@@ -139,7 +139,7 @@ export default function AnimalDetail() {
 
       {/* Adoption CTA (to unlock POSTS only) */}
       {!unlocked && (
-        <Box sx={{
+        <Box id="adopce" sx={{
           mt: 3, p: 2, border: '1px dashed', borderColor: 'divider',
           borderRadius: 2, background: '#fffef7'
         }}>
