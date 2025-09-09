@@ -3,6 +3,8 @@ import React, { useEffect, useState } from 'react'
 import { Alert, Box, Button, Stack, TextField, Typography } from '@mui/material'
 import { createPost, listPostsPublic } from '../services/api'
 import { useAccess } from '../context/AccessContext'
+import { useAuth } from '../context/AuthContext'
+import BlurBox from './BlurBox'
 
 type Post = {
   id: string
@@ -15,7 +17,8 @@ type Post = {
 
 export default function PostsSection({ animalId }: { animalId: string }) {
   const { hasAccess } = useAccess()
-  const unlocked = hasAccess(animalId)
+  const { role } = useAuth()
+  const unlocked = role === 'ADMIN' || role === 'MODERATOR' || hasAccess(animalId)
 
   const [posts, setPosts] = useState<Post[]>([])
   const [loading, setLoading] = useState(true)
@@ -27,7 +30,6 @@ export default function PostsSection({ animalId }: { animalId: string }) {
 
   async function refresh() {
     setErr(null)
-    setLoading(true) // ensure spinner is shown on subsequent refreshes
     try {
       const list = await listPostsPublic({ animalId })
       setPosts(list)
@@ -47,7 +49,7 @@ export default function PostsSection({ animalId }: { animalId: string }) {
     try {
       await createPost({ animalId, title: title.trim(), body: body.trim() })
       setTitle(''); setBody('')
-      await refresh()
+      refresh()
     } catch (e: any) {
       setErr(e?.message || 'Uložení selhalo')
     } finally {
@@ -63,57 +65,37 @@ export default function PostsSection({ animalId }: { animalId: string }) {
 
       {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
 
-      {!unlocked && (
-        <Alert severity="info" sx={{ mb: 2 }}>
-          Příspěvky jsou viditelné po adopci. Dokončete adopci pro přístup k novinkám.
-        </Alert>
-      )}
-
       {loading ? (
         <Typography color="text.secondary">Načítám…</Typography>
       ) : posts.length === 0 ? (
         <Typography color="text.secondary">Zatím žádné příspěvky.</Typography>
       ) : (
-        <Stack spacing={1.5}>
-          {posts.map(p => (
-            <Box
-              key={p.id}
-              sx={{ p: 1.5, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}
-            >
-              <Typography sx={{ fontWeight: 700 }}>{p.title}</Typography>
-              {p.body && (
-                <Typography color="text.secondary" sx={{ whiteSpace: 'pre-line' }}>
-                  {p.body}
-                </Typography>
-              )}
-              <Typography variant="caption" color="text.secondary">
-                {new Date(p.createdAt).toLocaleString()}
-              </Typography>
-            </Box>
-          ))}
-        </Stack>
+        <BlurBox blurred={!unlocked}>
+          <Stack spacing={1.5}>
+            {posts.map(p => (
+              <Box key={p.id} sx={{ p: 1.5, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
+                <Typography sx={{ fontWeight: 700 }}>{p.title}</Typography>
+                {p.body && <Typography color="text.secondary" sx={{ whiteSpace: 'pre-line' }}>{p.body}</Typography>}
+                <Typography variant="caption" color="text.secondary">{new Date(p.createdAt).toLocaleString()}</Typography>
+              </Box>
+            ))}
+          </Stack>
+        </BlurBox>
       )}
 
-      {/* Write form only after unlock */}
-      {unlocked && (
+      {!unlocked && (
+        <Alert severity="info" sx={{ mt: 2 }}>
+          Příspěvky jsou viditelné po adopci (administrátor a moderátor je vidí vždy).
+        </Alert>
+      )}
+
+      {/* Add form visible to Admin/Moderator or unlocked users */}
+      {(unlocked || role === 'ADMIN' || role === 'MODERATOR') && (
         <Box component="form" onSubmit={onAdd} sx={{ mt: 2 }}>
           <Stack spacing={1}>
-            <TextField
-              label="Titulek"
-              value={title}
-              onChange={e => setTitle(e.target.value)}
-              required
-            />
-            <TextField
-              label="Text"
-              value={body}
-              onChange={e => setBody(e.target.value)}
-              multiline
-              minRows={2}
-            />
-            <Button type="submit" variant="contained" disabled={saving}>
-              {saving ? 'Ukládám…' : 'Přidat příspěvek'}
-            </Button>
+            <TextField label="Titulek" value={title} onChange={e => setTitle(e.target.value)} required />
+            <TextField label="Text" value={body} onChange={e => setBody(e.target.value)} multiline minRows={2} />
+            <Button type="submit" variant="contained" disabled={saving}>{saving ? 'Ukládám…' : 'Přidat příspěvek'}</Button>
           </Stack>
         </Box>
       )}

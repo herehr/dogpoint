@@ -1,70 +1,77 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react'
+// frontend/src/context/AuthContext.tsx
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react'
+import { loginAdmin as apiLogin } from '../services/api'
 
-type Role = 'ADMIN' | 'MODERATOR' | 'USER' | null
-
-type AuthState = {
+// Types
+type Role = 'ADMIN' | 'MODERATOR' | 'USER'
+type AuthState = { token: string | null; role: Role | null; email?: string | null }
+type AuthCtx = {
   token: string | null
-  role: Role
-  userEmail: string | null
-}
-
-type AuthCtx = AuthState & {
-  login: (token: string, role?: Role, userEmail?: string | null) => void
+  role: Role | null
+  login: (email: string, password: string) => Promise<{ token: string; role: Role }>
   logout: () => void
 }
 
-const AuthContext = createContext<AuthCtx | undefined>(undefined)
+const AuthContext = createContext<AuthCtx>({
+  token: null, role: null,
+  login: async () => ({ token: '', role: 'USER' }),
+  logout: () => {},
+})
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [token, setToken] = useState<string | null>(null)
-  const [role, setRole] = useState<Role>(null)
-  const [userEmail, setUserEmail] = useState<string | null>(null)
+  const [token, setToken] = useState<string | null>(() => sessionStorage.getItem('accessToken'))
+  const [role, setRole] = useState<Role | null>(() => (sessionStorage.getItem('role') as Role | null) || null)
 
-  // hydrate from sessionStorage on first load
-  useEffect(() => {
-    try {
-      const t = sessionStorage.getItem('accessToken')
-      const r = sessionStorage.getItem('role') as Role | null
-      const e = sessionStorage.getItem('userEmail')
-      if (t) setToken(t)
-      if (r) setRole(r)
-      if (e) setUserEmail(e)
-    } catch {}
-  }, [])
+  // Inactivity auto-logout in 10 minutes
+  const IDLE_MS = 10 * 60 * 1000
+  const idleTimer = useRef<number | null>(null)
 
-  const value = useMemo<AuthCtx>(() => ({
-    token,
-    role,
-    userEmail,
-    login: (t, r = null, e = null) => {
-      setToken(t)
-      setRole(r ?? null)
-      setUserEmail(e ?? null)
-      try {
-        sessionStorage.setItem('accessToken', t)
-        if (r) sessionStorage.setItem('role', r)
-        else sessionStorage.removeItem('role')
-        if (e) sessionStorage.setItem('userEmail', e)
-        else sessionStorage.removeItem('userEmail')
-      } catch {}
-    },
-    logout: () => {
-      setToken(null)
-      setRole(null)
-      setUserEmail(null)
-      try {
-        sessionStorage.removeItem('accessToken')
-        sessionStorage.removeItem('role')
-        sessionStorage.removeItem('userEmail')
-      } catch {}
+  function bumpIdleTimer() {
+    if (idleTimer.current) window.clearTimeout(idleTimer.current)
+    if (token) {
+      idleTimer.current = window.setTimeout(() => {
+        // auto logout
+        logout()
+      }, IDLE_MS)
     }
-  }), [token, role, userEmail])
+  }
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+  useEffect(() => {
+    const events = ['mousemove', 'keydown', 'scroll', 'click', 'touchstart']
+    const handler = () => bumpIdleTimer()
+    events.forEach(ev => window.addEventListener(ev, handler, { passive: true }))
+    bumpIdleTimer()
+    return () => {
+      events.forEach(ev => window.removeEventListener(ev, handler))
+      if (idleTimer.current) window.clearTimeout(idleTimer.current)
+    }
+  }, [token])
+
+  async function login(email: string, password: string) {
+    const res = await apiLogin(email, password) // unified /api/auth/login
+    sessionStorage.setItem('accessToken', res.token)
+    sessionStorage.setItem('role', res.role || 'USER')
+    setToken(res.token)
+    setRole((res.role || 'USER') as Role)
+    bumpIdleTimer()
+    return { token: res.token, role: (res.role || 'USER') as Role }
+  }
+
+  function logout() {
+    sessionStorage.removeItem('accessToken')
+    sessionStorage.removeItem('role')
+    setToken(null)
+    setRole(null)
+    window.location.assign('/') // back to landing
+  }
+
+  return (
+    <AuthContext.Provider value={{ token, role, login, logout }}>
+      {children}
+    </AuthContext.Provider>
+  )
 }
 
-export function useAuth(): AuthCtx {
-  const ctx = useContext(AuthContext)
-  if (!ctx) throw new Error('useAuth must be used inside <AuthProvider>')
-  return ctx
+export function useAuth() {
+  return useContext(AuthContext)
 }

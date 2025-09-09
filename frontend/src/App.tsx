@@ -1,16 +1,20 @@
 // frontend/src/App.tsx
 import React from 'react'
-import { Routes, Route, Link, Outlet } from 'react-router-dom'
-import { AppBar, Toolbar, Button, Container, Stack } from '@mui/material'
+import { Routes, Route, Outlet, Navigate } from 'react-router-dom'
+import { Container, Button } from '@mui/material'
+
+import Header from './components/Header'
 
 // Pages
 import HomePage from './pages/HomePage'
-import AdminLogin from './pages/AdminLogin'
-import ModeratorLogin from './pages/ModeratorLogin'
+import AdminLogin from './pages/AdminLogin' // will be replaced by unified login below, but keep for now
 import AdminDashboard from './pages/AdminDashboard'
+import AdminModerators from './pages/AdminModerators'
+import ModeratorLogin from './pages/ModeratorLogin' // will be replaced by unified login below, but keep for now
 import ModeratorDashboard from './pages/ModeratorDashboard'
-import AnimalsManager from './pages/AnimalsManager' // admin & moderator manager
+import AnimalsManager from './pages/AnimalsManager'
 import AnimalDetail from './pages/AnimalDetail'
+import Login from './pages/Login' // NEW unified login
 
 // Guards
 import RequireModerator from './routes/RequireModerator'
@@ -19,39 +23,9 @@ import RequireAdmin from './routes/RequireAdmin'
 function AppLayout() {
   return (
     <>
-      <AppBar position="sticky" color="default" elevation={0}>
-        <Toolbar>
-          <Container
-            maxWidth="lg"
-            sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
-          >
-            {/* left side empty to keep it minimal */}
-            <span />
-
-            {/* right side: only one login entry */}
-            <Stack direction="row" spacing={1}>
-              <Button component={Link} to="/login" color="primary" variant="outlined">
-                Přihlásit
-              </Button>
-            </Stack>
-          </Container>
-        </Toolbar>
-      </AppBar>
+      <Header />
       <Outlet />
     </>
-  )
-}
-
-function LoginHub() {
-  // super simple: let user choose Admin or Moderator for now
-  return (
-    <Container maxWidth="sm" sx={{ py: 6 }}>
-      <h2>Přihlášení</h2>
-      <Stack direction="row" spacing={2} sx={{ mt: 2 }}>
-        <Button component={Link} to="/admin/login" variant="contained">Admin</Button>
-        <Button component={Link} to="/moderator/login" variant="outlined">Moderátor</Button>
-      </Stack>
-    </Container>
   )
 }
 
@@ -60,7 +34,7 @@ function NotFound() {
     <Container maxWidth="sm" sx={{ py: 8 }}>
       <h2>Stránka nenalezena (404)</h2>
       <p>Zkontrolujte adresu nebo přejděte na domovskou stránku.</p>
-      <Button component={Link} to="/" variant="contained">Zpět na domů</Button>
+      <Button href="/" variant="contained">Zpět na domů</Button>
     </Container>
   )
 }
@@ -72,15 +46,26 @@ export default function App() {
         {/* Public */}
         <Route path="/" element={<HomePage />} />
         <Route path="/zvirata/:id" element={<AnimalDetail />} />
-        <Route path="/login" element={<LoginHub />} />
+
+        {/* Unified Login */}
+        <Route path="/login" element={<Login />} />
+        <Route path="/admin/login" element={<Navigate to="/login" replace />} />
+        <Route path="/moderator/login" element={<Navigate to="/login" replace />} />
 
         {/* Admin */}
-        <Route path="/admin/login" element={<AdminLogin />} />
         <Route
           path="/admin"
           element={
             <RequireAdmin>
               <AdminDashboard />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/moderators"
+          element={
+            <RequireAdmin>
+              <AdminModerators />
             </RequireAdmin>
           }
         />
@@ -94,7 +79,6 @@ export default function App() {
         />
 
         {/* Moderator */}
-        <Route path="/moderator/login" element={<ModeratorLogin />} />
         <Route
           path="/moderator"
           element={
