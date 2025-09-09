@@ -104,7 +104,6 @@ export default function AnimalsManager() {
     setErr(null); setOk(null); setLoading(true)
     try {
       const cleanGallery = (form.galerie || []).filter(x => (x.url || '').trim() !== '')
-      // ensure main is part of gallery if there is gallery
       let main = form.main || null
       if (!main && cleanGallery.length) main = cleanGallery[0].url
 
@@ -149,7 +148,6 @@ export default function AnimalsManager() {
           ...(f.galerie || []),
           ...urls.map(raw => ({ url: `${raw}${raw.includes('?') ? '&' : '?'}v=${now}` }))
         ]
-        // if no main picked yet, set to first newly added
         const cleanMain = f.main || (urls[0] ? `${urls[0]}${urls[0].includes('?') ? '&' : '?'}v=${now}` : null)
         return { ...f, galerie: newGallery, main: cleanMain }
       })
@@ -188,7 +186,7 @@ export default function AnimalsManager() {
     const url = v.trim()
     if (!url) return
     setForm(f => {
-      const next = { ...(f.galerie || []), { url } }
+      const next = [ ...(f.galerie || []), { url: url } ]   // ✅ fixed
       const newMain = f.main || url
       return { ...f, galerie: next, main: newMain }
     })
@@ -303,7 +301,6 @@ export default function AnimalsManager() {
               <Stack spacing={1}>
                 <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>Galerie</Typography>
 
-                {/* Buttons: files + camera + add by URL */}
                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center">
                   <Button onClick={() => fileInputRef.current?.click()} startIcon={<UploadIcon />} variant="outlined">
                     Vybrat soubory
@@ -344,7 +341,6 @@ export default function AnimalsManager() {
                   />
                 </Stack>
 
-                {/* Drag & Drop area */}
                 <Box
                   onDrop={onDrop}
                   onDragOver={onDragOver}
@@ -370,7 +366,6 @@ export default function AnimalsManager() {
                   </Stack>
                 )}
 
-                {/* Thumbnails grid with MAIN selector */}
                 <Grid container spacing={1.5} sx={{ mt: 1 }}>
                   {(form.galerie || []).map((g, i) => {
                     const url = g.url
