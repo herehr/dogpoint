@@ -8,9 +8,12 @@
   },
   "scripts": {
     "dev": "ts-node-dev src/index.ts",
-    "build": "cross-env DATABASE_URL=postgresql://user:pass@localhost:5432/db prisma generate && tsc",
+    "build": "prisma generate && tsc",
     "start": "node dist/index.js",
-    "postinstall": "cross-env DATABASE_URL=postgresql://user:pass@localhost:5432/db prisma generate",
+    "postinstall": "prisma generate",
+    "migrate:deploy": "prisma migrate deploy",
+    "migrate:dev": "prisma migrate dev",
+    "db:push": "prisma db push",
     "reset-admin": "node scripts/resetAdmin.mjs"
   },
   "dependencies": {

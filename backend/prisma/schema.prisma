@@ -1,5 +1,4 @@
 // backend/prisma/schema.prisma
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -16,26 +15,35 @@ enum Role {
 }
 
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
+  id           String  @id @default(cuid())
+  email        String  @unique
   passwordHash String?
-  role         Role     @default(MODERATOR)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  role         Role    @default(MODERATOR)
+
+  // back-relations
+  posts Post[] // 👈 user can author posts (optional per post)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Animal {
-  id               String            @id @default(cuid())
-  name             String?
-  jmeno            String?
-  description      String?
-  popis            String?
-  active           Boolean           @default(true)
-  main             String? 
+  id          String  @id @default(cuid())
+  name        String?
+  jmeno       String?
+  description String?
+  popis       String?
+  active      Boolean @default(true)
+  main        String?
+
   galerie          GalerieMedia[]
   adoptionRequests AdoptionRequest[]
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
+
+  // back-relations
+  posts Post[] // 👈 posts related to the animal
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model GalerieMedia {
@@ -60,4 +68,37 @@ model AdoptionRequest {
   updatedAt DateTime @updatedAt
 
   @@index([animalId])
+}
+
+/**
+ * ---------- NEW: Posts with media ----------
+ */
+
+model Post {
+  id     String  @id @default(cuid())
+  title  String
+  body   String?
+  active Boolean @default(true)
+
+  // relations
+  animal   Animal @relation(fields: [animalId], references: [id], onDelete: Cascade)
+  animalId String
+
+  author   User?   @relation(fields: [authorId], references: [id])
+  authorId String?
+
+  media PostMedia[] // 👈 photos/videos attached to post
+
+  createdAt DateTime @default(now())
+
+  @@index([animalId])
+}
+
+model PostMedia {
+  id        String   @id @default(cuid())
+  url       String
+  typ       String   @default("image") // "image" | "video"
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  postId    String
+  createdAt DateTime @default(now())
 }
