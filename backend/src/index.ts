@@ -7,6 +7,7 @@ import authRoutes from './routes/auth';
 import uploadRoutes from './routes/upload';
 import adoptionRoutes from './routes/adoption';
 import { prisma } from './prisma';
+import postsRoutes from './routes/posts';
 
 
 dotenv.config();
@@ -27,6 +28,7 @@ app.use('/api/animals', animalRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/adoption', adoptionRoutes);
+app.use('/api/posts', postsRoutes);
 
 // Base
 app.get('/', (_req: Request, res: Response): void => {
