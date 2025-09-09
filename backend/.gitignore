@@ -1,12 +1,54 @@
+# Node.js
 node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+package-lock.json
+
+# Build outputs
 dist/
 build/
-.env
-.env.*
-!.env.example
+.cache/
+.tmp/
+
+# TypeScript
+*.tsbuildinfo
+
+# Logs
+logs/
 *.log
-prisma/dev.db
-prisma/dev.db-journal
+*.log.*
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Prisma
+backend/prisma/dev.db
+backend/prisma/dev.db-journal
+backend/prisma/migrations/dev/
+backend/prisma/migrations/test/
+
+# Database dumps & backups
+*.dump
+*.sql
+backup_*.dump
+
+# Frontend (Vite/React)
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/.cache/
+
+# MacOS
+.DS_Store
+
+# Editor settings
 .vscode/
 .idea/
-coverage/
+
+# Test / local folders
+curl/
+fotos/

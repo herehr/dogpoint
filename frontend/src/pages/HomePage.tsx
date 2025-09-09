@@ -3,16 +3,13 @@ import React, { useEffect, useState, useMemo } from 'react'
 import { Link as RouterLink } from 'react-router-dom'
 import {
   Box, Container, Typography, Button, Stack, Grid, Card, CardContent, CardMedia,
-  Chip, Divider, Skeleton, Alert, Link, Snackbar
+  Chip, Divider, Skeleton, Alert
 } from '@mui/material'
 import PetsIcon from '@mui/icons-material/Pets'
-import ArrowForwardIcon from '@mui/icons-material/ArrowForward'
 import FavoriteBorderIcon from '@mui/icons-material/FavoriteBorder'
 import InfoIcon from '@mui/icons-material/Info'
-
 import { fetchAnimals } from '../services/api'
 
-// Data contract (keeps this file self-contained; matches your shared types)
 type Media = { url: string; type?: 'image' | 'video' }
 type Animal = {
   id: string
@@ -29,7 +26,6 @@ export default function HomePage() {
   const [animals, setAnimals] = useState<Animal[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [donateOpen, setDonateOpen] = useState(false)
 
   useEffect(() => {
     let mounted = true
@@ -37,13 +33,11 @@ export default function HomePage() {
     fetchAnimals()
       .then((list: any[]) => {
         if (!mounted) return
-        // normalize a bit (main image fallback)
         const normalized = (list || []).map((a) => {
           const gal: Media[] = a?.galerie || a?.gallery || []
           const main = a?.main || gal?.[0]?.url || '/no-image.jpg'
           return { ...a, main, galerie: gal }
         })
-        // show only active on home
         setAnimals(normalized.filter((a: any) => a?.active !== false))
       })
       .catch((e: any) => {
@@ -58,7 +52,7 @@ export default function HomePage() {
 
   return (
     <Box>
-      {/* HERO (compact, mobile-first) */}
+      {/* HERO */}
       <Box sx={{ background: 'linear-gradient(135deg, #f6f8ff 0%, #fff 60%)', borderBottom: '1px solid #eef0f7' }}>
         <Container maxWidth="lg" sx={{ py: { xs: 5, md: 8 } }}>
           <Stack spacing={2}>
@@ -68,18 +62,15 @@ export default function HomePage() {
             <Typography color="text.secondary" sx={{ maxWidth: 720 }}>
               Prohlédněte si psy připravené k adopci. U každého najdete krátký popis, druh a věk.
             </Typography>
-           
           </Stack>
         </Container>
       </Box>
 
-      {/* LATEST LIST */}
-      <Container id="novinky" maxWidth="lg" sx={{ py: { xs: 4, md: 6 } }}>
-        <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
-          <Typography variant="h5" sx={{ fontWeight: 900 }}>
-            Zvířata k adopci
-          </Typography>
-        </Stack>
+      {/* LIST */}
+      <Container maxWidth="lg" sx={{ py: { xs: 4, md: 6 } }}>
+        <Typography variant="h5" sx={{ fontWeight: 900, mb: 2 }}>
+          Zvířata k adopci
+        </Typography>
 
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
@@ -115,84 +106,24 @@ export default function HomePage() {
         </Grid>
       </Container>
 
-      {/* DONATE */}
-<Container maxWidth="lg" sx={{ py: { xs: 4, md: 6 } }}>
-  <Grid container spacing={4} alignItems="center">
-    <Grid item xs={12} md={7}>
-      <Typography variant="h5" sx={{ fontWeight: 800, mb: 1 }}>
-        Podpořte naši činnost
-      </Typography>
-      <Typography color="text.secondary" sx={{ mb: 2 }}>
-        Každá koruna zlepšuje život psům v naší péči. Děkujeme. ❤️
-      </Typography>
-      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-        <Button variant="contained" onClick={() => setDonateOpen(true)}>
-          Jednorázový dar
-        </Button>
-        <Button variant="outlined" onClick={() => setDonateOpen(true)}>
-          Pravidelná podpora
-        </Button>
-      </Stack>
-    </Grid>
-    <Grid item xs={12} md={5}>
-      <Card variant="outlined">
-        <CardContent>
-          <Typography sx={{ fontWeight: 700, mb: 1 }}>Transparentní účet</Typography>
-          <Typography color="text.secondary">Číslo účtu: 123456789/0100</Typography>
-        </CardContent>
-      </Card>
-    </Grid>
-  </Grid>
-</Container>
-
-<Snackbar
-  open={donateOpen}
-  autoHideDuration={3000}
-  onClose={() => setDonateOpen(false)}
-  message="Platební brána bude brzy implementována."
-/>
-
       {/* FOOTER MINI */}
       <Box sx={{ background: '#0e1320', color: '#fff', py: 5, mt: 4 }}>
         <Container maxWidth="lg">
-          <Grid container spacing={3}>
-            <Grid item xs={12} md={6}>
-              <Typography variant="h6" sx={{ fontWeight: 800, mb: 1 }}>
-                Dogpoint
-              </Typography>
-              <Typography sx={{ opacity: 0.85 }}>
-                Pomáháme psům najít milující domov.
-              </Typography>
-            </Grid>
-            <Grid item xs={12} md={6} textAlign={{ xs: 'left', md: 'right' }}>
-              <Stack direction="row" spacing={3} sx={{ justifyContent: { xs: 'flex-start', md: 'flex-end' } }}>
-                <Link component={RouterLink} to="/zvirata" sx={{ color: '#fff' }}>Psy k adopci</Link>
-                <Link component={RouterLink} to="/admin/login" sx={{ color: '#fff' }}>Admin</Link>
-                <Link component={RouterLink} to="/moderator/login" sx={{ color: '#fff' }}>Moderátor</Link>
-              </Stack>
-              <Typography sx={{ mt: 1, opacity: 0.6 }}>
-                © {new Date().getFullYear()} Dogpoint
-              </Typography>
-            </Grid>
-          </Grid>
+          <Typography sx={{ opacity: 0.7 }}>
+            © {new Date().getFullYear()} Dogpoint
+          </Typography>
         </Container>
       </Box>
     </Box>
   )
 }
 
-/* =========
-   Card
-   ========= */
 function AnimalCard({ a }: { a: Animal }) {
   const kindLabel =
     a.druh === 'pes' ? 'Pes' :
     a.druh === 'kočka' ? 'Kočka' :
     a.druh ? 'Jiné' : '—'
-
   const ageLabel = a.vek || 'neuvedeno'
-
-  // description clamp (3 lines)
   const desc = a.popis || ''
 
   return (

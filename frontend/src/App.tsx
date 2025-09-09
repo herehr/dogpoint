@@ -1,19 +1,16 @@
 // frontend/src/App.tsx
 import React from 'react'
-import { Routes, Route, Link, Outlet, Navigate } from 'react-router-dom'
+import { Routes, Route, Link, Outlet } from 'react-router-dom'
 import { AppBar, Toolbar, Button, Container, Stack } from '@mui/material'
 
 // Pages
 import HomePage from './pages/HomePage'
-import AnimalsPage from './pages/AnimalsPage'
-import AnimalDetail from './pages/AnimalDetail'        // ✅ add
 import AdminLogin from './pages/AdminLogin'
-import AdminDashboard from './pages/AdminDashboard'
-import AdminModerators from './pages/AdminModerators'
 import ModeratorLogin from './pages/ModeratorLogin'
+import AdminDashboard from './pages/AdminDashboard'
 import ModeratorDashboard from './pages/ModeratorDashboard'
-import AnimalsManager from './pages/AnimalsManager'
-import UXPrototype from './prototypes/UXPrototype'
+import AnimalsManager from './pages/AnimalsManager' // admin & moderator manager
+import AnimalDetail from './pages/AnimalDetail'
 
 // Guards
 import RequireModerator from './routes/RequireModerator'
@@ -24,18 +21,37 @@ function AppLayout() {
     <>
       <AppBar position="sticky" color="default" elevation={0}>
         <Toolbar>
-          <Container maxWidth="lg" sx={{ display: 'flex', justifyContent: 'space-between' }}>
+          <Container
+            maxWidth="lg"
+            sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+          >
+            {/* left side empty to keep it minimal */}
+            <span />
+
+            {/* right side: only one login entry */}
             <Stack direction="row" spacing={1}>
-              <Button component={Link} to="/" color="primary">Domů</Button>
-              <Button component={Link} to="/zvirata" color="primary">Zvířata</Button>
-              <Button component={Link} to="/admin/login" color="primary">Admin</Button>
-              <Button component={Link} to="/moderator/login" color="primary">Moderátor</Button>
+              <Button component={Link} to="/login" color="primary" variant="outlined">
+                Přihlásit
+              </Button>
             </Stack>
           </Container>
         </Toolbar>
       </AppBar>
       <Outlet />
     </>
+  )
+}
+
+function LoginHub() {
+  // super simple: let user choose Admin or Moderator for now
+  return (
+    <Container maxWidth="sm" sx={{ py: 6 }}>
+      <h2>Přihlášení</h2>
+      <Stack direction="row" spacing={2} sx={{ mt: 2 }}>
+        <Button component={Link} to="/admin/login" variant="contained">Admin</Button>
+        <Button component={Link} to="/moderator/login" variant="outlined">Moderátor</Button>
+      </Stack>
+    </Container>
   )
 }
 
@@ -55,8 +71,8 @@ export default function App() {
       <Route element={<AppLayout />}>
         {/* Public */}
         <Route path="/" element={<HomePage />} />
-        <Route path="/zvirata" element={<AnimalsPage />} />
-        <Route path="/zvirata/:id" element={<AnimalDetail />} />   {/* ✅ detail route */}
+        <Route path="/zvirata/:id" element={<AnimalDetail />} />
+        <Route path="/login" element={<LoginHub />} />
 
         {/* Admin */}
         <Route path="/admin/login" element={<AdminLogin />} />
@@ -69,14 +85,6 @@ export default function App() {
           }
         />
         <Route
-          path="/admin/moderators"
-          element={
-            <RequireAdmin>
-              <AdminModerators />
-            </RequireAdmin>
-          }
-        />
-        <Route
           path="/admin/animals"
           element={
             <RequireAdmin>
@@ -84,7 +92,6 @@ export default function App() {
             </RequireAdmin>
           }
         />
-        <Route path="/admin-login" element={<Navigate to="/admin/login" replace />} />
 
         {/* Moderator */}
         <Route path="/moderator/login" element={<ModeratorLogin />} />
@@ -104,9 +111,6 @@ export default function App() {
             </RequireModerator>
           }
         />
-
-        {/* Prototype */}
-        <Route path="/proto/*" element={<UXPrototype />} />
 
         {/* Fallback */}
         <Route path="*" element={<NotFound />} />
