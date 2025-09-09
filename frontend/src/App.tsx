@@ -1,17 +1,19 @@
 // frontend/src/App.tsx
 import React from 'react'
 import { Routes, Route, Link, Outlet, Navigate } from 'react-router-dom'
-import { AppBar, Toolbar, Button, Container, Stack, Typography } from '@mui/material'
+import { AppBar, Toolbar, Button, Container, Stack } from '@mui/material'
 
 // Pages
 import HomePage from './pages/HomePage'
-import LoginPage from './pages/LoginPage'
-import AdminLogin from './pages/AdminLogin'            // kept for backward-compat (optional)
+import AnimalsPage from './pages/AnimalsPage'
+import AnimalDetail from './pages/AnimalDetail'        // ✅ add
+import AdminLogin from './pages/AdminLogin'
 import AdminDashboard from './pages/AdminDashboard'
 import AdminModerators from './pages/AdminModerators'
-import ModeratorLogin from './pages/ModeratorLogin'    // kept for backward-compat (optional)
+import ModeratorLogin from './pages/ModeratorLogin'
 import ModeratorDashboard from './pages/ModeratorDashboard'
 import AnimalsManager from './pages/AnimalsManager'
+import UXPrototype from './prototypes/UXPrototype'
 
 // Guards
 import RequireModerator from './routes/RequireModerator'
@@ -22,16 +24,12 @@ function AppLayout() {
     <>
       <AppBar position="sticky" color="default" elevation={0}>
         <Toolbar>
-          <Container maxWidth="lg" sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Button component={Link} to="/" color="inherit" sx={{ px: 0, minWidth: 0 }}>
-              <Typography variant="h6" sx={{ fontWeight: 900 }}>Dogpoint</Typography>
-            </Button>
-
-            {/* single Login on the right */}
+          <Container maxWidth="lg" sx={{ display: 'flex', justifyContent: 'space-between' }}>
             <Stack direction="row" spacing={1}>
-              <Button component={Link} to="/login" color="primary" variant="text">
-                Login
-              </Button>
+              <Button component={Link} to="/" color="primary">Domů</Button>
+              <Button component={Link} to="/zvirata" color="primary">Zvířata</Button>
+              <Button component={Link} to="/admin/login" color="primary">Admin</Button>
+              <Button component={Link} to="/moderator/login" color="primary">Moderátor</Button>
             </Stack>
           </Container>
         </Toolbar>
@@ -57,11 +55,11 @@ export default function App() {
       <Route element={<AppLayout />}>
         {/* Public */}
         <Route path="/" element={<HomePage />} />
-
-        {/* Unified Login (detects role and redirects) */}
-        <Route path="/login" element={<LoginPage />} />
+        <Route path="/zvirata" element={<AnimalsPage />} />
+        <Route path="/zvirata/:id" element={<AnimalDetail />} />   {/* ✅ detail route */}
 
         {/* Admin */}
+        <Route path="/admin/login" element={<AdminLogin />} />
         <Route
           path="/admin"
           element={
@@ -86,8 +84,10 @@ export default function App() {
             </RequireAdmin>
           }
         />
+        <Route path="/admin-login" element={<Navigate to="/admin/login" replace />} />
 
         {/* Moderator */}
+        <Route path="/moderator/login" element={<ModeratorLogin />} />
         <Route
           path="/moderator"
           element={
@@ -105,11 +105,8 @@ export default function App() {
           }
         />
 
-        {/* Old links → keep graceful redirects (optional) */}
-        <Route path="/admin/login" element={<Navigate to="/login" replace />} />
-        <Route path="/moderator/login" element={<Navigate to="/login" replace />} />
-        <Route path="/admin-login" element={<Navigate to="/login" replace />} />
-        <Route path="/zvirata" element={<Navigate to="/#novinky" replace />} />
+        {/* Prototype */}
+        <Route path="/proto/*" element={<UXPrototype />} />
 
         {/* Fallback */}
         <Route path="*" element={<NotFound />} />
