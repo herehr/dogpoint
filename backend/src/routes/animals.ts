@@ -68,7 +68,6 @@ router.post('/', requireAuth, async (req: Request, res: Response): Promise<void>
 
   try {
     const result = await prisma.$transaction(async (tx) => {
-      // 1) create animal without nested children
       const created = await tx.animal.create({
         data: {
           name: body.name ?? null,
@@ -76,14 +75,12 @@ router.post('/', requireAuth, async (req: Request, res: Response): Promise<void>
           description: body.description ?? null,
           popis: body.popis ?? null,
           active: body.active === undefined ? true : Boolean(body.active),
-          // If you have these columns:
+          main: requestedMain,
           // vek: body.vek ?? null,
           // druh: body.druh ?? null,
-          main: requestedMain, // can be null for now; we’ll set fallback after gallery
         },
       })
 
-      // 2) add gallery (if any)
       if (media.length) {
         await tx.galerieMedia.createMany({
           data: media.map((g) => ({
@@ -94,7 +91,6 @@ router.post('/', requireAuth, async (req: Request, res: Response): Promise<void>
         })
       }
 
-      // 3) if main is empty and we have media, set main to the first
       if (!requestedMain && media.length) {
         await tx.animal.update({
           where: { id: created.id },
@@ -102,7 +98,6 @@ router.post('/', requireAuth, async (req: Request, res: Response): Promise<void>
         })
       }
 
-      // 4) return full row with galerie
       const fresh = await tx.animal.findUnique({
         where: { id: created.id },
         include: { galerie: true },
@@ -114,7 +109,6 @@ router.post('/', requireAuth, async (req: Request, res: Response): Promise<void>
     if (!result) { res.status(500).json({ error: 'Create failed' }); return }
     res.status(201).json(result)
   } catch (e: any) {
-    // log Prisma details to DO logs for diagnosis
     console.error('POST /api/animals error:', {
       message: e?.message,
       code: e?.code,
@@ -126,7 +120,7 @@ router.post('/', requireAuth, async (req: Request, res: Response): Promise<void>
 })
 
 /* =========================
-   UPDATE  (replace gallery only if provided)
+   UPDATE (replace gallery only if provided)
    ========================= */
 
 router.patch('/:id', requireAuth, async (req: Request, res: Response): Promise<void> => {
@@ -155,13 +149,11 @@ router.patch('/:id', requireAuth, async (req: Request, res: Response): Promise<v
 
     if (willReplaceGallery) {
       const updated = await prisma.$transaction(async (tx) => {
-        // update base fields (including main if decided above)
         await tx.animal.update({
           where: { id },
           data: baseUpdate,
         })
 
-        // replace gallery
         await tx.galerieMedia.deleteMany({ where: { animalId: id } })
         if (media.length) {
           await tx.galerieMedia.createMany({
@@ -181,7 +173,6 @@ router.patch('/:id', requireAuth, async (req: Request, res: Response): Promise<v
       return
     }
 
-    // simple update (no gallery change)
     const updated = await prisma.animal.update({
       where: { id },
       data: baseUpdate,
