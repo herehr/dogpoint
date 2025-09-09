@@ -1,25 +1,18 @@
 // backend/src/routes/posts.ts
 import { Router, Request, Response } from 'express'
 import { prisma } from '../prisma'
-import { requireAuthOptional } from '../middleware/auth' // we’ll allow public GET
-import { requireAuth } from '../middleware/auth'         // POST needs auth (admin/mod)
+import { requireAuthOptional, AuthedRequest } from '../middleware/auth'
 
 const router = Router()
 
-// Health/ping
-router.get('/ping', (_req: Request, res: Response) => {
-  res.json({ ok: true, route: '/api/posts/*' })
-})
-
-// List public posts (optionally by animalId)
-router.get('/', requireAuthOptional, async (req: Request, res: Response) => {
+/**
+ * List posts (public). Optional filter by animalId: GET /api/posts?animalId=ID
+ */
+router.get('/', async (req: Request, res: Response): Promise<void> => {
   try {
-    const animalId = req.query.animalId ? String(req.query.animalId) : undefined
+    const { animalId } = req.query as { animalId?: string }
     const posts = await prisma.post.findMany({
-      where: {
-        active: true,
-        ...(animalId ? { animalId } : {}),
-      },
+      where: animalId ? { animalId } : undefined,
       orderBy: { createdAt: 'desc' },
       include: { media: true },
     })
@@ -30,36 +23,45 @@ router.get('/', requireAuthOptional, async (req: Request, res: Response) => {
   }
 })
 
-// Create a post (admin/moderator)
-router.post('/', requireAuth, async (req: Request, res: Response) => {
+/**
+ * Create a post (author optional).
+ * Body: { animalId: string, title: string, body?: string, media?: Array<{url:string, typ?: "image"|"video"}> }
+ */
+router.post('/', requireAuthOptional, async (req: Request, res: Response): Promise<void> => {
   try {
-    const { animalId, title, body, media } = (req.body || {}) as {
+    const body = (req.body || {}) as {
       animalId?: string
       title?: string
       body?: string
-      media?: Array<{ url: string; typ?: string }> | string[]
+      media?: Array<{ url?: string; typ?: string }> | string[]
     }
 
-    if (!animalId) { res.status(400).json({ error: 'animalId required' }); return }
-    if (!title?.trim()) { res.status(400).json({ error: 'title required' }); return }
+    if (!body.animalId || !body.title) {
+      res.status(400).json({ error: 'animalId and title are required' })
+      return
+    }
 
-    const normalizedMedia =
-      Array.isArray(media)
-        ? media
-            .map((m) => (typeof m === 'string' ? { url: m, typ: 'image' } : { url: m?.url, typ: m?.typ ?? 'image' }))
-            .filter((m) => !!m.url)
+    // Normalize media
+    const mediaItems =
+      Array.isArray(body.media)
+        ? body.media
+            .map((m) => (typeof m === 'string' ? { url: m } : { url: m?.url, typ: m?.typ }))
+            .filter((m): m is { url: string; typ?: string } => !!m.url)
+            .map((m) => ({ url: m.url, typ: m.typ ?? 'image' }))
         : []
+
+    const authed = req as AuthedRequest
+    const authorId = authed.user?.sub || null
 
     const created = await prisma.post.create({
       data: {
-        animalId,
-        title: title.trim(),
-        body: body?.trim() ?? null,
+        animalId: body.animalId,
+        title: body.title,
+        body: body.body ?? null,
         active: true,
-        media: normalizedMedia.length
-          ? {
-              create: normalizedMedia.map((m) => ({ url: m.url, typ: m.typ ?? 'image' })),
-            }
+        authorId: authorId ?? undefined,
+        media: mediaItems.length
+          ? { create: mediaItems.map((m) => ({ url: m.url, typ: m.typ ?? 'image' })) }
           : undefined,
       },
       include: { media: true },
