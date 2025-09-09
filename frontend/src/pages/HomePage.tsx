@@ -68,25 +68,7 @@ export default function HomePage() {
             <Typography color="text.secondary" sx={{ maxWidth: 720 }}>
               Prohlédněte si psy připravené k adopci. U každého najdete krátký popis, druh a věk.
             </Typography>
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
-              <Button
-                component={RouterLink}
-                to="/zvirata"
-                size="large"
-                variant="contained"
-                startIcon={<PetsIcon />}
-              >
-                Zobrazit všechny psy
-              </Button>
-              <Button
-                href="#novinky"
-                size="large"
-                variant="outlined"
-                endIcon={<ArrowForwardIcon />}
-              >
-                Nově v nabídce
-              </Button>
-            </Stack>
+           
           </Stack>
         </Container>
       </Box>
@@ -97,9 +79,6 @@ export default function HomePage() {
           <Typography variant="h5" sx={{ fontWeight: 900 }}>
             Zvířata k adopci
           </Typography>
-          <Button component={RouterLink} to="/zvirata" endIcon={<ArrowForwardIcon />}>
-            Všechny nabídky
-          </Button>
         </Stack>
 
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
