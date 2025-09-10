@@ -1,7 +1,7 @@
 // backend/src/index.ts
 import express, { Request, Response, NextFunction } from 'express'
 import dotenv from 'dotenv'
-import cors from 'cors'
+import cors, { CorsOptions } from 'cors'
 import adminModeratorsRoutes from './routes/adminModerators'
 import animalRoutes from './routes/animals'
 import authRoutes from './routes/auth'
@@ -16,7 +16,6 @@ const app = express()
 
 /* ---------- Basic hardening / parsing ---------- */
 app.set('trust proxy', true)
-// large enough to accept rich posts if needed (media uploads are multipart via /upload)
 app.use(express.json({ limit: '1mb' }))
 app.use(express.urlencoded({ extended: true }))
 
@@ -26,28 +25,23 @@ const envAllowed = (process.env.CORS_ORIGINS || '')
   .map(s => s.trim())
   .filter(Boolean)
 
-const allowedOrigins = [
-  // local dev
+const allowedOrigins = new Set<string>([
   'http://localhost:5173',
-  // your DO frontend
   'https://dogpoint-frontend-eoikq.ondigitalocean.app',
-  // your GH pages (if used)
   'https://herehr.github.io',
-  // optional extra origins via env CORS_ORIGINS
   ...envAllowed,
-]
+])
 
-app.use(
-  cors({
-    origin: (origin, cb) => {
-      // allow mobile apps / curl (no origin)
-      if (!origin) return cb(null, true)
-      if (allowedOrigins.includes(origin)) return cb(null, true)
-      return cb(new Error('CORS: origin not allowed'))
-    },
-    credentials: true,
-  })
-)
+const corsOptions: CorsOptions = {
+  origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+    // allow requests without Origin header (mobile apps, curl, server-to-server)
+    if (!origin) return callback(null, true)
+    if (allowedOrigins.has(origin)) return callback(null, true)
+    return callback(new Error('CORS: origin not allowed'))
+  },
+  credentials: true,
+}
+app.use(cors(corsOptions))
 
 /* ---------- Health & base ---------- */
 app.get('/', (_req: Request, res: Response) => {
