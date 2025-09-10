@@ -13,11 +13,13 @@ import PhotoCameraIcon from '@mui/icons-material/PhotoCamera'
 import StarIcon from '@mui/icons-material/Star'
 import StarBorderIcon from '@mui/icons-material/StarBorder'
 import LogoutIcon from '@mui/icons-material/Logout'
+import PostAddIcon from '@mui/icons-material/PostAdd'
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import { useNavigate } from 'react-router-dom'
 
 import {
   fetchAnimals, type Animal, createAnimal, updateAnimal, deleteAnimal,
-  uploadMediaMany, logout as apiLogout
+  uploadMediaMany, logout as apiLogout, createPost
 } from '../services/api'
 
 type FormAnimal = {
@@ -29,27 +31,43 @@ type FormAnimal = {
   galerie?: { url: string }[]
 }
 
+type PostMedia = { url: string; type?: 'image' | 'video' }
+
+const EMOJIS = ['🐾','❤️','😊','🥰','👏','🎉','😍','🤗','🌟','👍']
+
 export default function AnimalsManager() {
   const [rows, setRows] = useState<Animal[]>([])
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [ok, setOk] = useState<string | null>(null)
 
-  // Dialog state
+  // Dialog: animal create/edit
   const [open, setOpen] = useState(false)
   const [form, setForm] = useState<FormAnimal>({
     jmeno: '', popis: '', active: true, galerie: [], main: null
   })
   const isEdit = useMemo(() => !!form.id, [form.id])
 
-  // Upload state (dialog)
+  // Upload state (animal dialog)
   const [uploading, setUploading] = useState(false)
   const [uploadNote, setUploadNote] = useState<string>('')
-
   const fileInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
 
   const navigate = useNavigate()
+
+  // Post composer dialog
+  const [postOpen, setPostOpen] = useState(false)
+  const [postAnimalId, setPostAnimalId] = useState<string | null>(null)
+  const [postTitle, setPostTitle] = useState('')
+  const [postBody, setPostBody] = useState('')
+  const [postMedia, setPostMedia] = useState<PostMedia[]>([])
+  const [postSaving, setPostSaving] = useState(false)
+  const [postUploading, setPostUploading] = useState(false)
+  const [postUploadNote, setPostUploadNote] = useState('')
+
+  const postFileRef = useRef<HTMLInputElement>(null)
+  const postCameraRef = useRef<HTMLInputElement>(null)
 
   async function refresh() {
     setErr(null)
@@ -131,7 +149,7 @@ export default function AnimalsManager() {
     }
   }
 
-  /* ---------- Upload helpers (dialog) ---------- */
+  /* ---------- Upload helpers (animal dialog) ---------- */
 
   async function handleFiles(files: FileList | File[]) {
     const arr = Array.from(files).filter(f => f && f.size > 0)
@@ -186,7 +204,7 @@ export default function AnimalsManager() {
     const url = v.trim()
     if (!url) return
     setForm(f => {
-      const next = [ ...(f.galerie || []), { url: url } ]   // ✅ fixed
+      const next = [ ...(f.galerie || []), { url: url } ]
       const newMain = f.main || url
       return { ...f, galerie: next, main: newMain }
     })
@@ -206,6 +224,98 @@ export default function AnimalsManager() {
 
   function setMain(url: string) {
     setForm(f => ({ ...f, main: url }))
+  }
+
+  /* ---------- Posts: open composer for an animal ---------- */
+
+  function openPostFor(animalId: string) {
+    setPostAnimalId(animalId)
+    setPostTitle('')
+    setPostBody('')
+    setPostMedia([])
+    setPostOpen(true)
+  }
+
+  function closePost() {
+    setPostOpen(false)
+    setPostAnimalId(null)
+    setPostTitle('')
+    setPostBody('')
+    setPostMedia([])
+    setPostUploading(false)
+    setPostUploadNote('')
+  }
+
+  function addPostEmoji(emoji: string) {
+    setPostBody(prev => (prev ? prev + ' ' + emoji : emoji))
+  }
+
+  async function postHandleFiles(files: FileList | File[]) {
+    const arr = Array.from(files).filter(f => f && f.size > 0)
+    if (arr.length === 0) return
+    setPostUploading(true)
+    setErr(null)
+    try {
+      const urls = await uploadMediaMany(arr, (index, total) => {
+        setPostUploadNote(`Nahrávám ${index + 1} / ${total}…`)
+      })
+      const now = Date.now()
+      setPostMedia(cur => ([
+        ...cur,
+        ...urls.map(u => ({
+          url: `${u}${u.includes('?') ? '&' : '?'}v=${now}`,
+          type: guessTypeFromUrl(u)
+        }))
+      ]))
+    } catch (e: any) {
+      setErr(e?.message || 'Nahrání selhalo')
+    } finally {
+      setPostUploading(false)
+      setPostUploadNote('')
+    }
+  }
+
+  function postPickFiles(e: React.ChangeEvent<HTMLInputElement>) {
+    if (e.target.files) postHandleFiles(e.target.files)
+    e.target.value = ''
+  }
+  function postPickCamera(e: React.ChangeEvent<HTMLInputElement>) {
+    if (e.target.files) postHandleFiles(e.target.files)
+    e.target.value = ''
+  }
+  function postDrop(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault()
+    e.stopPropagation()
+    const files = e.dataTransfer?.files
+    if (files && files.length) postHandleFiles(files)
+  }
+  function postDragOver(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault()
+    e.stopPropagation()
+  }
+  function removePostMedia(i: number) {
+    setPostMedia(list => list.filter((_, idx) => idx !== i))
+  }
+
+  async function submitPost(e: React.FormEvent) {
+    e.preventDefault()
+    if (!postAnimalId) return
+    if (!postTitle.trim() && !postBody.trim() && postMedia.length === 0) return
+    setPostSaving(true); setErr(null)
+    try {
+      await createPost({
+        animalId: postAnimalId,
+        title: postTitle.trim() || 'Bez názvu',
+        body: postBody.trim() || undefined,
+        media: postMedia.length ? postMedia : undefined
+      })
+      setOk('Příspěvek uložen')
+      closePost()
+    } catch (e: any) {
+      setErr(e?.message || 'Uložení příspěvku selhalo')
+    } finally {
+      setPostSaving(false)
+    }
   }
 
   /* ---------- Render ---------- */
@@ -248,8 +358,15 @@ export default function AnimalsManager() {
                   </Typography>
                 </CardContent>
                 <CardActions sx={{ justifyContent: 'space-between' }}>
-                  <IconButton size="small" onClick={() => editAnimal(a)} title="Upravit"><EditIcon fontSize="small" /></IconButton>
-                  <IconButton size="small" color="error" onClick={() => removeAnimal(a.id)} title="Smazat"><DeleteIcon fontSize="small" /></IconButton>
+                  <Tooltip title="Přidat příspěvek">
+                    <IconButton size="small" onClick={() => openPostFor(a.id)}>
+                      <PostAddIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                  <span>
+                    <IconButton size="small" onClick={() => editAnimal(a)} title="Upravit"><EditIcon fontSize="small" /></IconButton>
+                    <IconButton size="small" color="error" onClick={() => removeAnimal(a.id)} title="Smazat"><DeleteIcon fontSize="small" /></IconButton>
+                  </span>
                 </CardActions>
               </Card>
             </Grid>
@@ -264,7 +381,7 @@ export default function AnimalsManager() {
         )}
       </Grid>
 
-      {/* Create/Edit dialog */}
+      {/* Create/Edit animal dialog */}
       <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="md">
         <DialogTitle>{isEdit ? 'Upravit zvíře' : 'Přidat zvíře'}</DialogTitle>
         <form onSubmit={onSubmit}>
@@ -415,6 +532,123 @@ export default function AnimalsManager() {
           </DialogActions>
         </form>
       </Dialog>
+
+      {/* Create Post dialog */}
+      <Dialog open={postOpen} onClose={closePost} fullWidth maxWidth="md">
+        <DialogTitle>Přidat příspěvek</DialogTitle>
+        <form onSubmit={submitPost}>
+          <DialogContent>
+            <Stack spacing={2}>
+              <TextField
+                label="Titulek"
+                value={postTitle}
+                onChange={e => setPostTitle(e.target.value)}
+              />
+              <TextField
+                label="Text"
+                value={postBody}
+                onChange={e => setPostBody(e.target.value)}
+                multiline
+                minRows={3}
+              />
+
+              {/* Emoji bar */}
+              <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', mb: 1 }}>
+                {EMOJIS.map(emo => (
+                  <Button key={emo} size="small" variant="text" onClick={() => addPostEmoji(emo)} sx={{ minWidth: 36 }}>
+                    {emo}
+                  </Button>
+                ))}
+              </Stack>
+
+              {/* Media uploader */}
+              <Stack spacing={1}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>Fotky / Videa</Typography>
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center">
+                  <Button onClick={() => postFileRef.current?.click()} startIcon={<UploadIcon />} variant="outlined">
+                    Vybrat soubory
+                  </Button>
+                  <input
+                    ref={postFileRef}
+                    type="file"
+                    hidden
+                    multiple
+                    accept="image/*,video/*"
+                    onChange={postPickFiles}
+                  />
+                  <Button onClick={() => postCameraRef.current?.click()} startIcon={<PhotoCameraIcon />} variant="outlined">
+                    Vyfotit (telefon)
+                  </Button>
+                  <input
+                    ref={postCameraRef}
+                    type="file"
+                    hidden
+                    accept="image/*"
+                    capture="environment"
+                    onChange={postPickCamera}
+                  />
+                </Stack>
+
+                <Box
+                  onDrop={postDrop}
+                  onDragOver={postDragOver}
+                  sx={{
+                    mt: 1,
+                    p: 2,
+                    border: '2px dashed',
+                    borderColor: 'divider',
+                    borderRadius: 2,
+                    textAlign: 'center',
+                    color: 'text.secondary',
+                    cursor: 'copy',
+                    userSelect: 'none'
+                  }}
+                >
+                  Přetáhněte sem fotografie nebo videa
+                </Box>
+
+                {postUploading && (
+                  <Stack spacing={1} sx={{ mt: 1 }}>
+                    <LinearProgress />
+                    <Typography variant="caption" color="text.secondary">{postUploadNote}</Typography>
+                  </Stack>
+                )}
+
+                {postMedia.length > 0 && (
+                  <Grid container spacing={1.5} sx={{ mt: 0.5 }}>
+                    {postMedia.map((m, i) => (
+                      <Grid item xs={6} sm={4} md={3} key={`${m.url}-${i}`}>
+                        <Box sx={{ position: 'relative', border: '1px solid', borderColor: 'divider', borderRadius: 2, overflow: 'hidden' }}>
+                          <img
+                            src={m.url}
+                            alt={`post-media-${i}`}
+                            style={{ width: '100%', height: 140, objectFit: 'cover', display: 'block' }}
+                          />
+                          <Tooltip title="Odebrat">
+                            <IconButton
+                              size="small"
+                              onClick={() => removePostMedia(i)}
+                              sx={{ position: 'absolute', top: 6, right: 6, bgcolor: 'rgba(255,255,255,0.9)' }}
+                            >
+                              <DeleteOutlineIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        </Box>
+                      </Grid>
+                    ))}
+                  </Grid>
+                )}
+              </Stack>
+            </Stack>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={closePost}>Zrušit</Button>
+            <Button type="submit" variant="contained" disabled={postSaving || postUploading || !postAnimalId}>
+              {postSaving ? 'Ukládám…' : 'Vytvořit příspěvek'}
+            </Button>
+          </DialogActions>
+        </form>
+      </Dialog>
     </Container>
   )
 }
@@ -424,4 +658,11 @@ function stripCache(url?: string | null): string {
   if (!url) return ''
   const [u] = url.split('?')
   return u
+}
+
+function guessTypeFromUrl(u: string): 'image' | 'video' | undefined {
+  const lc = u.toLowerCase()
+  if (/\.(mp4|webm|mov|m4v)(\?|$)/.test(lc)) return 'video'
+  if (/\.(jpg|jpeg|png|gif|webp|avif)(\?|$)/.test(lc)) return 'image'
+  return undefined
 }
