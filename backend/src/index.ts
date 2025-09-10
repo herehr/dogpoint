@@ -2,6 +2,7 @@
 import express, { Request, Response, NextFunction } from 'express'
 import dotenv from 'dotenv'
 import cors from 'cors'
+import cors, { CorsOptions } from 'cors'
 
 import adminModeratorsRoutes from './routes/adminModerators'
 import animalRoutes from './routes/animals'
