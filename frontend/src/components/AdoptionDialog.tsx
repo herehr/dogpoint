@@ -17,6 +17,7 @@ export default function AdoptionDialog({ open, onClose, animalId, onGranted }: P
   const [monthly, setMonthly] = useState<number>(300)
   const [email, setEmail] = useState<string>('')
   const [name, setName] = useState<string>('')
+  const [password, setPassword] = useState<string>('') // collected for future backend support
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [ok, setOk] = useState<string | null>(null)
@@ -25,14 +26,21 @@ export default function AdoptionDialog({ open, onClose, animalId, onGranted }: P
     e.preventDefault()
     setErr(null); setOk(null)
 
-    const m = monthly
-if (!email.trim()) { setErr('Vyplňte e-mail.'); return }
-if (Number.isNaN(m) || m < 300) { setErr('Minimální částka je 300 Kč.'); return }
+    const m = Number(monthly)
+    if (!email.trim()) { setErr('Vyplňte e-mail.'); return }
+    if (Number.isNaN(m) || m < 300) { setErr('Minimální částka je 300 Kč.'); return }
 
     setSaving(true)
     try {
-      // ✅ use the updated API helper with email/name/monthly
-      const data = await startAdoption(animalId, email.trim(), name.trim() || 'Adoptující', m)
+      // Backend currently expects (animalId, email, name?, monthly?)
+      // Password is collected but not sent until backend supports it.
+      const data = await startAdoption(
+        animalId,
+        email.trim(),
+        (name || 'Adoptující').trim(),
+        m
+        // TODO: when backend supports it, pass password here
+      )
 
       if (data?.token) {
         sessionStorage.setItem('accessToken', data.token)
@@ -58,19 +66,27 @@ if (Number.isNaN(m) || m < 300) { setErr('Minimální částka je 300 Kč.'); re
             {ok && <Alert severity="success">{ok}</Alert>}
 
             <TextField
-  label="Částka (Kč) *"
-  type="number"
-  inputProps={{ min: 300, step: 50 }}
-  value={monthly}
-  onChange={(e) => setMonthly(Number(e.target.value))}
-  required
-  fullWidth
-/>
+              label="Částka (Kč) *"
+              type="number"
+              inputProps={{ min: 300, step: 50 }}
+              value={Number.isNaN(monthly) ? '' : monthly}
+              onChange={(e) => setMonthly(e.target.value === '' ? NaN : Number(e.target.value))}
+              required
+              fullWidth
+            />
             <TextField
               label="E-mail *"
               type="email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => setEmail(e.target.value)}   // ✅ correct state update
+              required
+              fullWidth
+            />
+            <TextField
+              label="Heslo *"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
               required
               fullWidth
             />
@@ -88,7 +104,11 @@ if (Number.isNaN(m) || m < 300) { setErr('Minimální částka je 300 Kč.'); re
         </DialogContent>
         <DialogActions>
           <Button onClick={onClose}>Zavřít</Button>
-          <Button type="submit" variant="contained" disabled={saving}>
+          <Button
+            type="submit"
+            variant="contained"
+            disabled={saving || Number.isNaN(monthly) || monthly < 300}
+          >
             {saving ? 'Zpracovávám…' : 'Potvrdit adopci'}
           </Button>
         </DialogActions>

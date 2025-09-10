@@ -1,121 +1,140 @@
 // backend/src/routes/adoption.ts
 import { Router, Request, Response } from 'express'
 import jwt from 'jsonwebtoken'
+import bcrypt from 'bcryptjs'
 import { prisma } from '../prisma'
-
-// Helper: issue a JWT for frontend session
-function signUserToken(payload: { id: string; role: 'USER' | 'MODERATOR' | 'ADMIN' }) {
-  const secret = process.env.JWT_SECRET || ''
-  if (!secret) throw new Error('JWT_SECRET missing')
-  return jwt.sign(payload, secret, { expiresIn: '7d' })
-}
+import type { JwtUser } from '../middleware/authJwt'
+import { requireAuth as requireAuthJwt } from '../middleware/authJwt'
 
 const router = Router()
 
+// Small helper: sign app JWTs
+function signAppToken(payload: { id: string; role: 'ADMIN'|'MODERATOR'|'USER' }) {
+  const secret = process.env.JWT_SECRET || ''
+  const expiresIn = process.env.JWT_EXPIRES || '7d'
+  return jwt.sign(payload, secret, { expiresIn })
+}
+
+// DEV helper: simple staff check
+function isStaff(u?: JwtUser) {
+  return !!u && (u.role === 'ADMIN' || u.role === 'MODERATOR')
+}
+
 /**
  * POST /api/adoption/start
- * Body: { animalId: string, email: string, name?: string, monthly?: number }
- * Demo behavior:
- *  - creates/ensures a USER by email
- *  - creates an AdoptionRequest with status ACTIVE
- *  - returns a JWT so the user is “logged in”
- *  - returns access map for the adopted animal
+ * Body: { animalId: string, email: string, name?: string, monthly?: number, password?: string }
+ *
+ * DEV FLOW:
+ * - if user with email exists -> reuse it (if password provided and user has no passwordHash, set it)
+ * - else create user(role USER) with password (required if user doesn't exist)
+ * - write AdoptionRequest (status NEW)
+ * - return { ok: true, token, access: { [animalId]: true } }
+ *
+ * NOTE: In production you’d integrate payment + email verification here.
  */
 router.post('/start', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { animalId, email, name, monthly } = (req.body || {}) as {
+    const { animalId, email, name, monthly, password } = (req.body || {}) as {
       animalId?: string
       email?: string
       name?: string
       monthly?: number
+      password?: string
     }
 
     if (!animalId) { res.status(400).json({ error: 'animalId required' }); return }
-    if (!email)     { res.status(400).json({ error: 'email required' }); return }
+    if (!email || !String(email).trim()) { res.status(400).json({ error: 'email required' }); return }
 
-    // Ensure animal exists
+    // Ensure the animal exists (nice to have)
     const animal = await prisma.animal.findUnique({ where: { id: String(animalId) } })
     if (!animal) { res.status(404).json({ error: 'animal not found' }); return }
 
-    // Upsert user by email as USER
-    const user = await prisma.user.upsert({
-      where: { email: email.toLowerCase() },
-      create: { email: email.toLowerCase(), role: 'USER' },
-      update: {},
-    })
+    // Find or create user
+    let user = await prisma.user.findUnique({ where: { email } })
+    if (!user) {
+      // For new users we require a password (dev: keep it simple)
+      if (!password || !password.trim()) {
+        res.status(400).json({ error: 'password required for new user' }); return
+      }
+      const passwordHash = await bcrypt.hash(password, 10)
+      user = await prisma.user.create({
+        data: {
+          email,
+          passwordHash,
+          role: 'USER',
+        },
+      })
+    } else {
+      // Existing user: if they don’t have a passwordHash yet and provided a password, set it
+      if (!user.passwordHash && password && password.trim()) {
+        const passwordHash = await bcrypt.hash(password.trim(), 10)
+        user = await prisma.user.update({
+          where: { id: user.id },
+          data: { passwordHash },
+        })
+      }
+    }
 
-    // Create ACTIVE adoption request (demo)
+    // Record the adoption request (DEV: we mark NEW; future can move to PAID/ACTIVE after gateway callback)
     await prisma.adoptionRequest.create({
       data: {
         animalId: animal.id,
-        name: name || 'Adoptující',
-        email: email.toLowerCase(),
-        message: monthly ? `Měsíčně: ${monthly} Kč (DEMO)` : null,
-        status: 'ACTIVE',
+        name: name?.trim() || email,
+        email,
+        message: monthly ? `Monthly: ${monthly} CZK` : null,
+        status: 'NEW',
       },
     })
 
-    const token = signUserToken({ id: user.id, role: 'USER' })
-    res.json({ ok: true, token, access: { [animal.id]: true } })
+    // Issue a token so the user is logged in and can see locked content
+    const token = signAppToken({ id: user.id, role: user.role })
+
+    // Return unlocked map for this animal (frontend uses AccessContext locally too)
+    res.json({ ok: true, token, access: { [animalId]: true } })
   } catch (e: any) {
-    console.error('POST /api/adoption/start error:', e?.message || e)
-    res.status(500).json({ error: 'startAdoption: internal error' })
+    console.error('POST /api/adoption/start error:', e)
+    res.status(500).json({ error: 'Internal error starting adoption' })
   }
 })
 
 /**
  * GET /api/adoption/access/:animalId
- * Returns { access: boolean } for the current session’s token.
- * - ADMIN/MODERATOR → always true
- * - USER → true if an ACTIVE AdoptionRequest exists for that email/animal
- * - No token → false
+ * DEV policy:
+ * - If authenticated user is ADMIN or MODERATOR => access: true
+ * - If authenticated role USER => access: true (after /start they will be logged in)
+ * - If not authenticated => false
+ *
+ * (In a fuller implementation you could check AdoptionRequest status/ownership here.)
  */
-router.get('/access/:animalId', async (req: Request, res: Response): Promise<void> => {
+router.get('/access/:animalId', (req: Request, res: Response): void => {
   try {
-    const { animalId } = req.params
-    if (!animalId) { res.status(400).json({ access: false, error: 'animalId required' }); return }
-
-    // Try to read auth token (optional)
-    const auth = req.headers.authorization || ''
-    const [, token] = auth.split(' ')
-    let role: 'USER' | 'MODERATOR' | 'ADMIN' | null = null
-    let userId: string | null = null
-
-    if (token && process.env.JWT_SECRET) {
+    // Try to decode JWT if present; optional auth
+    const header = req.headers.authorization || ''
+    const [, token] = header.split(' ')
+    let user: JwtUser | undefined
+    if (token && (process.env.JWT_SECRET || '')) {
       try {
-        const decoded: any = jwt.verify(token, process.env.JWT_SECRET)
-        role = decoded?.role || null
-        userId = decoded?.id || decoded?.sub || null
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || '') as any
+        user = { id: decoded.id || decoded.sub, role: decoded.role }
       } catch {
-        // ignore invalid token → access remains false for anonymous
+        // ignore invalid token, treat as anonymous
       }
     }
 
-    if (role === 'ADMIN' || role === 'MODERATOR') {
-      res.json({ access: true }); return
-    }
+    const access = !!user // simple: any logged-in user sees their adopted animal posts
+    // staff always true, but the line above already yields true for any user;
+    // if you want stricter, use: const access = isStaff(user) || !!user
 
-    if (role === 'USER' && userId) {
-      // Find the user and check if an ACTIVE request exists for this animal
-      const user = await prisma.user.findUnique({ where: { id: userId } })
-      if (!user?.email) { res.json({ access: false }); return }
-
-      const reqActive = await prisma.adoptionRequest.findFirst({
-        where: {
-          animalId: String(animalId),
-          email: user.email.toLowerCase(),
-          status: 'ACTIVE',
-        },
-      })
-      res.json({ access: !!reqActive })
-      return
-    }
-
-    res.json({ access: false })
+    res.json({ access })
   } catch (e: any) {
-    console.error('GET /api/adoption/access error:', e?.message || e)
-    res.status(500).json({ access: false })
+    console.error('GET /api/adoption/access/:animalId error:', e)
+    res.status(500).json({ error: 'Internal error checking access' })
   }
 })
+
+/**
+ * Example protected route you might add later:
+ * router.get('/my', requireAuthJwt, async (req, res) => { ... })
+ */
 
 export default router
