@@ -14,7 +14,7 @@ type Props = {
 }
 
 export default function AdoptionDialog({ open, onClose, animalId, onGranted }: Props) {
-  const [monthly, setMonthly] = useState<string>('300')
+  const [monthly, setMonthly] = useState<number>(300)
   const [email, setEmail] = useState<string>('')
   const [name, setName] = useState<string>('')
   const [saving, setSaving] = useState(false)
@@ -25,9 +25,9 @@ export default function AdoptionDialog({ open, onClose, animalId, onGranted }: P
     e.preventDefault()
     setErr(null); setOk(null)
 
-    const m = parseInt(monthly, 10)
-    if (!email.trim()) { setErr('Vyplňte e-mail.'); return }
-    if (Number.isNaN(m) || m <= 0) { setErr('Zadejte kladnou částku.'); return }
+    const m = monthly
+if (!email.trim()) { setErr('Vyplňte e-mail.'); return }
+if (Number.isNaN(m) || m < 300) { setErr('Minimální částka je 300 Kč.'); return }
 
     setSaving(true)
     try {
@@ -58,14 +58,14 @@ export default function AdoptionDialog({ open, onClose, animalId, onGranted }: P
             {ok && <Alert severity="success">{ok}</Alert>}
 
             <TextField
-              label="Částka (Kč) *"
-              type="number"
-              inputProps={{ min: 1, step: 50 }}
-              value={monthly}
-              onChange={(e) => setMonthly(e.target.value)}
-              required
-              fullWidth
-            />
+  label="Částka (Kč) *"
+  type="number"
+  inputProps={{ min: 300, step: 50 }}
+  value={monthly}
+  onChange={(e) => setMonthly(Number(e.target.value))}
+  required
+  fullWidth
+/>
             <TextField
               label="E-mail *"
               type="email"
