@@ -13,9 +13,7 @@ const BASE_URL: string = RAW.replace(/\/+$/, '')
 
 if (!BASE_URL) {
   // eslint-disable-next-line no-console
-  console.warn(
-    'VITE_API_BASE_URL is not defined. Set it in DO Frontend → Environment Variables.'
-  )
+  console.warn('VITE_API_BASE_URL is not defined. Set it in DO Frontend → Environment Variables.')
 }
 
 function getToken(): string | null {
@@ -128,7 +126,6 @@ export async function fetchAnimal(id: string): Promise<Animal> {
 }
 
 export async function createAnimal(payload: Partial<Animal>): Promise<Animal> {
-  // Accepts Czech/English keys; backend maps to its schema
   return req<Animal>('/api/animals', {
     method: 'POST',
     body: JSON.stringify(payload),
@@ -198,7 +195,12 @@ export async function hasAccessForAnimal(animalId: string): Promise<{ access: bo
 }
 
 // POST /api/adoption/start { animalId, email, name?, monthly? } → { ok, token?, access? }
-export async function startAdoption(animalId: string, email: string, name?: string, monthly?: number) {
+export async function startAdoption(
+  animalId: string,
+  email: string,
+  name?: string,
+  monthly?: number
+) {
   if (!animalId) throw new Error('startAdoption: animalId is required')
   if (!email) throw new Error('startAdoption: email is required')
 
