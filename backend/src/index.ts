@@ -1,7 +1,7 @@
 // backend/src/index.ts
 import express, { Request, Response, NextFunction } from 'express'
 import dotenv from 'dotenv'
-import cors, { CorsOptions } from 'cors'
+import cors from 'cors'
 
 import adminModeratorsRoutes from './routes/adminModerators'
 import animalRoutes from './routes/animals'
@@ -13,19 +13,17 @@ import { prisma } from './prisma'
 
 dotenv.config()
 
-// ---- CORS (typed) ----
+// ---- CORS (no explicit types) ----
 const allowedOrigins = new Set<string>([
   'http://localhost:5173',
   'https://dogpoint-frontend-eoikq.ondigitalocean.app',
   'https://herehr.github.io',
-  // add your custom domains here:
   'https://dogpoint.faktdobry.cz',
   'https://api.dogpoint.faktdobry.cz',
 ])
 
-const corsOptions: CorsOptions = {
+const corsOptions = {
   origin(origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) {
-    // allow non-browser requests (no Origin header) and same-origin
     if (!origin || allowedOrigins.has(origin)) {
       return callback(null, true)
     }
@@ -52,7 +50,6 @@ app.get('/', (_req: Request, res: Response): void => {
   res.send('Dogpoint backend is running.')
 })
 
-// Proto (quick ping)
 app.get('/api/proto', (_req: Request, res: Response): void => {
   res.json({ ok: true, component: 'backend', route: '/api/proto' })
 })
@@ -71,9 +68,8 @@ app.get('/health/db', async (_req: Request, res: Response): Promise<void> => {
   }
 })
 
-// Error handler (optional but handy)
+// Error handler
 app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-  // eslint-disable-next-line no-console
   console.error('Unhandled error:', err)
   if (err?.message?.startsWith('CORS')) {
     return res.status(403).json({ error: err.message })
@@ -83,6 +79,5 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
 
 const PORT = process.env.PORT || 3000
 app.listen(PORT, () => {
-  // eslint-disable-next-line no-console
   console.log(`Server running on port ${PORT}`)
 })
