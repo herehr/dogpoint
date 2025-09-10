@@ -1,17 +1,10 @@
+// frontend/src/components/AdoptionDialog.tsx
 import React, { useState } from 'react'
 import {
   Dialog, DialogTitle, DialogContent, DialogActions,
-  TextField, Button, Stack, Alert
+  TextField, Button, Stack, Alert, Typography
 } from '@mui/material'
-import { useAccess } from '../context/AccessContext'
-
-// Simple helper using the same BASE as api.ts without importing the whole module
-const RAW: string = (import.meta as any).env?.VITE_API_BASE_URL || ''
-const BASE_URL: string = RAW.replace(/\/+$/, '')
-
-function setToken(t: string) {
-  if (typeof window !== 'undefined') sessionStorage.setItem('accessToken', t)
-}
+import { startAdoption } from '../services/api'
 
 type Props = {
   open: boolean
@@ -21,36 +14,61 @@ type Props = {
 }
 
 export default function AdoptionDialog({ open, onClose, animalId, onGranted }: Props) {
-  const { grantAccess } = useAccess()
-  const [email, setEmail] = useState('')
-  const [name, setName] = useState('')
-  const [monthly, setMonthly] = useState(300)
+  const [monthly, setMonthly] = useState<string>('300')
+  const [email, setEmail] = useState<string>('')
+  const [name, setName] = useState<string>('')
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  const [ok, setOk] = useState<string | null>(null)
 
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    setErr(null)
-    setSaving(true)
-    try {
-      const res = await fetch(BASE_URL + '/api/adoption/mock', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ animalId, email: email.trim(), name: name.trim(), monthly })
-      })
+ async function submit(e: React.FormEvent) {
+  e.preventDefault()
+  setErr(null); setOk(null)
+
+  const m = parseInt(monthly, 10)
+  if (!email.trim()) { setErr('Vyplňte e-mail.'); return }
+  if (Number.isNaN(m) || m <= 0) { setErr('Zadejte kladnou částku.'); return }
+
+  setSaving(true)
+  try {
+    // 👇 replace the manual fetch with your API helper
+    const data = await startAdoption(
+      animalId,
+      email.trim(),
+      name.trim() || 'Adoptující',
+      m
+    )
+
+    if (data?.token) {
+      sessionStorage.setItem('accessToken', data.token)
+    }
+
+    setOk('Adopce potvrzena (DEMO). Obsah byl odemčen.')
+    onGranted()
+    onClose()
+  } catch (e: any) {
+    setErr(e?.message || 'Zahájení adopce selhalo')
+  } finally {
+    setSaving(false)
+  }
+}
+
+      const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        let t = ''
-        try { t = await res.text() } catch {}
-        throw new Error('Adoption failed: ' + res.status + (t ? ' → ' + t : ''))
+        throw new Error(data?.error || `Chyba ${res.status}`)
       }
-      const data = await res.json()
-      if (data?.token) setToken(data.token)
-      // unlock locally
-      grantAccess(animalId)
-      onGranted()
-      onClose()
+
+      // Dev backend returns { ok: true, token, access: { [animalId]: true } }
+      if (data?.token) {
+        // store login so user is authenticated going forward
+        sessionStorage.setItem('accessToken', data.token)
+      }
+
+      setOk('Adopce potvrzena (DEMO). Obsah byl odemčen.')
+      onGranted()           // unlock local access map
+      onClose()             // close dialog
     } catch (e: any) {
-      setErr(e?.message || 'Adoption failed')
+      setErr(e?.message || 'Zahájení adopce selhalo')
     } finally {
       setSaving(false)
     }
@@ -58,13 +76,24 @@ export default function AdoptionDialog({ open, onClose, animalId, onGranted }: P
 
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
-      <DialogTitle>Adopce (DEV) – okamžité odemčení</DialogTitle>
-      <form onSubmit={onSubmit}>
+      <DialogTitle>Adopce – podpora zvířete</DialogTitle>
+      <form onSubmit={submit}>
         <DialogContent>
           <Stack spacing={2}>
             {err && <Alert severity="error">{err}</Alert>}
+            {ok && <Alert severity="success">{ok}</Alert>}
+
             <TextField
-              label="E-mail"
+              label="Částka (Kč) *"
+              type="number"
+              inputProps={{ min: 1, step: 50 }}
+              value={monthly}
+              onChange={(e) => setMonthly(e.target.value)}
+              required
+              fullWidth
+            />
+            <TextField
+              label="E-mail *"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -77,19 +106,16 @@ export default function AdoptionDialog({ open, onClose, animalId, onGranted }: P
               onChange={(e) => setName(e.target.value)}
               fullWidth
             />
-            <TextField
-              label="Měsíční částka (CZK)"
-              type="number"
-              value={monthly}
-              onChange={(e) => setMonthly(Number(e.target.value) || 0)}
-              fullWidth
-            />
+
+            <Typography variant="body2" color="text.secondary">
+              Platební brána bude brzy implementována. Nyní je to ukázka toku.
+            </Typography>
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={onClose}>Zrušit</Button>
+          <Button onClick={onClose}>Zavřít</Button>
           <Button type="submit" variant="contained" disabled={saving}>
-            {saving ? 'Zpracovávám…' : 'Dokončit adopci (DEV)'}
+            {saving ? 'Zpracovávám…' : 'Potvrdit adopci'}
           </Button>
         </DialogActions>
       </form>

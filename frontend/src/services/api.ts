@@ -191,19 +191,46 @@ export async function uploadMediaMany(
    Adoption access
    ========================= */
 
+/* =========================
+   Adoption access
+   ========================= */
+
 // GET /api/adoption/access/:animalId → { access: boolean }
 export async function hasAccessForAnimal(animalId: string): Promise<{ access: boolean }> {
   if (!animalId) throw new Error('hasAccessForAnimal: animalId is required')
   return req<{ access: boolean }>('/api/adoption/access/' + encodeURIComponent(animalId))
 }
 
-// POST /api/adoption/start { animalId } → { ok: true }
-export async function startAdoption(animalId: string) {
+// POST /api/adoption/start { animalId, email, name?, monthly? } → { ok, token?, access? }
+export async function startAdoption(
+  animalId: string,
+  email: string,
+  name?: string,
+  monthly?: number
+): Promise<{ ok: boolean; token?: string; access?: Record<string, boolean> }> {
   if (!animalId) throw new Error('startAdoption: animalId is required')
-  return req<{ ok: true }>('/api/adoption/start', {
+  if (!email) throw new Error('startAdoption: email is required')
+
+  const res = await fetch(BASE_URL + '/api/adoption/start', {
     method: 'POST',
-    body: JSON.stringify({ animalId }),
+    headers: { 'Content-Type': 'application/json', ...authHeader() },
+    body: JSON.stringify({ animalId, email, name, monthly }),
   })
+
+  // Read response body safely
+  let data: any = null
+  try { data = await res.json() } catch {}
+
+  if (!res.ok) {
+    const msg = (data && (data.error || data.message)) || `${res.status} ${res.statusText}`
+    throw new Error(msg)
+  }
+
+  // Persist JWT if backend returns it
+  if (data?.token) {
+    sessionStorage.setItem('accessToken', data.token)
+  }
+  return data
 }
 
 /* =========================
