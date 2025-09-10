@@ -10,6 +10,7 @@ import PostsSection from '../components/PostsSection'
 import BlurBox from '../components/BlurBox'
 import ReactionBar from '../components/ReactionBar'
 import AdoptionDialog from '../components/AdoptionDialog'
+import { useAuth } from '../context/AuthContext'
 
 type Media = { url: string; type?: 'image'|'video' }
 type LocalAnimal = {
@@ -32,12 +33,16 @@ function asUrl(x: string | Media | undefined | null): string | null {
 export default function AnimalDetail() {
   const { id } = useParams()
   const { hasAccess, grantAccess } = useAccess()
+  const { role } = useAuth() 
 
   const [animal, setAnimal] = useState<LocalAnimal | null>(null)
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
   const [adoptOpen, setAdoptOpen] = useState(false)
-  const unlocked = id ? hasAccess(id) : false
+  const unlocked =
+    (role === 'ADMIN' || role === 'MODERATOR')     // ← admins/mods see everything
+      ? true
+      : (id ? hasAccess(id) : false)
 
   useEffect(() => {
     let alive = true
