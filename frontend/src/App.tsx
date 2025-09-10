@@ -13,6 +13,7 @@ import ModeratorLogin from './pages/ModeratorLogin'
 import ModeratorDashboard from './pages/ModeratorDashboard'
 import AnimalsManager from './pages/AnimalsManager'
 import UXPrototype from './prototypes/UXPrototype'
+import AnimalDetail from './pages/AnimalDetail'
 
 // Guards
 import RequireModerator from './routes/RequireModerator'
@@ -98,6 +99,7 @@ export default function App() {
         {/* Public */}
         <Route path="/" element={<HomePage />} />
         <Route path="/zvirata" element={<AnimalsPage />} />
+        <Route path="/zvirata/:id" element={<AnimalDetail />} />
 
         {/* Admin */}
         <Route path="/admin/login" element={<AdminLogin />} />
