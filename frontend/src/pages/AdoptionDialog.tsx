@@ -21,52 +21,21 @@ export default function AdoptionDialog({ open, onClose, animalId, onGranted }: P
   const [err, setErr] = useState<string | null>(null)
   const [ok, setOk] = useState<string | null>(null)
 
- async function submit(e: React.FormEvent) {
-  e.preventDefault()
-  setErr(null); setOk(null)
+  async function submit(e: React.FormEvent) {
+    e.preventDefault()
+    setErr(null); setOk(null)
 
-  const m = parseInt(monthly, 10)
-  if (!email.trim()) { setErr('Vyplňte e-mail.'); return }
-  if (Number.isNaN(m) || m <= 0) { setErr('Zadejte kladnou částku.'); return }
+    const m = parseInt(monthly, 10)
+    if (!email.trim()) { setErr('Vyplňte e-mail.'); return }
+    if (Number.isNaN(m) || m <= 0) { setErr('Zadejte kladnou částku.'); return }
 
-  setSaving(true)
-  try {
-    // 👇 replace the manual fetch with your API helper
-    const data = await startAdoption(
-      animalId,
-      email.trim(),
-      name.trim() || 'Adoptující',
-      m
-    )
-
-    if (data?.token) {
-      sessionStorage.setItem('accessToken', data.token)
-    }
-
-    setOk('Adopce potvrzena (DEMO). Obsah byl odemčen.')
-    onGranted()
-    onClose()
-  } catch (e: any) {
-    setErr(e?.message || 'Zahájení adopce selhalo')
-  } finally {
-    setSaving(false)
-  }
-}
-
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        throw new Error(data?.error || `Chyba ${res.status}`)
-      }
-
-      // Dev backend returns { ok: true, token, access: { [animalId]: true } }
-      if (data?.token) {
-        // store login so user is authenticated going forward
-        sessionStorage.setItem('accessToken', data.token)
-      }
+    setSaving(true)
+    try {
+      await startAdoption(animalId, email.trim(), name.trim() || 'Adoptující', m)
 
       setOk('Adopce potvrzena (DEMO). Obsah byl odemčen.')
-      onGranted()           // unlock local access map
-      onClose()             // close dialog
+      onGranted()  // unlock in AccessContext
+      onClose()
     } catch (e: any) {
       setErr(e?.message || 'Zahájení adopce selhalo')
     } finally {
