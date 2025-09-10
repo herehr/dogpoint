@@ -2,7 +2,6 @@
 import express, { Request, Response, NextFunction } from 'express'
 import dotenv from 'dotenv'
 import cors from 'cors'
-import cors, { CorsOptions } from 'cors'
 
 import adminModeratorsRoutes from './routes/adminModerators'
 import animalRoutes from './routes/animals'
@@ -14,23 +13,10 @@ import { prisma } from './prisma'
 
 dotenv.config()
 
-// ---- CORS (no explicit types) ----
-const allowedOrigins = new Set<string>([
-  'http://localhost:5173',
-  'https://dogpoint-frontend-eoikq.ondigitalocean.app',
-  'https://herehr.github.io',
-  'https://dogpoint.faktdobry.cz',
-  'https://api.dogpoint.faktdobry.cz',
-])
-
+// ---- Wide-open CORS (development / testing) ----
 const corsOptions = {
-  origin(origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) {
-    if (!origin || allowedOrigins.has(origin)) {
-      return callback(null, true)
-    }
-    return callback(new Error(`CORS blocked for origin: ${origin}`))
-  },
-  credentials: true,
+  origin: '*',          // allow all origins
+  credentials: true,    // allow cookies/headers
 }
 
 // ---- App ----
@@ -72,9 +58,6 @@ app.get('/health/db', async (_req: Request, res: Response): Promise<void> => {
 // Error handler
 app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
   console.error('Unhandled error:', err)
-  if (err?.message?.startsWith('CORS')) {
-    return res.status(403).json({ error: err.message })
-  }
   res.status(500).json({ error: 'Internal server error' })
 })
 
