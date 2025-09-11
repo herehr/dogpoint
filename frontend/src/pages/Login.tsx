@@ -1,13 +1,16 @@
+// frontend/src/pages/Login.tsx
 import React, { useState } from 'react'
+import {
+  Box, Button, Container, Stack, TextField, Typography, Alert, CircularProgress
+} from '@mui/material'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { Box, Button, Container, Stack, TextField, Typography, Alert, Paper } from '@mui/material'
-import { loginAdmin as loginApi } from '../services/api'
+import { login as apiLogin } from '../services/api'
 import { useAuth } from '../context/AuthContext'
 
 export default function Login() {
   const navigate = useNavigate()
   const location = useLocation() as any
-  const { loginWithToken } = useAuth()
+  const { setAuth, logout } = useAuth()
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -19,53 +22,89 @@ export default function Login() {
     setErr(null)
     setLoading(true)
     try {
-      // backend returns { token, role }
-      const data = await loginApi(email.trim(), password)
-      loginWithToken(data.token, (data.role as any) ?? null, email.trim())
+      // Unified backend login (/api/auth/login) — returns { token, role }
+      const { token, role } = await apiLogin(email.trim(), password)
 
-      // priority: explicit return path, else role-based landing
-      const from = location.state?.from?.pathname as string | undefined
-      if (from) {
-        navigate(from, { replace: true })
+      // optional: update your AuthContext if it exposes a setter
+      setAuth?.({
+        token,
+        role: role || 'USER',
+        user: { email }, // if you have a richer user object, set it here
+      })
+
+      // Where to go next
+      const toFromGuard = location.state?.from as string | undefined
+      if (toFromGuard) {
+        navigate(toFromGuard, { replace: true })
         return
       }
-      switch (data.role) {
-        case 'ADMIN':
-          navigate('/admin', { replace: true }); break
-        case 'MODERATOR':
-          navigate('/moderator', { replace: true }); break
-        case 'USER':
-        default:
-          navigate('/user', { replace: true }); break
-      }
+
+      // Role-based landing
+      if (role === 'ADMIN') navigate('/admin', { replace: true })
+      else if (role === 'MODERATOR') navigate('/moderator', { replace: true })
+      else navigate('/user', { replace: true })
     } catch (e: any) {
-      setErr(e?.message || 'Přihlášení selhalo')
+      // your api helper throws with message "401 Unauthorized for /api/auth/login → …"
+      const msg = e?.message || 'Přihlášení selhalo'
+      // make friendlier messages
+      if (msg.includes('401')) setErr('Neplatný e-mail nebo heslo.')
+      else setErr(msg)
+      // ensure any stale session is cleared
+      logout?.()
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <Container maxWidth="sm" sx={{ py: 6 }}>
-      <Paper variant="outlined" sx={{ p: 3, borderRadius: 3 }}>
-        <Typography variant="h5" sx={{ fontWeight: 900, mb: 2 }}>
-          Login
-        </Typography>
+    <Container maxWidth="sm" sx={{ py: 8 }}>
+      <Box component="form" onSubmit={onSubmit}>
+        <Stack spacing={2}>
+          <Typography variant="h5" sx={{ fontWeight: 900 }}>
+            Přihlášení
+          </Typography>
 
-        {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
+          {err && <Alert severity="error">{err}</Alert>}
 
-        <Box component="form" onSubmit={onSubmit}>
-          <Stack spacing={2}>
-            <TextField label="E-mail" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-            <TextField label="Heslo" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-            <Button type="submit" variant="contained" disabled={loading}>{loading ? 'Přihlašuji…' : 'Přihlásit'}</Button>
+          <TextField
+            label="E-mail"
+            type="email"
+            autoComplete="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            fullWidth
+          />
+
+          <TextField
+            label="Heslo"
+            type="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            fullWidth
+          />
+
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Button type="submit" variant="contained" disabled={loading}>
+              Přihlásit
+            </Button>
+            {loading && <CircularProgress size={22} />}
+            <Button
+              type="button"
+              onClick={() => navigate('/')}
+              color="inherit"
+            >
+              Zpět
+            </Button>
           </Stack>
-        </Box>
 
-        <Typography variant="body2" sx={{ mt: 2 }} color="text.secondary">
-          Nemáte heslo? Po adopci se účet vytvoří podle e-mailu. Na přihlášení můžete pak heslo nastavit/obnovit.
-        </Typography>
-      </Paper>
+          <Typography variant="body2" color="text.secondary">
+            Zapomněli jste heslo? Připravíme obnovu hesla na další krok.
+          </Typography>
+        </Stack>
+      </Box>
     </Container>
   )
 }
