@@ -22,65 +22,58 @@ function signToken(user: { id: string; role: 'ADMIN' | 'MODERATOR' | 'USER'; ema
  * POST /api/adoption/start
  * Body: { animalId, email, name?, monthly?, password? }
  */
+// backend/src/routes/adoption.ts (only the /start route block changed)
 router.post('/start', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { animalId, email, name, monthly, password } = (req.body || {}) as {
+    const { animalId, email, name, monthly } = (req.body || {}) as {
       animalId?: string
       email?: string
       name?: string
       monthly?: number
-      password?: string
     }
 
     if (!animalId) { res.status(400).json({ error: 'animalId required' }); return }
-    if (!email) { res.status(400).json({ error: 'email required' }); return }
 
-    // Ensure animal exists
     const animal = await prisma.animal.findUnique({ where: { id: String(animalId) } })
     if (!animal) { res.status(404).json({ error: 'Animal not found' }); return }
 
-    // Find or create user by email
-    let user = await prisma.user.findUnique({ where: { email } })
+    // If client is already authenticated, prefer that user; else require email
+    let userIdFromToken: string | null = null
+    try { userIdFromToken = (req as any)?.user?.id ?? null } catch {}
+    let user = userIdFromToken
+      ? await prisma.user.findUnique({ where: { id: userIdFromToken } })
+      : undefined
 
     if (!user) {
-      let passwordHash: string | null = null
-      if (password && password.length >= 6) {
-        passwordHash = await bcrypt.hash(password, 10)
+      if (!email) { res.status(400).json({ error: 'email required' }); return }
+      user = await prisma.user.findUnique({ where: { email } })
+      if (!user) {
+        user = await prisma.user.create({
+          data: { email: email!, passwordHash: null, role: 'USER' },
+        })
       }
-      user = await prisma.user.create({
-        data: {
-          email,
-          passwordHash,
-          role: 'USER',
-        },
-      })
-    } else if (password && password.length >= 6 && !user.passwordHash) {
-      // Upgrade existing user with password if missing
-      const hash = await bcrypt.hash(password, 10)
-      user = await prisma.user.update({
-        where: { id: user.id },
-        data: { passwordHash: hash },
-      })
     }
 
-    // Create adoption request (auto-approved in DEMO)
-  await prisma.adoptionRequest.create({
-  data: {
-    animalId: animal.id,
-    name: name || 'Adoptující',
-    email,
-    monthly: monthly ?? null,          // 👈 now stored properly
-    message: null,
-    status: 'APPROVED',
-  },
-})
+    // Create + auto-approve adoption request (DEMO)
+    await prisma.adoptionRequest.create({
+      data: {
+        animalId: animal.id,
+        name: name || 'Adoptující',
+        email: user.email,
+        message: monthly ? `MONTHLY=${monthly}` : null,
+        status: 'APPROVED',
+      },
+    })
 
-    // Issue a JWT
+    // Issue a JWT (role USER)
     const token = signToken({ id: user.id, role: user.role as any, email: user.email })
 
-    res.json({ ok: true, token, access: { [animal.id]: true } })
+    // tell FE if the user has a password already
+    const userHasPassword = !!user.passwordHash
+
+    res.json({ ok: true, token, access: { [animal.id]: true }, userHasPassword })
   } catch (e: any) {
-    console.error('POST /api/adoption/start error:', e)
+    console.error('POST /api/adoption/start error:', { message: e?.message, code: e?.code, stack: e?.stack })
     res.status(500).json({ error: 'Internal error starting adoption' })
   }
 })
@@ -112,18 +105,51 @@ router.get('/access/:animalId', requireAuth, async (req: Request, res: Response)
  * Helper to compute latest activity for an animal
  */
 async function latestActivityTsForAnimal(animalId: string): Promise<Date> {
-  const [post, pmedia, gmedia, animal] = await Promise.all([
-    prisma.post.findFirst({ where: { animalId }, orderBy: { createdAt: 'desc' }, select: { createdAt: true } }),
-    prisma.postMedia.findFirst({ where: { post: { animalId } }, orderBy: { createdAt: 'desc' }, select: { createdAt: true } }),
-    prisma.galerieMedia.findFirst({ where: { animalId }, orderBy: { createdAt: 'desc' }, select: { createdAt: true } }),
-    prisma.animal.findUnique({ where: { id: animalId }, select: { updatedAt: true, createdAt: true } }),
-  ])
+  // Optional models: if not in client (no migration), skip them safely
+  const Post = (prisma as any).post
+  const PostMedia = (prisma as any).postMedia
+
+  const queries: Array<Promise<{ createdAt: Date } | null>> = []
+
+  if (Post?.findFirst) {
+    queries.push(Post.findFirst({
+      where: { animalId },
+      orderBy: { createdAt: 'desc' },
+      select: { createdAt: true },
+    }))
+  } else {
+    queries.push(Promise.resolve(null))
+  }
+
+  if (PostMedia?.findFirst) {
+    queries.push(PostMedia.findFirst({
+      where: { post: { animalId } },
+      orderBy: { createdAt: 'desc' },
+      select: { createdAt: true },
+    }))
+  } else {
+    queries.push(Promise.resolve(null))
+  }
+
+  // GalerieMedia & Animal always exist in your schema
+  const gmediaP = prisma.galerieMedia.findFirst({
+    where: { animalId },
+    orderBy: { createdAt: 'desc' },
+    select: { createdAt: true },
+  })
+
+  const animalP = prisma.animal.findUnique({
+    where: { id: animalId },
+    select: { updatedAt: true, createdAt: true },
+  })
+
+  const [post, pmedia, gmedia, animal] = await Promise.all([queries[0], queries[1], gmediaP, animalP])
 
   const dates = [
-    post?.createdAt,
-    pmedia?.createdAt,
-    gmedia?.createdAt,
-    animal?.updatedAt ?? animal?.createdAt
+    post?.createdAt ?? null,
+    pmedia?.createdAt ?? null,
+    gmedia?.createdAt ?? null,
+    (animal?.updatedAt ?? animal?.createdAt) ?? null,
   ].filter(Boolean) as Date[]
 
   return dates.length ? new Date(Math.max(...dates.map(d => d.getTime()))) : new Date(0)
@@ -163,18 +189,23 @@ router.get('/my-animals', requireAuth, async (req, res) => {
     const me = await prisma.user.findUnique({ where: { id: req.user!.id } })
     if (!me) return res.status(401).json({ error: 'user not found' })
 
+    // Only active (not ended) and approved adoptions
     const adoptions = await prisma.adoptionRequest.findMany({
       where: { email: me.email, status: 'APPROVED', endedAt: null },
       orderBy: { createdAt: 'desc' },
-      select: { id: true, animalId: true, lastSeenAt: true, monthly: true }
+      select: { id: true, animalId: true, lastSeenAt: true, monthly: true },
     })
+
+    if (adoptions.length === 0) {
+      return res.json([]) // nothing adopted yet
+    }
 
     const animals = await prisma.animal.findMany({
       where: { id: { in: adoptions.map(a => a.animalId) } },
-      include: { galerie: true }
+      include: { galerie: true },
     })
 
-    // join + compute hasNew
+    // shape & compute hasNew
     const rows = await Promise.all(adoptions.map(async (a) => {
       const an = animals.find(x => x.id === a.animalId)
       if (!an) return null
@@ -194,9 +225,11 @@ router.get('/my-animals', requireAuth, async (req, res) => {
       }
     }))
 
-    res.json((rows.filter(Boolean)))
+    res.json(rows.filter(Boolean))
   } catch (e: any) {
-    console.error('GET /api/adoption/my-animals error:', e)
+    console.error('GET /api/adoption/my-animals error:', {
+      message: e?.message, code: e?.code, stack: e?.stack
+    })
     res.status(500).json({ error: 'Internal error' })
   }
 })

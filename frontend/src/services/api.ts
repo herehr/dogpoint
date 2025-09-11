@@ -219,38 +219,37 @@ export async function hasAccessForAnimal(animalId: string): Promise<{ access: bo
   if (!animalId) throw new Error('hasAccessForAnimal: animalId is required')
   return req<{ access: boolean }>('/api/adoption/access/' + encodeURIComponent(animalId))
 }
+export async function getAdoptionMe(): Promise<{ ok: boolean; user: { id: string; email: string; role: string }, access: Record<string, boolean> }> {
+  return req('/api/adoption/me')
+}
 
-// POST /api/adoption/start { animalId, email, name?, monthly? } → { ok, token?, access? }
+// POST /api/adoption/start  → now email can be omitted if user is already logged in
 export async function startAdoption(
   animalId: string,
-  email: string,
+  email?: string,
   name?: string,
   monthly?: number
 ) {
   if (!animalId) throw new Error('startAdoption: animalId is required')
-  if (!email) throw new Error('startAdoption: email is required')
+  const haveToken = !!getToken()
+  if (!haveToken && !email) throw new Error('startAdoption: email is required')
 
   const res = await fetch(BASE_URL + '/api/adoption/start', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeader() },
     body: JSON.stringify({ animalId, email, name, monthly }),
   })
-
   const text = await res.text()
   if (!res.ok) {
     let msg = 'startAdoption failed'
     try { const j = JSON.parse(text); msg = j?.error || msg } catch {}
     throw new Error(msg)
   }
-
   const data = text ? JSON.parse(text) : {}
-  if (data?.token) {
-    sessionStorage.setItem('accessToken', data.token)
-    // ✅ Make sure adopters become USER immediately for guards/header:
-    sessionStorage.setItem('role', 'USER')
-  }
-  return data as { ok: boolean; token?: string; access?: Record<string, boolean> }
+  if (data?.token) setToken(data.token)
+  return data as { ok: boolean; token?: string; access?: Record<string, boolean>; userHasPassword?: boolean }
 }
+
 
 /* =========================
    Posts (public & adopter stories)
