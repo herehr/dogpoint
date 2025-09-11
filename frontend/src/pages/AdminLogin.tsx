@@ -1,82 +1,118 @@
 // frontend/src/pages/AdminLogin.tsx
 import React, { useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
-import {
-  Container, Paper, Typography, TextField, Button, Stack, Alert
-} from '@mui/material'
-import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings'
-import { loginAdmin } from '../services/api'
-
-type FromState = { from?: { pathname?: string } } | null
+import { Container, Paper, Stack, Typography, TextField, Button, Alert } from '@mui/material'
+import { useNavigate } from 'react-router-dom'
+import { loginAdmin as login, setPasswordFirstTime } from '../services/api'
 
 export default function AdminLogin() {
+  const nav = useNavigate()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [mode, setMode] = useState<'login' | 'setpw'>('login')
   const [err, setErr] = useState<string | null>(null)
-  const [submitting, setSubmitting] = useState(false)
+  const [saving, setSaving] = useState(false)
 
-  const navigate = useNavigate()
-  const state = (useLocation().state as FromState) || null
-
-  async function onSubmit(e: React.FormEvent) {
+  async function onLogin(e: React.FormEvent) {
     e.preventDefault()
     setErr(null)
-    setSubmitting(true)
+    setSaving(true)
     try {
-      await loginAdmin(email, password) // stores sessionStorage token
-      const to = state?.from?.pathname || '/admin'
-      navigate(to, { replace: true })
+      await login(email.trim(), password)
+      // where to go:
+      // - Admins to /admin
+      // - Moderators to /moderator
+      // - Users to a future /user dashboard
+      // We don’t know the role here; redirect to home for now.
+      nav('/', { replace: true })
     } catch (e: any) {
-      setErr(e?.message || 'Přihlášení selhalo')
+      // If backend returns 409 with PASSWORD_NOT_SET, flip UI to “set password” mode
+      const msg = String(e?.message || '')
+      if (msg.includes('PASSWORD_NOT_SET') || msg.includes('409')) {
+        setMode('setpw')
+        setErr('Tento účet ještě nemá nastavené heslo. Zadejte nové heslo níže.')
+      } else {
+        setErr('Přihlášení selhalo. Zkontrolujte e-mail a heslo.')
+      }
     } finally {
-      setSubmitting(false)
+      setSaving(false)
+    }
+  }
+
+  async function onSetPassword(e: React.FormEvent) {
+    e.preventDefault()
+    setErr(null)
+    setSaving(true)
+    try {
+      if (!newPassword || newPassword.length < 6) {
+        setErr('Heslo musí mít alespoň 6 znaků.')
+        setSaving(false)
+        return
+      }
+      await setPasswordFirstTime(email.trim(), newPassword)
+      nav('/', { replace: true })
+    } catch (e: any) {
+      setErr('Nastavení hesla selhalo.')
+    } finally {
+      setSaving(false)
     }
   }
 
   return (
-    <Container maxWidth="sm" sx={{ py: 8 }}>
-      <Paper elevation={3} sx={{ p: 4, borderRadius: 3 }}>
-        <Stack spacing={3}>
-          <Stack direction="row" spacing={1.5} alignItems="center">
-            <AdminPanelSettingsIcon />
-            <Typography variant="h5" sx={{ fontWeight: 800 }}>
-              Přihlášení administrátora
-            </Typography>
-          </Stack>
+    <Container maxWidth="sm" sx={{ py: 6 }}>
+      <Paper variant="outlined" sx={{ p: 3, borderRadius: 3 }}>
+        <Typography variant="h5" sx={{ fontWeight: 900, mb: 2 }}>Přihlášení</Typography>
+        {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
 
-          {err && <Alert severity="error">{err}</Alert>}
-
-          <form onSubmit={onSubmit}>
+        {mode === 'login' ? (
+          <form onSubmit={onLogin}>
             <Stack spacing={2}>
               <TextField
                 label="E-mail"
                 type="email"
+                required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                autoComplete="username"
-                fullWidth
-                required
               />
               <TextField
                 label="Heslo"
                 type="password"
+                required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                autoComplete="current-password"
-                fullWidth
-                required
               />
-              <Button
-                type="submit"
-                variant="contained"
-                size="large"
-                disabled={submitting}
-              >
-                {submitting ? 'Přihlašuji…' : 'Přihlásit se'}
+              <Button type="submit" variant="contained" disabled={saving}>
+                {saving ? 'Přihlašuji…' : 'Přihlásit se'}
               </Button>
             </Stack>
           </form>
-        </Stack>
+        ) : (
+          <form onSubmit={onSetPassword}>
+            <Stack spacing={2}>
+              <TextField
+                label="E-mail"
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+              <TextField
+                label="Nové heslo"
+                type="password"
+                required
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                helperText="Minimálně 6 znaků"
+              />
+              <Stack direction="row" spacing={1}>
+                <Button variant="text" onClick={() => setMode('login')}>Zpět</Button>
+                <Button type="submit" variant="contained" disabled={saving}>
+                  {saving ? 'Ukládám…' : 'Nastavit heslo'}
+                </Button>
+              </Stack>
+            </Stack>
+          </form>
+        )}
       </Paper>
     </Container>
   )

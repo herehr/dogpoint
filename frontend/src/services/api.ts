@@ -276,9 +276,22 @@ export async function resetModeratorPassword(id: string, password: string) {
   )
 }
 
+// Add near other auth helpers
+export async function setPasswordFirstTime(email: string, password: string) {
+  const data = await req<{ token: string; role?: 'ADMIN' | 'MODERATOR' | 'USER' }>(
+    '/api/auth/set-password-first-time',
+    { method: 'POST', body: JSON.stringify({ email, password }) }
+  )
+  if (!data?.token) throw new Error('PASSWORD_SET_FAILED')
+  sessionStorage.setItem('accessToken', data.token)
+  return data
+}
+
 /* =========================
    Session helpers
    ========================= */
+
+
 
 export function isAuthenticated(): boolean {
   return !!getToken()
