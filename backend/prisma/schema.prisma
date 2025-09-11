@@ -15,35 +15,32 @@ enum Role {
 }
 
 model User {
-  id           String  @id @default(cuid())
-  email        String  @unique
+  id           String   @id @default(cuid())
+  email        String   @unique
   passwordHash String?
-  role         Role    @default(MODERATOR)
+  role         Role     @default(MODERATOR)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   // back-relations
-  posts Post[] // 👈 user can author posts (optional per post)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  posts Post[] // 👈 posts authored by this user (optional author)
 }
 
 model Animal {
-  id          String  @id @default(cuid())
-  name        String?
-  jmeno       String?
-  description String?
-  popis       String?
-  active      Boolean @default(true)
-  main        String?
-
+  id               String            @id @default(cuid())
+  name             String?
+  jmeno            String?
+  description      String?
+  popis            String?
+  active           Boolean           @default(true)
+  main             String?
   galerie          GalerieMedia[]
   adoptionRequests AdoptionRequest[]
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
 
   // back-relations
   posts Post[] // 👈 posts related to the animal
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
 }
 
 model GalerieMedia {
@@ -56,18 +53,24 @@ model GalerieMedia {
 }
 
 model AdoptionRequest {
-  id        String   @id @default(cuid())
-  animal    Animal   @relation(fields: [animalId], references: [id], onDelete: Cascade)
-  animalId  String
-  name      String
-  email     String
-  phone     String?
-  message   String?
-  status    String   @default("NEW")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id           String    @id @default(cuid())
+  animal       Animal    @relation(fields: [animalId], references: [id], onDelete: Cascade)
+  animalId     String
+  name         String
+  email        String
+  phone        String?
+  message      String?
+  status       String    @default("NEW")
+  monthly      Int?
+  lastViewedAt DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  
+  lastSeenAt DateTime?
+  endedAt    DateTime?
 
   @@index([animalId])
+  @@index([email, animalId])
 }
 
 /**
@@ -92,6 +95,7 @@ model Post {
   createdAt DateTime @default(now())
 
   @@index([animalId])
+  @@index([authorId])
 }
 
 model PostMedia {
