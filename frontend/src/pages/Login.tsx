@@ -1,13 +1,17 @@
 // frontend/src/pages/Login.tsx
 import React, { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import {
   Box, Button, Container, Stack, TextField, Typography, Alert
 } from '@mui/material'
 import { login as apiLogin } from '../services/api'
+import { useAuth } from '../context/AuthContext'
 
 export default function Login() {
   const navigate = useNavigate()
+  const location = useLocation() as any
+  const { login } = useAuth()
+
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -18,12 +22,18 @@ export default function Login() {
     setErr(null)
     setSubmitting(true)
     try {
-      const { role } = await apiLogin(email.trim(), password)
-      // persist role so guards can read it on refresh
-      if (role) sessionStorage.setItem('role', role)
+      // apiLogin should return { token, role }
+      const { token, role } = await apiLogin(email.trim(), password)
 
-      // route by role
+      // Store in auth context (this also writes to sessionStorage)
+      login(token, role || null)
+
+      // If we were redirected here, go back to the original route
+      const from = location.state?.from?.pathname as string | undefined
+
+      // Otherwise route by role
       const target =
+        from ? from :
         role === 'ADMIN' ? '/admin' :
         role === 'MODERATOR' ? '/moderator' :
         '/user'

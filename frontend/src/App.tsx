@@ -20,15 +20,14 @@ import RequireRole from './routes/RequireRole'
 import { useAuth } from './context/AuthContext'
 
 function AppLayout() {
-  const { user, role, logout } = useAuth()
+  const { token, role, logout } = useAuth()
   const navigate = useNavigate()
 
   function onLogout() {
-    logout?.()
+    logout()
     navigate('/', { replace: true })
   }
 
-  // Pick the primary dashboard route based on role
   const dashboardHref =
     role === 'ADMIN'
       ? '/admin'
@@ -57,7 +56,7 @@ function AppLayout() {
 
             {/* Right: Single Login (or dashboard + logout when authed) */}
             <Stack direction="row" spacing={1}>
-              {!user ? (
+              {!token ? (
                 <Button component={Link} to="/login" variant="contained">
                   Přihlásit
                 </Button>
@@ -104,7 +103,6 @@ export default function App() {
       <Route element={<AppLayout />}>
         {/* Public */}
         <Route path="/" element={<HomePage />} />
-        {/* Keep /zvirata list if you still link to it; otherwise you can remove */}
         <Route path="/zvirata" element={<AnimalsPage />} />
         <Route path="/zvirata/:id" element={<AnimalDetail />} />
 
