@@ -1,82 +1,61 @@
-// frontend/src/App.tsx
-import React, { useEffect, useState } from 'react'
+import React from 'react'
 import { Routes, Route, Link, Outlet, Navigate, useNavigate } from 'react-router-dom'
-import { AppBar, Toolbar, Button, Container, Stack } from '@mui/material'
+import { AppBar, Toolbar, Button, Container, Stack, Typography } from '@mui/material'
 
 // Pages
 import HomePage from './pages/HomePage'
 import AnimalsPage from './pages/AnimalsPage'
-import AdminLogin from './pages/AdminLogin'
+import AdminLogin from './pages/AdminLogin'           // (you can delete later if not needed)
 import AdminDashboard from './pages/AdminDashboard'
 import AdminModerators from './pages/AdminModerators'
-import ModeratorLogin from './pages/ModeratorLogin'
+import ModeratorLogin from './pages/ModeratorLogin'   // (you can delete later if not needed)
 import ModeratorDashboard from './pages/ModeratorDashboard'
 import AnimalsManager from './pages/AnimalsManager'
 import UXPrototype from './prototypes/UXPrototype'
-import AnimalDetail from './pages/AnimalDetail'
+import Login from './pages/Login'
+import UserDashboard from './pages/UserDashboard'
 
 // Guards
-import RequireModerator from './routes/RequireModerator'
-import RequireAdmin from './routes/RequireAdmin'
-
-// Utils
-import { logout as apiLogout } from './services/api'
-import AutoLogout from './components/AutoLogout'
-
-// --- small hook to track token presence via sessionStorage + our auth event ---
-function useAuthToken(): boolean {
-  const [hasToken, setHasToken] = useState<boolean>(() => !!sessionStorage.getItem('accessToken'))
-  useEffect(() => {
-    const onChange = () => setHasToken(!!sessionStorage.getItem('accessToken'))
-    window.addEventListener('storage', onChange)
-    window.addEventListener('auth:change', onChange)
-    return () => {
-      window.removeEventListener('storage', onChange)
-      window.removeEventListener('auth:change', onChange)
-    }
-  }, [])
-  return hasToken
-}
+import RequireRole from './routes/RequireRole'
+import { useAuth } from './context/AuthContext'
 
 function AppLayout() {
-  const hasToken = useAuthToken()
+  const { token, role, logout } = useAuth()
   const navigate = useNavigate()
-
-  function onLogout() {
-    apiLogout()
-    navigate('/', { replace: true })
-  }
 
   return (
     <>
       <AppBar position="sticky" color="default" elevation={0}>
         <Toolbar>
           <Container maxWidth="lg" sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            {/* Left: Logo as a link to the landing page */}
-            <Button component={Link} to="/" color="inherit" sx={{ fontWeight: 900 }}>
+            <Typography
+              component={Link}
+              to="/"
+              sx={{ textDecoration: 'none', color: 'inherit', fontWeight: 900 }}
+            >
               Dogpoint
-            </Button>
+            </Typography>
 
-            {/* Right: Auth action */}
-            <Stack direction="row" spacing={1} alignItems="center">
-              {hasToken ? (
-                <Button onClick={onLogout} color="primary" variant="outlined">
-                  Odhlásit
-                </Button>
+            <Stack direction="row" spacing={1}>
+              {!token ? (
+                <Button component={Link} to="/login" color="primary">Login</Button>
               ) : (
-                // If you later consolidate to a single /login, change the link here.
-                <Stack direction="row" spacing={1}>
-                  <Button component={Link} to="/admin/login" color="primary">Přihlásit</Button>
-                </Stack>
+                <>
+                  {role === 'ADMIN' && <Button component={Link} to="/admin" color="primary">Admin</Button>}
+                  {role === 'MODERATOR' && <Button component={Link} to="/moderator" color="primary">Moderátor</Button>}
+                  {role === 'USER' && <Button component={Link} to="/user" color="primary">Můj účet</Button>}
+                  <Button
+                    color="inherit"
+                    onClick={() => { logout(); navigate('/', { replace: true }) }}
+                  >
+                    Odhlásit
+                  </Button>
+                </>
               )}
             </Stack>
           </Container>
         </Toolbar>
       </AppBar>
-
-      {/* global idle watchdog */}
-      <AutoLogout />
-
       <Outlet />
     </>
   )
@@ -98,57 +77,67 @@ export default function App() {
       <Route element={<AppLayout />}>
         {/* Public */}
         <Route path="/" element={<HomePage />} />
+        {/* If you still want a listing page */}
         <Route path="/zvirata" element={<AnimalsPage />} />
-        <Route path="/zvirata/:id" element={<AnimalDetail />} />
+
+        {/* Unified login */}
+        <Route path="/login" element={<Login />} />
 
         {/* Admin */}
-        <Route path="/admin/login" element={<AdminLogin />} />
         <Route
           path="/admin"
           element={
-            <RequireAdmin>
+            <RequireRole role="ADMIN">
               <AdminDashboard />
-            </RequireAdmin>
+            </RequireRole>
           }
         />
         <Route
           path="/admin/moderators"
           element={
-            <RequireAdmin>
+            <RequireRole role="ADMIN">
               <AdminModerators />
-            </RequireAdmin>
+            </RequireRole>
           }
         />
         <Route
           path="/admin/animals"
           element={
-            <RequireAdmin>
+            <RequireRole role="ADMIN">
               <AnimalsManager />
-            </RequireAdmin>
+            </RequireRole>
           }
         />
-        <Route path="/admin-login" element={<Navigate to="/admin/login" replace />} />
 
         {/* Moderator */}
-        <Route path="/moderator/login" element={<ModeratorLogin />} />
         <Route
           path="/moderator"
           element={
-            <RequireModerator>
+            <RequireRole role="MODERATOR">
               <ModeratorDashboard />
-            </RequireModerator>
+            </RequireRole>
           }
         />
         <Route
           path="/moderator/animals"
           element={
-            <RequireModerator>
+            <RequireRole role="MODERATOR">
               <AnimalsManager />
-            </RequireModerator>
+            </RequireRole>
           }
         />
 
-        {/* Prototype (left as-is) */}
+        {/* User */}
+        <Route
+          path="/user"
+          element={
+            <RequireRole role="USER">
+              <UserDashboard />
+            </RequireRole>
+          }
+        />
+
+        {/* Prototype (optional) */}
         <Route path="/proto/*" element={<UXPrototype />} />
 
         {/* Fallback */}

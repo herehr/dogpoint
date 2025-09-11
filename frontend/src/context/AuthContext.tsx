@@ -1,77 +1,59 @@
-// frontend/src/context/AuthContext.tsx
-import React, { createContext, useContext, useEffect, useRef, useState } from 'react'
-import { loginAdmin as apiLogin } from '../services/api'
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react'
 
-// Types
-type Role = 'ADMIN' | 'MODERATOR' | 'USER'
-type AuthState = { token: string | null; role: Role | null; email?: string | null }
-type AuthCtx = {
+type Role = 'ADMIN' | 'MODERATOR' | 'USER' | null
+type AuthState = {
   token: string | null
-  role: Role | null
-  login: (email: string, password: string) => Promise<{ token: string; role: Role }>
+  role: Role
+  email?: string | null
+}
+type AuthContextValue = AuthState & {
+  loginWithToken: (token: string, role?: Role, email?: string) => void
   logout: () => void
 }
-
-const AuthContext = createContext<AuthCtx>({
-  token: null, role: null,
-  login: async () => ({ token: '', role: 'USER' }),
-  logout: () => {},
-})
+const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [token, setToken] = useState<string | null>(() => sessionStorage.getItem('accessToken'))
-  const [role, setRole] = useState<Role | null>(() => (sessionStorage.getItem('role') as Role | null) || null)
-
-  // Inactivity auto-logout in 10 minutes
-  const IDLE_MS = 10 * 60 * 1000
-  const idleTimer = useRef<number | null>(null)
-
-  function bumpIdleTimer() {
-    if (idleTimer.current) window.clearTimeout(idleTimer.current)
-    if (token) {
-      idleTimer.current = window.setTimeout(() => {
-        // auto logout
-        logout()
-      }, IDLE_MS)
-    }
-  }
+  const [token, setToken] = useState<string | null>(null)
+  const [role, setRole] = useState<Role>(null)
+  const [email, setEmail] = useState<string | null>(null)
 
   useEffect(() => {
-    const events = ['mousemove', 'keydown', 'scroll', 'click', 'touchstart']
-    const handler = () => bumpIdleTimer()
-    events.forEach(ev => window.addEventListener(ev, handler, { passive: true }))
-    bumpIdleTimer()
-    return () => {
-      events.forEach(ev => window.removeEventListener(ev, handler))
-      if (idleTimer.current) window.clearTimeout(idleTimer.current)
-    }
-  }, [token])
+    const t = sessionStorage.getItem('accessToken')
+    const r = sessionStorage.getItem('role') as Role | null
+    const e = sessionStorage.getItem('email')
+    if (t) setToken(t)
+    if (r) setRole(r)
+    if (e) setEmail(e)
+  }, [])
 
-  async function login(email: string, password: string) {
-    const res = await apiLogin(email, password) // unified /api/auth/login
-    sessionStorage.setItem('accessToken', res.token)
-    sessionStorage.setItem('role', res.role || 'USER')
-    setToken(res.token)
-    setRole((res.role || 'USER') as Role)
-    bumpIdleTimer()
-    return { token: res.token, role: (res.role || 'USER') as Role }
+  const loginWithToken = (t: string, r?: Role, e?: string) => {
+    setToken(t)
+    sessionStorage.setItem('accessToken', t)
+    if (r) {
+      setRole(r)
+      sessionStorage.setItem('role', r)
+    }
+    if (e) {
+      setEmail(e)
+      sessionStorage.setItem('email', e)
+    }
   }
 
-  function logout() {
-    sessionStorage.removeItem('accessToken')
-    sessionStorage.removeItem('role')
+  const logout = () => {
     setToken(null)
     setRole(null)
-    window.location.assign('/') // back to landing
+    setEmail(null)
+    sessionStorage.removeItem('accessToken')
+    sessionStorage.removeItem('role')
+    sessionStorage.removeItem('email')
   }
 
-  return (
-    <AuthContext.Provider value={{ token, role, login, logout }}>
-      {children}
-    </AuthContext.Provider>
-  )
+  const value = useMemo(() => ({ token, role, email, loginWithToken, logout }), [token, role, email])
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
 export function useAuth() {
-  return useContext(AuthContext)
+  const ctx = useContext(AuthContext)
+  if (!ctx) throw new Error('useAuth must be used inside <AuthProvider>')
+  return ctx
 }
