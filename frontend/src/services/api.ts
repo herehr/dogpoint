@@ -71,7 +71,8 @@ function qs(params: Record<string, string | number | boolean | undefined | null>
 
 export type LoginResponse = { token: string; role?: 'ADMIN' | 'MODERATOR' | 'USER' }
 
-async function login(email: string, password: string): Promise<LoginResponse> {
+// ⬇️ make sure this is a **named export**
+export async function login(email: string, password: string): Promise<LoginResponse> {
   const data = await req<LoginResponse>('/api/auth/login', {
     method: 'POST',
     body: JSON.stringify({ email, password }),
@@ -81,10 +82,10 @@ async function login(email: string, password: string): Promise<LoginResponse> {
   return data
 }
 
+// Optional thin wrappers (safe to keep or delete)
 export async function loginAdmin(email: string, password: string) {
   return login(email, password)
 }
-
 export async function loginModerator(email: string, password: string) {
   return login(email, password)
 }
@@ -290,8 +291,6 @@ export async function setPasswordFirstTime(email: string, password: string) {
 /* =========================
    Session helpers
    ========================= */
-
-
 
 export function isAuthenticated(): boolean {
   return !!getToken()
