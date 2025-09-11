@@ -36,5 +36,3 @@ export default function RequireRole({
   return <Navigate to={target} replace />
 }
 
-  return <Outlet />
-}
