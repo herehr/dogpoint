@@ -1,53 +1,53 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import React, { createContext, useContext, useEffect, useState } from 'react'
 
-type Role = 'ADMIN' | 'MODERATOR' | 'USER'
-type AuthState = {
+type Role = 'ADMIN' | 'MODERATOR' | 'USER' | null
+type AuthCtx = {
   token: string | null
-  role: Role | null
-}
-
-type AuthContextType = AuthState & {
-  login: (token: string, role?: Role | null) => void
+  role: Role
+  login: (token: string, role: Role) => void
   logout: () => void
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined)
+const Ctx = createContext<AuthCtx>({
+  token: null,
+  role: null,
+  login: () => {},
+  logout: () => {},
+})
 
-export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(null)
-  const [role, setRole] = useState<Role | null>(null)
+  const [role, setRole] = useState<Role>(null)
 
-  // Hydrate ONCE on app start from sessionStorage
+  // ✅ hydrate from sessionStorage
   useEffect(() => {
     const t = sessionStorage.getItem('accessToken')
-    const r = sessionStorage.getItem('role') as Role | null
-    if (t) setToken(t)
-    if (r) setRole(r)
+    const r = sessionStorage.getItem('role') as Role
+    setToken(t)
+    setRole(r ?? null)
   }, [])
 
-  const login = (t: string, r?: Role | null) => {
+  const login = (t: string, r: Role) => {
+    sessionStorage.setItem('accessToken', t)
+    if (r) sessionStorage.setItem('role', r)
     setToken(t)
-    if (t) sessionStorage.setItem('accessToken', t)
-    if (r) {
-      setRole(r)
-      sessionStorage.setItem('role', r)
-    }
+    setRole(r ?? null)
   }
 
   const logout = () => {
-    setToken(null)
-    setRole(null)
     sessionStorage.removeItem('accessToken')
     sessionStorage.removeItem('role')
+    setToken(null)
+    setRole(null)
   }
 
-  const value = useMemo<AuthContextType>(() => ({ token, role, login, logout }), [token, role])
-
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+  return (
+    <Ctx.Provider value={{ token, role, login, logout }}>
+      {children}
+    </Ctx.Provider>
+  )
 }
 
 export function useAuth() {
-  const ctx = useContext(AuthContext)
-  if (!ctx) throw new Error('useAuth must be used within AuthProvider')
-  return ctx
+  return useContext(Ctx)
 }

@@ -1,24 +1,40 @@
 import React from 'react'
-import { Navigate, Outlet, useLocation } from 'react-router-dom'
+import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
-type Props = { roles: Array<'ADMIN' | 'MODERATOR' | 'USER'> }
-
-export default function RequireRole({ roles }: Props) {
+export default function RequireRole({
+  roles,
+  children,
+}: {
+  roles: Array<'ADMIN' | 'MODERATOR' | 'USER'>
+  children: React.ReactNode
+}) {
   const { token, role } = useAuth()
-  const loc = useLocation()
+  const location = useLocation()
 
-  // Not logged in
-  if (!token) return <Navigate to="/login" replace state={{ from: loc }} />
-
-  // Logged in but role not allowed
-  if (!role || !roles.includes(role)) {
-    // Redirect users to their home based on role if present
-    if (role === 'ADMIN') return <Navigate to="/admin" replace />
-    if (role === 'MODERATOR') return <Navigate to="/moderator" replace />
-    if (role === 'USER') return <Navigate to="/user" replace />
-    return <Navigate to="/login" replace />
+  if (!token) {
+    // not logged in → go to login
+    return <Navigate to="/login" replace state={{ from: location }} />
   }
+
+  // strict check
+  if (role && roles.includes(role)) {
+    return <>{children}</>
+  }
+
+  // optional permissive fallback for adopters with token but no role persisted
+  if (!role && roles.includes('USER')) {
+    return <>{children}</>
+  }
+
+  // logged in but wrong role → send to their dashboard
+  const target =
+    role === 'ADMIN' ? '/admin' :
+    role === 'MODERATOR' ? '/moderator' :
+    '/user'
+
+  return <Navigate to={target} replace />
+}
 
   return <Outlet />
 }

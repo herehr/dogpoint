@@ -210,14 +210,20 @@ export async function startAdoption(
     headers: { 'Content-Type': 'application/json', ...authHeader() },
     body: JSON.stringify({ animalId, email, name, monthly }),
   })
+
   const text = await res.text()
   if (!res.ok) {
     let msg = 'startAdoption failed'
     try { const j = JSON.parse(text); msg = j?.error || msg } catch {}
     throw new Error(msg)
   }
+
   const data = text ? JSON.parse(text) : {}
-  if (data?.token) setToken(data.token)
+  if (data?.token) {
+    sessionStorage.setItem('accessToken', data.token)
+    // ✅ Make sure adopters become USER immediately for guards/header:
+    sessionStorage.setItem('role', 'USER')
+  }
   return data as { ok: boolean; token?: string; access?: Record<string, boolean> }
 }
 
