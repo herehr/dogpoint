@@ -146,6 +146,31 @@ export async function deleteAnimal(id: string): Promise<{ ok: true }> {
   return req<{ ok: true }>('/api/animals/' + encodeURIComponent(id), { method: 'DELETE' })
 }
 
+// User’s adopted animals with hasNew flag
+export async function myAdoptedAnimals(): Promise<Array<{
+  animal: { id: string; jmeno: string; main: string | null; active: boolean }
+  monthly: number | null
+  hasNew: boolean
+  latestAt: string
+  lastSeenAt: string | null
+}>> {
+  return req('/api/adoption/my-animals')
+}
+
+export async function markAnimalSeen(animalId: string) {
+  return req('/api/adoption/seen', {
+    method: 'POST',
+    body: JSON.stringify({ animalId }),
+  })
+}
+
+export async function endAdoption(animalId: string) {
+  return req('/api/adoption/end', {
+    method: 'POST',
+    body: JSON.stringify({ animalId }),
+  })
+}
+
 /* =========================
    Upload (multipart)
    ========================= */
