@@ -2,7 +2,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import {
   Dialog, DialogTitle, DialogContent, DialogActions,
-  TextField, Button, Stack, Alert, Typography, Chip, Box
+  TextField, Button, Stack, Alert, Typography, Chip, Box, Divider, ToggleButtonGroup, ToggleButton, Paper
 } from '@mui/material'
 import { startAdoption, getAdoptionMe } from '../services/api'
 import SetPasswordDialog from './SetPasswordDialog'
@@ -15,6 +15,8 @@ type Props = {
   onGranted: () => void
 }
 
+type PaymentMethod = 'CARD' | 'BANK'
+
 export default function AdoptionDialog({ open, onClose, animalId, onGranted }: Props) {
   const { hasAccess, grantAccess } = useAccess()
 
@@ -24,6 +26,8 @@ export default function AdoptionDialog({ open, onClose, animalId, onGranted }: P
 
   const [email, setEmail] = useState<string>('')
   const [name, setName] = useState<string>('')
+
+  const [method, setMethod] = useState<PaymentMethod>('CARD')
 
   // context state
   const [knownEmail, setKnownEmail] = useState<string | null>(null)
@@ -85,6 +89,9 @@ export default function AdoptionDialog({ open, onClose, animalId, onGranted }: P
 
     setSaving(true)
     try {
+      // Backend demo unlock (same call as before).
+      // Later you can split by method: e.g. create Stripe Checkout for CARD,
+      // return bank VS/instructions for BANK.
       const data = await startAdoption(
         animalId,
         knownEmail ?? email.trim(),
@@ -92,11 +99,23 @@ export default function AdoptionDialog({ open, onClose, animalId, onGranted }: P
         m
       )
 
+      // If backend provides a Stripe checkout URL (future), go there immediately.
+      if (method === 'CARD' && data && (data as any).checkoutUrl) {
+        window.location.assign((data as any).checkoutUrl as string)
+        return
+      }
+
+      // Local unlock & close (demo path)
       grantAccess(animalId)
       setOk('Adopce potvrzena (DEMO). Obsah byl odemčen.')
       onGranted()
-      onClose()
 
+      // For BANK we keep the dialog open briefly to show instructions (below).
+      if (method === 'CARD') {
+        onClose()
+      }
+
+      // if user did not have password yet, ask to set it right away
       if (data?.userHasPassword === false && (knownEmail ?? email)) {
         setAskPassword(true)
       }
@@ -157,7 +176,7 @@ export default function AdoptionDialog({ open, onClose, animalId, onGranted }: P
                   />
                 </Box>
 
-                {/* Amount input (always visible; highlighted when “Vlastní částka”) */}
+                {/* Amount input */}
                 <TextField
                   inputRef={amountInputRef}
                   label="Částka (Kč) * — měsíčně"
@@ -172,6 +191,48 @@ export default function AdoptionDialog({ open, onClose, animalId, onGranted }: P
                   required
                   fullWidth
                 />
+
+                <Divider sx={{ my: 1 }} />
+
+                {/* Payment method selector */}
+                <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+                  Jak chcete platit?
+                </Typography>
+                <ToggleButtonGroup
+                  exclusive
+                  value={method}
+                  onChange={(_, val: PaymentMethod | null) => { if (val) setMethod(val) }}
+                  fullWidth
+                  size="small"
+                >
+                  <ToggleButton value="CARD">Kreditní / debetní karta</ToggleButton>
+                  <ToggleButton value="BANK">Bankovní převod</ToggleButton>
+                </ToggleButtonGroup>
+
+                {/* Helper blocks per method (informational only for now) */}
+                {method === 'CARD' && (
+                  <Alert severity="info">
+                    Platba kartou je zpracována přes Stripe. Po potvrzení budete přesměrováni na platební stránku.
+                  </Alert>
+                )}
+                {method === 'BANK' && (
+                  <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 0.5 }}>
+                      Instrukce k bankovnímu převodu
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Přispívejte měsíčně trvalým příkazem:
+                    </Typography>
+                    <Box sx={{ mt: 1 }}>
+                      <Typography variant="body2"><b>Účet (Fio):</b> 1234567890 / 2010</Typography>
+                      <Typography variant="body2"><b>Variabilní symbol:</b> bude zaslán e-mailem po potvrzení</Typography>
+                      <Typography variant="body2"><b>Zpráva pro příjemce:</b> Adopce – {name || 'Podpora'}</Typography>
+                    </Box>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                      Po přijetí platby vám automaticky odemkneme obsah.
+                    </Typography>
+                  </Paper>
+                )}
 
                 {/* Email / Name */}
                 {!knownEmail ? (
@@ -199,7 +260,7 @@ export default function AdoptionDialog({ open, onClose, animalId, onGranted }: P
                 )}
 
                 <Typography variant="body2" color="text.secondary">
-                  Platební brána bude brzy implementována. Jedná se o měsíční podporu (lze kdykoli ukončit).
+                  Jedná se o <b>měsíční</b> podporu (lze kdykoli ukončit).
                 </Typography>
               </Stack>
             </DialogContent>
@@ -215,7 +276,12 @@ export default function AdoptionDialog({ open, onClose, animalId, onGranted }: P
                   (!knownEmail && !email.trim())
                 }
               >
-                {saving ? 'Zpracovávám…' : 'Potvrdit adopci'}
+                {saving
+                  ? 'Zpracovávám…'
+                  : method === 'CARD'
+                  ? 'Pokračovat na platbu kartou'
+                  : 'Potvrdit a zobrazit instrukce'
+                }
               </Button>
             </DialogActions>
           </form>
