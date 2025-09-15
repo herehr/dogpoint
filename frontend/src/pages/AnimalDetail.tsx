@@ -8,7 +8,6 @@ import { fetchAnimal } from '../services/api'
 import { useAccess } from '../context/AccessContext'
 import PostsSection from '../components/PostsSection'
 import BlurBox from '../components/BlurBox'
-import ReactionBar from '../components/ReactionBar'
 import AdoptionDialog from '../components/AdoptionDialog'
 import { useAuth } from '../context/AuthContext'
 
@@ -33,14 +32,15 @@ function asUrl(x: string | Media | undefined | null): string | null {
 export default function AnimalDetail() {
   const { id } = useParams()
   const { hasAccess, grantAccess } = useAccess()
-  const { role } = useAuth() 
+  const { role } = useAuth()
 
   const [animal, setAnimal] = useState<LocalAnimal | null>(null)
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
   const [adoptOpen, setAdoptOpen] = useState(false)
+
   const unlocked =
-    (role === 'ADMIN' || role === 'MODERATOR')     // ← admins/mods see everything
+    role === 'ADMIN' || role === 'MODERATOR'
       ? true
       : (id ? hasAccess(id) : false)
 
@@ -123,13 +123,6 @@ export default function AnimalDetail() {
 
             <Divider sx={{ my: 2 }} />
 
-            <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 1 }}>
-              Reakce (viditelné jen pro vás)
-            </Typography>
-            <ReactionBar animalId={id} />
-
-            <Divider sx={{ my: 2 }} />
-
             {!unlocked && (
               <Box id="adopce">
                 <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>
@@ -190,9 +183,19 @@ export default function AnimalDetail() {
         </Box>
       )}
 
-      {/* Posts (locked until adoption) */}
+      {/* Posts (blurred until unlock) */}
       <Box id="posts" sx={{ mt: 4 }}>
-        <PostsSection animalId={animal.id} />
+        <Typography variant="h6" sx={{ fontWeight: 800, mb: 1 }}>
+          Příspěvky
+        </Typography>
+        <BlurBox blurred={!unlocked}>
+          <PostsSection animalId={animal.id} />
+        </BlurBox>
+        {!unlocked && (
+          <Typography variant="caption" color="text.secondary">
+            Zamčeno – příspěvky se odemknou po adopci.
+          </Typography>
+        )}
       </Box>
 
       {/* Adoption dialog */}
