@@ -106,8 +106,9 @@ router.get('/payments', async (req: Request, res: Response) => {
       })),
     ].sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt))
 
-    // ✅ Compare against enum members, not string literals
-    const isSettled = (s: PS) => s === PS.PAID || s === PS.SUCCEEDED
+    
+// treat only fully paid as settled; refunded/failed/canceled are excluded
+    const isSettled = (s: PS) => s === PS.PAID
     const total = rows.reduce((s, r) => s + (isSettled(r.status) ? r.amount : 0), 0)
     const count = rows.length
 
