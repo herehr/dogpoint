@@ -1,5 +1,4 @@
 // backend/prisma/schema.prisma
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -14,7 +13,6 @@ datasource db {
  * Enums
  * =========================
  */
-
 enum Role {
   USER
   MODERATOR
@@ -36,10 +34,21 @@ enum SubscriptionStatus {
 }
 
 enum PaymentStatus {
+  PENDING
+  PAID
   REQUIRES_ACTION
-  SUCCEEDED
+  CANCELED
   FAILED
   REFUNDED
+}
+
+enum PaymentMethod {
+  CARD
+  BANK
+}
+
+enum PaymentInterval {
+  MONTHLY
 }
 
 /**
@@ -47,18 +56,17 @@ enum PaymentStatus {
  * Core models
  * =========================
  */
-
 model User {
   id           String   @id @default(cuid())
   email        String   @unique
   passwordHash String?
-  role         Role     @default(MODERATOR)
+  role         Role     @default(USER)     // safer default than MODERATOR
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   // back-relations
-  posts         Post[] // posts authored by this user (optional author)
-  subscriptions Subscription[] // user’s adoptions/subscriptions
+  posts         Post[]
+  subscriptions Subscription[]
 }
 
 model Animal {
@@ -75,8 +83,8 @@ model Animal {
   updatedAt        DateTime          @updatedAt
 
   // back-relations
-  posts         Post[] // posts related to the animal
-  subscriptions Subscription[] // active/pending subscriptions to this animal
+  posts         Post[]
+  subscriptions Subscription[]
 }
 
 model GalerieMedia {
@@ -104,7 +112,7 @@ model AdoptionRequest {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  // NEW: Stripe info (optional)
+  // Optional Stripe linkage
   stripeCustomerId        String?
   stripeSubscriptionId    String?
   stripeCheckoutSessionId String?
@@ -118,7 +126,6 @@ model AdoptionRequest {
  * Posts with media
  * =========================
  */
-
 model Post {
   id     String  @id @default(cuid())
   title  String
@@ -153,7 +160,6 @@ model PostMedia {
  * Donations / subscriptions (Fio-ready)
  * =========================
  */
-
 model Subscription {
   id       String @id @default(cuid())
   user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -178,6 +184,9 @@ model Subscription {
   payments  Payment[]
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
+
+  // Prevent duplicate adoption by the same user for the same animal
+  @@unique([userId, animalId])
 
   @@index([userId])
   @@index([animalId])
@@ -211,9 +220,52 @@ model WebhookEvent {
   createdAt  DateTime        @default(now())
 }
 
-// Track Fio pointer if you want to keep your own (optional)
+// Optional: track Fio pagination state
 model FioCursor {
   id        Int      @id @default(1)
   lastId    String?
   updatedAt DateTime @updatedAt
+}
+
+/**
+ * =========================
+ * Lightweight pledge + payments (for simple flow)
+ * =========================
+ */
+model Pledge {
+  id         String          @id @default(cuid())
+  animalId   String
+  email      String
+  name       String?
+  amount     Int // CZK
+  interval   PaymentInterval @default(MONTHLY)
+  method     PaymentMethod
+  status     PaymentStatus   @default(PENDING)
+  providerId String? // Stripe session id or Fio VS
+  note       String?
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  payments PledgePayment[]
+
+  // Optional: prevent the same email pledging the same animal twice
+  // @@unique([email, animalId])
+
+  @@index([email, animalId])
+  @@index([status, method])
+}
+
+model PledgePayment {
+  id       String @id @default(cuid())
+  pledge   Pledge @relation(fields: [pledgeId], references: [id], onDelete: Cascade)
+  pledgeId String
+
+  status     PaymentStatus
+  amount     Int
+  provider   String? // 'stripe' | 'fio'
+  providerId String? // charge id / transaction id
+  raw        Json?
+  createdAt  DateTime @default(now())
+
+  @@index([pledgeId])
 }
