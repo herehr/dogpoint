@@ -34,6 +34,10 @@ app.use('/api/adoption', adoptionRoutes)
 app.use('/api/posts', postsRoutes)
 app.use('/api/payments', paymentsRoutes)
 app.use('/api/admin/stats', adminStatsRoutes)
+// endpoints become:
+//   GET /api/admin/stats/payments
+//   GET /api/admin/stats/pledges
+//   GET /api/admin/stats/expected
 
 // Base
 app.get('/', (_req: Request, res: Response): void => {
