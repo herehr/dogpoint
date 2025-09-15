@@ -1,11 +1,9 @@
 // backend/src/routes/payments.ts
 import { Router, Request, Response } from 'express'
-import Stripe from 'stripe'
+import Stripe from 'stripe';
 
 const router = Router()
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
-  apiVersion: '2024-06-20', // recent stable
-})
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || ''),
 
 /**
  * POST /api/payments/stripe/checkout
