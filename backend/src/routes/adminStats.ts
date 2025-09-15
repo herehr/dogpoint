@@ -2,6 +2,7 @@
 import { Router, Request, Response, NextFunction } from 'express'
 import { prisma } from '../prisma'
 import { requireAuth } from '../middleware/authJwt' // must set req.user = { id, role, ... }
+import { PaymentStatus as PS } from '@prisma/client' // enum from Prisma
 
 // --- allow Admin (and optionally Moderator) ---
 function requireAdmin(req: Request, res: Response, next: NextFunction) {
@@ -42,8 +43,6 @@ router.use(requireAuth, requireAdmin)
 router.get('/payments', async (req: Request, res: Response) => {
   try {
     const range = normalizeRange(req.query)
-
-    // Build createdAt filter shared for both tables
     const createdAtFilter = range ? { createdAt: range } : {}
 
     const [subPayments, pledgePayments] = await Promise.all([
@@ -66,39 +65,50 @@ router.get('/payments', async (req: Request, res: Response) => {
       }),
     ])
 
+    type Row = {
+      id: string
+      source: 'subscription' | 'pledge'
+      amount: number
+      currency: string
+      status: PS
+      provider: string | null
+      createdAt: Date
+      userEmail: string | null
+      animalId: string | null
+      animalName: string | null
+    }
+
     // unify shape
-    const rows = [
-      ...subPayments.map(p => ({
+    const rows: Row[] = [
+      ...subPayments.map<Row>(p => ({
         id: p.id,
-        source: 'subscription' as const,
+        source: 'subscription',
         amount: p.amount,
         currency: p.currency,
-        status: p.status,                  // PaymentStatus enum in your schema
-        provider: p.provider,              // PaymentProvider enum
+        status: p.status,             // PS enum
+        provider: String(p.provider ?? ''),
         createdAt: p.createdAt,
         userEmail: p.subscription?.user?.email ?? null,
         animalId: p.subscription?.animalId ?? null,
         animalName: p.subscription?.animal?.jmeno || p.subscription?.animal?.name || null,
       })),
-      ...pledgePayments.map(pp => ({
+      ...pledgePayments.map<Row>(pp => ({
         id: pp.id,
-        source: 'pledge' as const,
+        source: 'pledge',
         amount: pp.amount,
-        currency: 'CZK' as const,
-        status: pp.status,                 // PaymentStatus enum
-        // normalize provider into your enum domain; default FIO for bank import
-        provider: (pp.provider === 'stripe' ? 'STRIPE' : 'FIO') as 'STRIPE' | 'FIO',
+        currency: 'CZK',
+        status: pp.status,            // PS enum
+        provider: pp.provider ?? 'fio',
         createdAt: pp.createdAt,
         userEmail: pp.pledge?.email ?? null,
         animalId: pp.pledge?.animalId ?? null,
-        animalName: null as string | null,
+        animalName: null,
       })),
     ].sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt))
 
-    const total = rows.reduce(
-      (s, r) => s + ((r.status === 'PAID' || r.status === 'SUCCEEDED') ? (r.amount || 0) : 0),
-      0
-    )
+    // ✅ Compare against enum members, not string literals
+    const isSettled = (s: PS) => s === PS.PAID || s === PS.SUCCEEDED
+    const total = rows.reduce((s, r) => s + (isSettled(r.status) ? r.amount : 0), 0)
     const count = rows.length
 
     res.json({ ok: true, count, total, rows })
