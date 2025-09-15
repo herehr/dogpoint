@@ -2,7 +2,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import {
   Dialog, DialogTitle, DialogContent, DialogActions,
-  TextField, Button, Stack, Alert, Typography, ToggleButtonGroup, ToggleButton, Chip, Box
+  TextField, Button, Stack, Alert, Typography, Chip, Box
 } from '@mui/material'
 import { startAdoption, getAdoptionMe } from '../services/api'
 import SetPasswordDialog from './SetPasswordDialog'
@@ -15,14 +15,10 @@ type Props = {
   onGranted: () => void
 }
 
-// purely visual for now; backend flow remains monthly demo
-type Plan = 'ONCE' | 'MONTHLY'
-
 export default function AdoptionDialog({ open, onClose, animalId, onGranted }: Props) {
   const { hasAccess, grantAccess } = useAccess()
 
   // form state
-  const [plan, setPlan] = useState<Plan>('MONTHLY')
   const [monthly, setMonthly] = useState<number>(300)
   const amountInputRef = useRef<HTMLInputElement>(null)
 
@@ -55,7 +51,7 @@ export default function AdoptionDialog({ open, onClose, animalId, onGranted }: P
           setKnownEmail(me.user.email)
           setEmail(me.user.email)
         }
-      } catch {/* ignore */}
+      } catch { /* ignore */ }
     }
     if (open) loadMe()
     return () => { alive = false }
@@ -67,7 +63,8 @@ export default function AdoptionDialog({ open, onClose, animalId, onGranted }: P
     if (a) {
       setMonthly(a)
     } else {
-      // “Jiná částka” → focus the input
+      // “Vlastní částka” → focus the input
+      setMonthly(NaN)
       setTimeout(() => amountInputRef.current?.focus(), 0)
     }
   }
@@ -88,7 +85,6 @@ export default function AdoptionDialog({ open, onClose, animalId, onGranted }: P
 
     setSaving(true)
     try {
-      // For now we always send monthly amount (demo flow)
       const data = await startAdoption(
         animalId,
         knownEmail ?? email.trim(),
@@ -116,7 +112,7 @@ export default function AdoptionDialog({ open, onClose, animalId, onGranted }: P
   return (
     <>
       <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
-        <DialogTitle>Adopce – podpora zvířete</DialogTitle>
+        <DialogTitle>Adopce – měsíční podpora</DialogTitle>
 
         {alreadyAdopted ? (
           <>
@@ -136,41 +132,35 @@ export default function AdoptionDialog({ open, onClose, animalId, onGranted }: P
                 {err && <Alert severity="error">{err}</Alert>}
                 {ok && <Alert severity="success">{ok}</Alert>}
 
-                {/* Plan selector (visual) */}
-                <ToggleButtonGroup
-                  exclusive
-                  value={plan}
-                  onChange={(_, val: Plan | null) => { if (val) setPlan(val) }}
-                  fullWidth
-                  size="small"
-                >
-                  <ToggleButton value="ONCE">Jednorázově</ToggleButton>
-                  <ToggleButton value="MONTHLY">❤️ Měsíčně</ToggleButton>
-                </ToggleButtonGroup>
+                <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+                  Výše měsíční podpory (Kč)
+                </Typography>
 
-                {/* Preset amounts */}
+                {/* Amount chips: 300 / 500 / 1000 / Vlastní částka */}
                 <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                   {presetAmounts.map(a => (
                     <Chip
                       key={a}
                       label={`${a} Kč`}
-                      variant={monthly === a ? 'filled' : 'outlined'}
+                      clickable
+                      color={monthly === a ? 'primary' : 'default'}
                       onClick={() => pickAmount(a)}
-                      sx={{ borderRadius: 2 }}
+                      sx={{ borderRadius: 2, fontWeight: 700 }}
                     />
                   ))}
                   <Chip
-                    label="Jiná částka"
-                    variant={!presetAmounts.includes(monthly) ? 'filled' : 'outlined'}
+                    label="Vlastní částka"
+                    clickable
+                    color={!presetAmounts.includes(monthly) ? 'primary' : 'default'}
                     onClick={() => pickAmount(undefined)}
                     sx={{ borderRadius: 2 }}
                   />
                 </Box>
 
-                {/* Amount input */}
+                {/* Amount input (always visible; highlighted when “Vlastní částka”) */}
                 <TextField
                   inputRef={amountInputRef}
-                  label={`Částka (Kč) *${plan === 'MONTHLY' ? ' — měsíčně' : ''}`}
+                  label="Částka (Kč) * — měsíčně"
                   type="number"
                   inputMode="numeric"
                   inputProps={{ min: 300, step: 50 }}
@@ -183,8 +173,8 @@ export default function AdoptionDialog({ open, onClose, animalId, onGranted }: P
                   fullWidth
                 />
 
-                {/* Show email/name only if we don't already know the user */}
-                {!knownEmail && (
+                {/* Email / Name */}
+                {!knownEmail ? (
                   <>
                     <TextField
                       label="E-mail *"
@@ -202,16 +192,14 @@ export default function AdoptionDialog({ open, onClose, animalId, onGranted }: P
                       fullWidth
                     />
                   </>
-                )}
-
-                {knownEmail && (
+                ) : (
                   <Alert severity="info">
                     Přihlášen jako <b>{knownEmail}</b>. E-mail není třeba znovu vyplňovat.
                   </Alert>
                 )}
 
                 <Typography variant="body2" color="text.secondary">
-                  Platební brána bude brzy implementována. Nyní je to ukázka toku.
+                  Platební brána bude brzy implementována. Jedná se o měsíční podporu (lze kdykoli ukončit).
                 </Typography>
               </Stack>
             </DialogContent>
