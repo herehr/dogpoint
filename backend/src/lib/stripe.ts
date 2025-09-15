@@ -7,6 +7,4 @@ if (!key) {
 }
 
 // ✅ Let the SDK use its pinned version; no literal-mismatch error
-export const stripe = new Stripe(process.env.STRIPE_API_KEY as string, {
-  apiVersion: '2025-08-27.basil', // or simply omit apiVersion entirely
-})
+export const stripe = new Stripe(key)
