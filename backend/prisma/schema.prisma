@@ -1,4 +1,5 @@
 // backend/prisma/schema.prisma
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -8,11 +9,44 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+/**
+ * =========================
+ * Enums
+ * =========================
+ */
+
 enum Role {
   USER
   MODERATOR
   ADMIN
 }
+
+enum PaymentProvider {
+  STRIPE
+  PAYPAL
+  MOCK
+  FIO
+}
+
+enum SubscriptionStatus {
+  PENDING
+  ACTIVE
+  PAUSED
+  CANCELED
+}
+
+enum PaymentStatus {
+  REQUIRES_ACTION
+  SUCCEEDED
+  FAILED
+  REFUNDED
+}
+
+/**
+ * =========================
+ * Core models
+ * =========================
+ */
 
 model User {
   id           String   @id @default(cuid())
@@ -23,7 +57,8 @@ model User {
   updatedAt    DateTime @updatedAt
 
   // back-relations
-  posts Post[] // 👈 posts authored by this user (optional author)
+  posts         Post[] // posts authored by this user (optional author)
+  subscriptions Subscription[] // user’s adoptions/subscriptions
 }
 
 model Animal {
@@ -40,7 +75,8 @@ model Animal {
   updatedAt        DateTime          @updatedAt
 
   // back-relations
-  posts Post[] // 👈 posts related to the animal
+  posts         Post[] // posts related to the animal
+  subscriptions Subscription[] // active/pending subscriptions to this animal
 }
 
 model GalerieMedia {
@@ -65,7 +101,7 @@ model AdoptionRequest {
   lastViewedAt DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
-  
+
   lastSeenAt DateTime?
   endedAt    DateTime?
 
@@ -74,7 +110,9 @@ model AdoptionRequest {
 }
 
 /**
- * ---------- NEW: Posts with media ----------
+ * =========================
+ * Posts with media
+ * =========================
  */
 
 model Post {
@@ -90,9 +128,8 @@ model Post {
   author   User?   @relation(fields: [authorId], references: [id])
   authorId String?
 
-  media PostMedia[] // 👈 photos/videos attached to post
-
-  createdAt DateTime @default(now())
+  media     PostMedia[]
+  createdAt DateTime    @default(now())
 
   @@index([animalId])
   @@index([authorId])
@@ -105,4 +142,74 @@ model PostMedia {
   post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
   postId    String
   createdAt DateTime @default(now())
+}
+
+/**
+ * =========================
+ * Donations / subscriptions (Fio-ready)
+ * =========================
+ */
+
+model Subscription {
+  id       String @id @default(cuid())
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId   String
+  animal   Animal @relation(fields: [animalId], references: [id], onDelete: Cascade)
+  animalId String
+
+  monthlyAmount Int
+  currency      String          @default("CZK")
+  provider      PaymentProvider
+  providerRef   String? // For cards/PayPal; null for Fio
+
+  // Fio specifics
+  variableSymbol String? @unique
+  message        String?
+
+  status     SubscriptionStatus @default(PENDING)
+  startedAt  DateTime           @default(now())
+  canceledAt DateTime?
+  note       String?
+
+  payments  Payment[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([animalId])
+  @@index([status])
+}
+
+model Payment {
+  id             String       @id @default(cuid())
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  subscriptionId String
+
+  provider      PaymentProvider
+  providerRef   String? // For Fio: bank transaction id
+  amount        Int
+  currency      String          @default("CZK")
+  status        PaymentStatus
+  paidAt        DateTime?
+  failureReason String?
+
+  createdAt DateTime @default(now())
+
+  @@index([subscriptionId])
+  @@index([status])
+}
+
+model WebhookEvent {
+  id         String          @id @default(cuid())
+  provider   PaymentProvider
+  rawPayload Json
+  processed  Boolean         @default(false)
+  createdAt  DateTime        @default(now())
+}
+
+// Track Fio pointer if you want to keep your own (optional)
+model FioCursor {
+  id        Int      @id @default(1)
+  lastId    String?
+  updatedAt DateTime @updatedAt
 }
