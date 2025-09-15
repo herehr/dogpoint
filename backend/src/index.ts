@@ -2,7 +2,6 @@
 import express, { Request, Response, NextFunction } from 'express'
 import dotenv from 'dotenv'
 import cors from 'cors'
-
 import adminModeratorsRoutes from './routes/adminModerators'
 import animalRoutes from './routes/animals'
 import authRoutes from './routes/auth'
@@ -10,6 +9,7 @@ import uploadRoutes from './routes/upload'
 import adoptionRoutes from './routes/adoption'
 import postsRoutes from './routes/posts'
 import { prisma } from './prisma'
+import paymentsRoutes from './routes/payments'
 
 dotenv.config()
 
@@ -31,6 +31,7 @@ app.use('/api/auth', authRoutes)
 app.use('/api/upload', uploadRoutes)
 app.use('/api/adoption', adoptionRoutes)
 app.use('/api/posts', postsRoutes)
+app.use('/api/payments', paymentsRoutes)
 
 // Base
 app.get('/', (_req: Request, res: Response): void => {
@@ -54,6 +55,8 @@ app.get('/health/db', async (_req: Request, res: Response): Promise<void> => {
     res.status(500).json({ status: 'error', db: false, error: e.message })
   }
 })
+
+
 
 // Error handler
 app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {

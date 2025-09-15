@@ -250,6 +250,19 @@ export async function startAdoption(
   return data as { ok: boolean; token?: string; access?: Record<string, boolean>; userHasPassword?: boolean }
 }
 
+/* =========================
+   STRIPE / 
+   ========================= */
+
+export async function createStripeCheckout(animalId: string, amountCZK: number, email?: string, name?: string) {
+  const res = await fetch(BASE_URL + '/api/payments/stripe/checkout', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeader() },
+    body: JSON.stringify({ animalId, amountCZK, email, name }),
+  })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json() as Promise<{ url: string }>
+}
 
 /* =========================
    Posts (public & adopter stories)
