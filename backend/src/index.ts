@@ -10,6 +10,7 @@ import adoptionRoutes from './routes/adoption'
 import postsRoutes from './routes/posts'
 import { prisma } from './prisma'
 import paymentsRoutes from './routes/payments'
+import adminStatsRoutes from './routes/adminStats'
 
 dotenv.config()
 
@@ -32,6 +33,7 @@ app.use('/api/upload', uploadRoutes)
 app.use('/api/adoption', adoptionRoutes)
 app.use('/api/posts', postsRoutes)
 app.use('/api/payments', paymentsRoutes)
+app.use('/api/admin/stats', adminStatsRoutes)
 
 // Base
 app.get('/', (_req: Request, res: Response): void => {
