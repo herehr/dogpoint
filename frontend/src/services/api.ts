@@ -250,6 +250,28 @@ export async function startAdoption(
   return data as { ok: boolean; token?: string; access?: Record<string, boolean>; userHasPassword?: boolean }
 }
 
+// --- Admin Statistics ---
+export async function adminStatsPayments(params?: { from?: string; to?: string }) {
+  const q = qs({ from: params?.from, to: params?.to })
+  return req<{ ok: boolean; count: number; total: number; rows: any[] }>(
+    '/api/admin/stats/payments' + q
+  )
+}
+
+export async function adminStatsPledges(params?: { from?: string; to?: string }) {
+  const q = qs({ from: params?.from, to: params?.to })
+  return req<{ ok: boolean; count: number; sum: number; rows: any[]; byStatus: any }>(
+    '/api/admin/stats/pledges' + q
+  )
+}
+
+export async function adminStatsExpected(params?: { from?: string; to?: string }) {
+  const q = qs({ from: params?.from, to: params?.to })
+  return req<{ ok: boolean; period: any; activeCount: number; totalMonthly: number; rows: any[] }>(
+    '/api/admin/stats/expected' + q
+  )
+}
+
 /* =========================
    STRIPE / 
    ========================= */
