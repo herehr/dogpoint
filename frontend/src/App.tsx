@@ -39,47 +39,39 @@ function AppLayout() {
 
   return (
     <>
-      <AppBar position="sticky" color="default" elevation={0}>
-        <Toolbar>
-          <Container maxWidth="lg" sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            {/* Left: Logo → Home */}
-           <Button
-  component={Link}
-  to="/"
-  color="inherit"
-  sx={{ px: 0, minWidth: 'auto' }}
+      <AppBar
+  position="sticky"
+  elevation={0}
+  sx={{
+    bgcolor: 'white',               // white background
+    borderBottom: '1px solid #e0e0e0', // fine line
+    borderRadius: '0 0 12px 12px',  // slight rounding bottom corners
+  }}
 >
-  <img
-    src="/logo1.png"
-    alt="Dogpoint Logo"
-    style={{ height: 28, objectFit: 'contain', display: 'block' }}
-  />
-</Button>
+  <Toolbar>
+    <Container
+      maxWidth="lg"
+      sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+    >
+      {/* Left: Logo → Home */}
+      <Button
+        component={Link}
+        to="/"
+        color="inherit"
+        sx={{ px: 0, minWidth: 'auto' }}
+      >
+        <img
+          src="/logo1.png"
+          alt="Dogpoint Logo"
+          style={{ height: 28, objectFit: 'contain', display: 'block' }}
+        />
+      </Button>
 
-            {/* Right: Single Login (or dashboard + logout when authed) */}
-            <Stack direction="row" spacing={1}>
-              {!token ? (
-                <Button component={Link} to="/login" variant="contained">
-                  Přihlásit
-                </Button>
-              ) : (
-                <>
-                  <Button component={Link} to={dashboardHref} variant="outlined">
-                    {role === 'ADMIN'
-                      ? 'Admin'
-                      : role === 'MODERATOR'
-                      ? 'Moderátor'
-                      : 'Můj účet'}
-                  </Button>
-                  <Button onClick={onLogout} color="inherit">
-                    Odhlásit
-                  </Button>
-                </>
-              )}
-            </Stack>
-          </Container>
-        </Toolbar>
-      </AppBar>
+      {/* Right: login / actions */}
+      <Button color="primary">Přihlásit</Button>
+    </Container>
+  </Toolbar>
+</AppBar>
       <Outlet />
     </>
   )
