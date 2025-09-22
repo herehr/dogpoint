@@ -43,16 +43,18 @@ function AppLayout() {
         <Toolbar>
           <Container maxWidth="lg" sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             {/* Left: Logo → Home */}
-            <Button
-              component={Link}
-              to="/"
-              color="primary"
-              sx={{ textTransform: 'none', px: 0 }}
-            >
-              <Typography variant="h6" sx={{ fontWeight: 900 }}>
-                Dogpoint
-              </Typography>
-            </Button>
+           <Button
+          component={Link}
+          to="/"
+          color="inherit"
+          sx={{ px: 0, minWidth: 'auto' }}
+>
+        <img
+          src="/logo1.png"
+          alt="Dogpoint Logo"
+          style={{ height: 40, objectFit: 'contain', display: 'block' }}
+  />
+</Button>
 
             {/* Right: Single Login (or dashboard + logout when authed) */}
             <Stack direction="row" spacing={1}>
