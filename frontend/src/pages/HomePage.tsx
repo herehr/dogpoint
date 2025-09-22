@@ -52,6 +52,17 @@ export default function HomePage() {
 
   return (
     <Box>
+      {/* HEADER with logo */}
+      <Box sx={{ bgcolor: 'primary.main', py: 1.5 }}>
+        <Container maxWidth="lg" sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <img
+            src="/logo1.png"
+            alt="Dogpoint Logo"
+            style={{ height: 52, objectFit: 'contain' }}
+          />
+        </Container>
+      </Box>
+
       {/* HERO */}
       <Box sx={{ background: 'linear-gradient(135deg, #f6f8ff 0%, #fff 60%)', borderBottom: '1px solid #eef0f7' }}>
         <Container maxWidth="lg" sx={{ py: { xs: 5, md: 8 } }}>
