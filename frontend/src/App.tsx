@@ -44,15 +44,15 @@ function AppLayout() {
           <Container maxWidth="lg" sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             {/* Left: Logo → Home */}
            <Button
-          component={Link}
-          to="/"
-          color="inherit"
-          sx={{ px: 0, minWidth: 'auto' }}
+  component={Link}
+  to="/"
+  color="inherit"
+  sx={{ px: 0, minWidth: 'auto' }}
 >
-        <img
-          src="/logo1.png"
-          alt="Dogpoint Logo"
-          style={{ height: 40, objectFit: 'contain', display: 'block' }}
+  <img
+    src="/logo1.png"
+    alt="Dogpoint Logo"
+    style={{ height: 28, objectFit: 'contain', display: 'block' }}
   />
 </Button>
 
