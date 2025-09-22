@@ -3,3 +3,26 @@ body {
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   background-color: #f9f9f9;
 }
+
+/* --- add: mobile-safe locked media blur --- */
+.lockedMedia {
+  position: relative;
+  overflow: hidden;
+}
+
+.lockedMedia img,
+.lockedMedia video {
+  filter: blur(14px);
+  transform: scale(1.05); /* avoid edge bleeding */
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+  will-change: filter, transform;
+}
+
+.lockedMedia::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to bottom, rgba(255,255,255,0.6), rgba(255,255,255,0.85));
+}

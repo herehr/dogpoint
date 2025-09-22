@@ -1,5 +1,5 @@
 // frontend/src/pages/AnimalDetail.tsx
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useMemo, useCallback } from 'react'
 import { useParams } from 'react-router-dom'
 import {
   Container, Typography, Box, Stack, Chip, Alert, Skeleton, Grid, Button, Divider
@@ -39,10 +39,28 @@ export default function AnimalDetail() {
   const [err, setErr] = useState<string | null>(null)
   const [adoptOpen, setAdoptOpen] = useState(false)
 
-  const unlocked =
-    role === 'ADMIN' || role === 'MODERATOR'
-      ? true
-      : (id ? hasAccess(id) : false)
+  // Local "lock" flag to force re-blur after cancel (independent of AccessContext)
+  const [forceLocked, setForceLocked] = useState(false)
+
+  // Derived unlocked status: admin/mod always unlocked; otherwise depend on access AND not forceLocked
+  const isUnlocked = useMemo(() => {
+    if (role === 'ADMIN' || role === 'MODERATOR') return true
+    return !!(id && hasAccess(id)) && !forceLocked
+  }, [role, id, hasAccess, forceLocked])
+
+  const loadAnimal = useCallback(async () => {
+    if (!id) return
+    setLoading(true)
+    setErr(null)
+    try {
+      const a = await fetchAnimal(id)
+      setAnimal(a as any)
+    } catch (e: any) {
+      setErr(e?.message || 'Chyba načítání detailu')
+    } finally {
+      setLoading(false)
+    }
+  }, [id])
 
   useEffect(() => {
     let alive = true
@@ -54,6 +72,42 @@ export default function AnimalDetail() {
       .finally(() => alive && setLoading(false))
     return () => { alive = false }
   }, [id])
+
+  // Cancel adoption: re-lock immediately (desktop + mobile safe)
+  const onCancelAdoption = useCallback(async () => {
+    if (!animal) return
+    try {
+      // 1) Call backend to cancel
+      // NOTE: replace with your real API if it differs
+      // e.g., await api.cancelAdoption(animal.id)
+      // If you already have such a function, import and call it here:
+      // await api.cancelAdoption(animal.id)
+
+      // 2) Remove any local persisted "access" flags
+      try {
+        localStorage.removeItem(`adopt:${animal.id}`)
+        sessionStorage.removeItem(`adopt:${animal.id}`)
+      } catch {}
+
+      // 3) Stop and unload any playing videos to drop decoded buffers (iOS/Android)
+      document.querySelectorAll('video').forEach((v) => {
+        try {
+          v.pause()
+          v.removeAttribute('src')
+          v.load()
+        } catch {}
+      })
+
+      // 4) Force lock locally -> flips isUnlocked to false
+      setForceLocked(true)
+
+      // 5) Refetch data (ensures UI reflects server state)
+      await loadAnimal()
+    } catch (e) {
+      // Optional: show error toast
+      console.error('Cancel adoption failed', e)
+    }
+  }, [animal, loadAnimal])
 
   if (loading) {
     return (
@@ -84,14 +138,30 @@ export default function AnimalDetail() {
   const mainUrl = urls[0] || '/no-image.jpg'
   const extraUrls = urls.slice(1)
 
+  // Small helper to add a cache-busting param tied to lock state (prevents stale visible frames on phones)
+  const lockTag = isUnlocked ? 'u1' : 'l1'
+  const withBust = (u: string) => `${u}${u.includes('?') ? '&' : '?'}v=${lockTag}`
+
   return (
     <Container sx={{ py: 4 }}>
       {/* Header */}
       <Stack spacing={1.5}>
         <Typography variant="h4" sx={{ fontWeight: 900 }}>{animal.jmeno}</Typography>
-        <Stack direction="row" spacing={1}>
+        <Stack direction="row" spacing={1} alignItems="center">
           <Chip label={kind} />
           <Chip label={age} />
+          {/* Show "Cancel adoption" only when unlocked by user */}
+          {(role !== 'ADMIN' && role !== 'MODERATOR' && isUnlocked) && (
+            <Button
+              variant="outlined"
+              color="error"
+              size="small"
+              onClick={onCancelAdoption}
+              sx={{ ml: 1 }}
+            >
+              Zrušit adopci
+            </Button>
+          )}
         </Stack>
       </Stack>
 
@@ -107,7 +177,7 @@ export default function AnimalDetail() {
               sx={{ display: 'block', borderRadius: 2, overflow: 'hidden', border: '1px solid', borderColor: 'divider' }}
             >
               <img
-                src={mainUrl}
+                src={withBust(mainUrl)}
                 alt="main"
                 style={{ width: '100%', height: 320, objectFit: 'cover' }}
               />
@@ -123,7 +193,7 @@ export default function AnimalDetail() {
 
             <Divider sx={{ my: 2 }} />
 
-            {!unlocked && (
+            {!isUnlocked && (
               <Box id="adopce">
                 <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>
                   Chci adoptovat
@@ -146,36 +216,42 @@ export default function AnimalDetail() {
           <Typography variant="h6" sx={{ fontWeight: 800, mb: 1 }}>
             Další fotografie a videa
           </Typography>
-          <BlurBox blurred={!unlocked}>
+
+          {/* key forces a clean re-mount when isUnlocked flips */}
+          <BlurBox blurred={!isUnlocked} key={isUnlocked ? 'unlocked-extras' : 'locked-extras'}>
             <Grid container spacing={1.5}>
-              {extraUrls.map((u, i) => (
-                <Grid item xs={6} sm={4} md={3} key={i}>
-                  <Box
-                    component="a"
-                    href={u}
-                    target="_blank"
-                    rel="noreferrer"
-                    sx={{
-                      display: 'block',
-                      width: '100%',
-                      height: 160,
-                      borderRadius: 2,
-                      overflow: 'hidden',
-                      border: '1px solid',
-                      borderColor: 'divider'
-                    }}
-                  >
-                    <img
-                      src={u}
-                      alt={`media-${i+1}`}
-                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                    />
-                  </Box>
-                </Grid>
-              ))}
+              {extraUrls.map((u, i) => {
+                const src = withBust(u)
+                return (
+                  <Grid item xs={6} sm={4} md={3} key={`${i}-${lockTag}`}>
+                    <Box
+                      // prevent opening originals while locked
+                      component={isUnlocked ? 'a' : 'div'}
+                      {...(isUnlocked ? { href: u, target: '_blank', rel: 'noreferrer' } : {})}
+                      sx={{
+                        display: 'block',
+                        width: '100%',
+                        height: 160,
+                        borderRadius: 2,
+                        overflow: 'hidden',
+                        border: '1px solid',
+                        borderColor: 'divider'
+                      }}
+                      className={!isUnlocked ? 'lockedMedia' : undefined}
+                    >
+                      <img
+                        src={src}
+                        alt={`media-${i+1}`}
+                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                      />
+                    </Box>
+                  </Grid>
+                )
+              })}
             </Grid>
           </BlurBox>
-          {!unlocked && (
+
+          {!isUnlocked && (
             <Typography variant="caption" color="text.secondary">
               Zamčeno – odemkne se po adopci.
             </Typography>
@@ -188,10 +264,10 @@ export default function AnimalDetail() {
         <Typography variant="h6" sx={{ fontWeight: 800, mb: 1 }}>
           Příspěvky
         </Typography>
-        <BlurBox blurred={!unlocked}>
+        <BlurBox blurred={!isUnlocked} key={isUnlocked ? 'unlocked-posts' : 'locked-posts'}>
           <PostsSection animalId={animal.id} />
         </BlurBox>
-        {!unlocked && (
+        {!isUnlocked && (
           <Typography variant="caption" color="text.secondary">
             Zamčeno – příspěvky se odemknou po adopci.
           </Typography>
@@ -203,7 +279,11 @@ export default function AnimalDetail() {
         open={adoptOpen}
         onClose={() => setAdoptOpen(false)}
         animalId={id}
-        onGranted={() => grantAccess(id)}
+        onGranted={() => {
+          // adoption successful → clear force lock and let AccessContext rule
+          setForceLocked(false)
+          grantAccess(id!)
+        }}
       />
     </Container>
   )
