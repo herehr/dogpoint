@@ -77,6 +77,9 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
   //console.log(`Server running on port ${PORT}`)
 //})
 
-const PORT = Number(process.env.PORT || 8080)
-app.get('/health', (_req, res) => res.json({ ok: true }))
-app.listen(PORT, () => console.log(`API listening on ${PORT}`))
+const PORT = Number(process.env.PORT) || 8080;
+const HOST = '0.0.0.0';
+
+app.listen(PORT, HOST, () => {
+  console.log(`Server listening on http://${HOST}:${PORT}`);
+});
