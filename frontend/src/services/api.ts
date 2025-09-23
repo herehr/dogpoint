@@ -348,9 +348,12 @@ export async function setPasswordFirstTime(email: string, password: string) {
     '/api/auth/set-password-first-time',
     { method: 'POST', body: JSON.stringify({ email, password }) }
   )
-  if (!data?.token) throw new Error('PASSWORD_SET_FAILED')
-  sessionStorage.setItem('accessToken', data.token)
-  return data
+  if (!data || !data.token) throw new Error('Login failed: token missing')
+setToken(data.token)
+try {
+  if (data.role) sessionStorage.setItem('role', data.role)
+} catch {}
+return data
 }
 
 /* =========================

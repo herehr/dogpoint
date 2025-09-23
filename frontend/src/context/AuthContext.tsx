@@ -1,6 +1,7 @@
-import React, { createContext, useContext, useEffect, useState } from 'react'
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react'
 
 type Role = 'ADMIN' | 'MODERATOR' | 'USER' | null
+
 type AuthCtx = {
   token: string | null
   role: Role
@@ -15,37 +16,57 @@ const Ctx = createContext<AuthCtx>({
   logout: () => {},
 })
 
+const TOKEN_KEY = 'accessToken'
+const ROLE_KEY = 'role'
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [token, setToken] = useState<string | null>(null)
-  const [role, setRole] = useState<Role>(null)
+  const [token, setToken] = useState<string | null>(() => {
+    try { return sessionStorage.getItem(TOKEN_KEY) } catch { return null }
+  })
+  const [role, setRole] = useState<Role>(() => {
+    try { return (sessionStorage.getItem(ROLE_KEY) as Role) || null } catch { return null }
+  })
 
-  // ✅ hydrate from sessionStorage
+  // Keep sessionStorage in sync if state changes in runtime
   useEffect(() => {
-    const t = sessionStorage.getItem('accessToken')
-    const r = sessionStorage.getItem('role') as Role
-    setToken(t)
-    setRole(r ?? null)
-  }, [])
+    try {
+      if (token) sessionStorage.setItem(TOKEN_KEY, token)
+      else sessionStorage.removeItem(TOKEN_KEY)
+    } catch {}
+  }, [token])
 
-  const login = (t: string, r: Role) => {
-    sessionStorage.setItem('accessToken', t)
-    if (r) sessionStorage.setItem('role', r)
-    setToken(t)
-    setRole(r ?? null)
+  useEffect(() => {
+    try {
+      if (role) sessionStorage.setItem(ROLE_KEY, role)
+      else sessionStorage.removeItem(ROLE_KEY)
+    } catch {}
+  }, [role])
+
+  // Public API
+  const login = (jwt: string, r: Role) => {
+    setToken(jwt || null)
+    setRole(r || null)
+    try {
+      if (jwt) sessionStorage.setItem(TOKEN_KEY, jwt)
+      else sessionStorage.removeItem(TOKEN_KEY)
+      if (r) sessionStorage.setItem(ROLE_KEY, r)
+      else sessionStorage.removeItem(ROLE_KEY)
+    } catch {}
   }
 
   const logout = () => {
-    sessionStorage.removeItem('accessToken')
-    sessionStorage.removeItem('role')
     setToken(null)
     setRole(null)
+    try {
+      sessionStorage.removeItem(TOKEN_KEY)
+      sessionStorage.removeItem(ROLE_KEY)
+    } catch {}
+    // If you cache per-user access elsewhere, clear it here (e.g., localStorage keys).
+    try { localStorage.removeItem('dogpoint.access') } catch {}
   }
 
-  return (
-    <Ctx.Provider value={{ token, role, login, logout }}>
-      {children}
-    </Ctx.Provider>
-  )
+  const value = useMemo(() => ({ token, role, login, logout }), [token, role])
+  return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
 
 export function useAuth() {
