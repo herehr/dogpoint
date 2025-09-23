@@ -52,64 +52,16 @@ export default function HomePage() {
 
   return (
     <Box>
-      {/* HERO with overlay */}
-<Box
-  sx={{
-    position: 'relative',
-    backgroundImage: 'url(/hero-dog.jpg)',   // use your own hero image
-    backgroundSize: 'cover',
-    backgroundPosition: 'center',
-    color: '#fff',
-    borderBottom: '1px solid #eef0f7',
-  }}
->
-  {/* 50% black overlay */}
-  <Box
-    sx={{
-      position: 'absolute',
-      inset: 0,
-      bgcolor: 'rgba(0,0,0,0.5)',
-    }}
-  />
-
-  <Container
-    maxWidth="lg"
-    sx={{
-      py: { xs: 8, md: 12 },
-      position: 'relative', // keep content above overlay
-      zIndex: 1,
-    }}
-  >
-    <Stack spacing={3}>
-      <Typography component="h1" variant="h3" sx={{ fontWeight: 900, lineHeight: 1.2 }}>
+   {/* HERO */}
+<Box sx={{ background: 'linear-gradient(135deg, #f6f8ff 0%, #fff 60%)', borderBottom: '1px solid #eef0f7' }}>
+  <Container maxWidth="lg" sx={{ py: { xs: 5, md: 8 } }}>
+    <Stack spacing={2}>
+      <Typography component="h1" variant="h4" sx={{ fontWeight: 900, lineHeight: 1.2 }}>
         Dejte psům nový domov. <br />Oni vám dají srdce. ❤️
       </Typography>
-
-      <Typography sx={{ maxWidth: 720, opacity: 0.9 }}>
+      <Typography color="text.secondary" sx={{ maxWidth: 720 }}>
         Prohlédněte si psy připravené k adopci. U každého najdete krátký popis, druh a věk.
       </Typography>
-
-      {/* Buttons directly in hero */}
-      <Stack direction="row" spacing={2}>
-        <Button
-          component={RouterLink}
-          to="/zvirata"
-          variant="contained"
-          color="primary"
-          size="large"
-        >
-          Zobrazit zvířata
-        </Button>
-        <Button
-          component={RouterLink}
-          to="/zvirata#adopce"
-          variant="outlined"
-          color="inherit"
-          size="large"
-        >
-          Chci adoptovat
-        </Button>
-      </Stack>
     </Stack>
   </Container>
 </Box>
