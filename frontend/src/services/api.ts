@@ -342,6 +342,11 @@ export async function resetModeratorPassword(id: string, password: string) {
   )
 }
 
+export async function getMyAdoptions() {
+  const res = await api.get('/adoption/my-animals')
+  return res.data
+}
+
 // Add near other auth helpers
 export async function setPasswordFirstTime(email: string, password: string) {
   const data = await req<{ token: string; role?: 'ADMIN' | 'MODERATOR' | 'USER' }>(

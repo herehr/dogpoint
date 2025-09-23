@@ -18,6 +18,8 @@ import UserDashboard from './pages/UserDashboard'
 // Guards
 import RequireRole from './routes/RequireRole'
 import { useAuth } from './context/AuthContext'
+import UserAccount from './pages/UserAccount'
+import PrivateRoute from './components/PrivateRoute'
 
 function AppLayout() {
   const { token, role, logout } = useAuth()
@@ -156,14 +158,15 @@ export default function App() {
         />
 
         {/* User */}
-        <Route
-          path="/user"
-          element={
-            <RequireRole roles={['USER', 'MODERATOR', 'ADMIN']}>
-              <UserDashboard />
-            </RequireRole>
-          }
-        />
+
+<Route
+  path="/user"
+  element={
+    <RequireRole roles={['USER', 'MODERATOR', 'ADMIN']}>
+      <UserDashboard />
+    </RequireRole>
+  }
+/>
 
         {/* Prototype (optional) */}
         <Route path="/proto/*" element={<UXPrototype />} />
