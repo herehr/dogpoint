@@ -3,7 +3,7 @@ import { Router, type Request, type Response } from 'express'
 import bcrypt from 'bcryptjs'
 import jwt, { type Secret, type SignOptions } from 'jsonwebtoken'
 import { prisma } from '../prisma'
-import { requireAuth } from '../middleware/authJwt' // req.user = { id, role }
+import { requireAuth, requireAuthOptional } from '../middleware/authJwt'
 
 const router = Router()
 
@@ -23,7 +23,7 @@ function signToken(user: { id: string; role: 'ADMIN' | 'MODERATOR' | 'USER'; ema
  * Body: { animalId, email, name?, monthly?, password? }
  */
 // backend/src/routes/adoption.ts (only the /start route block changed)
-router.post('/start', async (req: Request, res: Response): Promise<void> => {
+router.post('/start', requireAuthOptional, async (req: Request, res: Response): Promise<void> => {
   try {
     const { animalId, email, name, monthly } = (req.body || {}) as {
       animalId?: string
