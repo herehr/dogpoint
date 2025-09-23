@@ -6,7 +6,6 @@ import adminModeratorsRoutes from './routes/adminModerators'
 import animalRoutes from './routes/animals'
 import authRoutes from './routes/auth'
 import uploadRoutes from './routes/upload'
-import adoptionRoutes from './routes/adoption'
 import postsRoutes from './routes/posts'
 import { prisma } from './prisma'
 import paymentsRoutes from './routes/payments'
@@ -33,7 +32,6 @@ app.use('/api/admin', adminModeratorsRoutes)
 app.use('/api/animals', animalRoutes)
 app.use('/api/auth', authRoutes)
 app.use('/api/upload', uploadRoutes)
-app.use('/api/adoption', adoptionRoutes)
 app.use('/api/posts', postsRoutes)
 app.use('/api/payments', paymentsRoutes)
 app.use('/api/admin/stats', adminStatsRoutes)

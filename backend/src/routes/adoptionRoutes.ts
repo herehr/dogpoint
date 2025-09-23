@@ -2,10 +2,9 @@
 import { Router } from 'express'
 import { getAccess, getMe, startAdoption, endAdoption } from '../controllers/adoptionController'
 
-// IMPORTANT: name the const something unique to avoid collisions
+// use a unique const name
 const adoptionRouter = Router()
 
-// These endpoints match your frontend (frontend/src/services/api.ts)
 adoptionRouter.get('/access/:animalId', getAccess)
 adoptionRouter.get('/me', getMe)
 adoptionRouter.post('/start', startAdoption)
