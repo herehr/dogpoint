@@ -7,8 +7,8 @@ import { requireAuth } from '../middleware/authJwt'
 const router = Router()
 
 /**
- * Some endpoints are public, but if a token is present we attach req.user
- * so we can set authorId for staff posts.
+ * Public endpoints remain public, but if a token is present we attach req.user
+ * (useful for read personalization in the future).
  */
 function tryAttachUser(req: Request, _res: Response, next: NextFunction) {
   const header = req.headers.authorization || ''
@@ -46,7 +46,7 @@ function isStaff(role?: string): boolean {
    GET /api/posts  (public)
    Optional: ?animalId=...
 ─────────────────────────────────────────────────────────── */
-router.get('/', async (req: Request, res: Response): Promise<void> => {
+router.get('/', tryAttachUser, async (req: Request, res: Response): Promise<void> => {
   try {
     const animalId = req.query.animalId ? String(req.query.animalId) : undefined
     const posts = await prisma.post.findMany({
@@ -67,14 +67,13 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 /* ──────────────────────────────────────────────────────────
    GET /api/posts/:id  (public)
 ─────────────────────────────────────────────────────────── */
-router.get('/:id', async (req: Request, res: Response): Promise<void> => {
+router.get('/:id', tryAttachUser, async (req: Request, res: Response): Promise<void> => {
   try {
     const post = await prisma.post.findUnique({
       where: { id: String(req.params.id) },
       include: { media: true },
     })
-    if (!post) { res.status(404).json({ error: 'Not found' }); return }
-    if (!post.active) { res.status(404).json({ error: 'Not found' }); return }
+    if (!post || !post.active) { res.status(404).json({ error: 'Not found' }); return }
     res.json(post)
   } catch (e: any) {
     console.error('GET /api/posts/:id error:', e)
@@ -83,22 +82,22 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
 })
 
 /* ──────────────────────────────────────────────────────────
-   POST /api/posts  (auth optional for MVP)
+   POST /api/posts  (ONLY ADMIN/MODERATOR)
    Body: { animalId, title, body?, media?: [{url, typ}], active? }
 ─────────────────────────────────────────────────────────── */
-router.post('/', tryAttachUser, async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { animalId, title, body, active } = (req.body || {}) as any
-    const media = normalizeMedia(req.body)
+router.post('/', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  if (!isStaff(req.user?.role)) { res.status(403).json({ error: 'Forbidden' }); return }
 
-    if (!animalId) { res.status(400).json({ error: 'animalId required' }); return }
-    if (!title || String(title).trim() === '') { res.status(400).json({ error: 'title required' }); return }
+  const { animalId, title, body, active } = (req.body || {}) as any
+  const media = normalizeMedia(req.body)
 
-    // ensure animal exists
-    const animal = await prisma.animal.findUnique({ where: { id: String(animalId) } })
-    if (!animal) { res.status(404).json({ error: 'Animal not found' }); return }
+  if (!animalId) { res.status(400).json({ error: 'animalId required' }); return }
+  if (!title || String(title).trim() === '') { res.status(400).json({ error: 'title required' }); return }
 
-    const authorId = req.user && isStaff(req.user.role) ? req.user.id : null
+  const animal = await prisma.animal.findUnique({ where: { id: String(animalId) } })
+  if (!animal) { res.status(404).json({ error: 'Animal not found' }); return }
+
+  const authorId = req.user!.id  // staff-only path → always present
 
     const created = await prisma.$transaction(async (tx) => {
       const post = await tx.post.create({
