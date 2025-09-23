@@ -81,23 +81,38 @@ router.get('/:id', tryAttachUser, async (req: Request, res: Response): Promise<v
   }
 })
 
+
 /* ──────────────────────────────────────────────────────────
    POST /api/posts  (ONLY ADMIN/MODERATOR)
    Body: { animalId, title, body?, media?: [{url, typ}], active? }
 ─────────────────────────────────────────────────────────── */
 router.post('/', requireAuth, async (req: Request, res: Response): Promise<void> => {
-  if (!isStaff(req.user?.role)) { res.status(403).json({ error: 'Forbidden' }); return }
+  try {
+    if (!isStaff(req.user?.role)) {
+      res.status(403).json({ error: 'Forbidden' })
+      return
+    }
 
-  const { animalId, title, body, active } = (req.body || {}) as any
-  const media = normalizeMedia(req.body)
+    const { animalId, title, body, active } = (req.body || {}) as any
+    const media = normalizeMedia(req.body)
 
-  if (!animalId) { res.status(400).json({ error: 'animalId required' }); return }
-  if (!title || String(title).trim() === '') { res.status(400).json({ error: 'title required' }); return }
+    if (!animalId) {
+      res.status(400).json({ error: 'animalId required' })
+      return
+    }
+    if (!title || String(title).trim() === '') {
+      res.status(400).json({ error: 'title required' })
+      return
+    }
 
-  const animal = await prisma.animal.findUnique({ where: { id: String(animalId) } })
-  if (!animal) { res.status(404).json({ error: 'Animal not found' }); return }
+    // ensure animal exists
+    const animal = await prisma.animal.findUnique({ where: { id: String(animalId) } })
+    if (!animal) {
+      res.status(404).json({ error: 'Animal not found' })
+      return
+    }
 
-  const authorId = req.user!.id  // staff-only path → always present
+    const authorId = req.user!.id // staff-only path → always present
 
     const created = await prisma.$transaction(async (tx) => {
       const post = await tx.post.create({
