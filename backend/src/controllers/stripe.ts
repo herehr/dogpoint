@@ -4,7 +4,7 @@ import Stripe from 'stripe'
 
 const stripeSecret = process.env.STRIPE_SECRET_KEY || process.env.STRIPE_SECRET || ''
 // Omit apiVersion to avoid type clashes across Stripe SDK versions
-export const stripe = new Stripe(stripeSecret)
+export const stripe = new Stripe(stripeSecret, { apiVersion: '2023-10-16' as any })
 
 type CheckoutBody = {
   animalId: string
