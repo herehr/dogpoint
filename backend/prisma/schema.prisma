@@ -185,9 +185,9 @@ model Subscription {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
-  // Prevent duplicate adoption by the same user for the same animal
-  @@unique([userId, animalId])
-
+  // Prevent multiple ACTIVE adoptions by the same user for the same animal
+  @@unique([userId, animalId, status])
+  
   @@index([userId])
   @@index([animalId])
   @@index([status])

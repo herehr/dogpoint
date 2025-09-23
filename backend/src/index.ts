@@ -11,6 +11,8 @@ import postsRoutes from './routes/posts'
 import { prisma } from './prisma'
 import paymentsRoutes from './routes/payments'
 import adminStatsRoutes from './routes/adminStats'
+import subscriptionRoutes from './routes/subscriptionRoutes'
+import adoptionRoutes from './routes/adoptionRoutes'
 
 dotenv.config()
 
@@ -34,6 +36,8 @@ app.use('/api/adoption', adoptionRoutes)
 app.use('/api/posts', postsRoutes)
 app.use('/api/payments', paymentsRoutes)
 app.use('/api/admin/stats', adminStatsRoutes)
+app.use('/api/subscriptions', subscriptionRoutes)
+app.use('/api/adoption', adoptionRoutes)
 // endpoints become:
 //   GET /api/admin/stats/payments
 //   GET /api/admin/stats/pledges
