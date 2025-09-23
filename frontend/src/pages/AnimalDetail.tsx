@@ -4,7 +4,7 @@ import { useParams } from 'react-router-dom'
 import {
   Container, Typography, Box, Stack, Chip, Alert, Skeleton, Grid, Button, Divider
 } from '@mui/material'
-import { fetchAnimal } from '../services/api'
+import { fetchAnimal, endAdoption } from '../services/api'   // ← add endAdoption
 import { useAccess } from '../context/AccessContext'
 import PostsSection from '../components/PostsSection'
 import BlurBox from '../components/BlurBox'
@@ -32,7 +32,8 @@ function asUrl(x: string | Media | undefined | null): string | null {
 export default function AnimalDetail() {
   const { id } = useParams()
   const { hasAccess, grantAccess } = useAccess()
-  const { role } = useAuth()
+  const { token, role } = useAuth()
+  const isStaff = role === 'ADMIN' || role === 'MODERATOR'
 
   const [animal, setAnimal] = useState<LocalAnimal | null>(null)
   const [loading, setLoading] = useState(true)
@@ -151,17 +152,17 @@ export default function AnimalDetail() {
           <Chip label={kind} />
           <Chip label={age} />
           {/* Show "Cancel adoption" only when unlocked by user */}
-          {(role !== 'ADMIN' && role !== 'MODERATOR' && isUnlocked) && (
-            <Button
-              variant="outlined"
-              color="error"
-              size="small"
-              onClick={onCancelAdoption}
-              sx={{ ml: 1 }}
-            >
-              Zrušit adopci
-            </Button>
-          )}
+          {(!!token && !isStaff && isUnlocked) && (
+  <Button
+    variant="outlined"
+    color="error"
+    size="small"
+    onClick={onCancelAdoption}
+    sx={{ ml: 1 }}
+  >
+    Zrušit adopci
+  </Button>
+)}
         </Stack>
       </Stack>
 

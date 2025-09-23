@@ -1,3 +1,4 @@
+// frontend/src/components/PostsSection.tsx
 import React, { useEffect, useState, useRef } from 'react'
 import {
   Alert, Box, Button, Stack, TextField, Typography, IconButton,
@@ -29,9 +30,12 @@ export default function PostsSection({ animalId }: { animalId: string }) {
   const { hasAccess } = useAccess()
   const { role } = useAuth()
 
-  // Staff can always see/create. Regular users need unlock.
-  const unlocked = (role === 'ADMIN' || role === 'MODERATOR') || hasAccess(animalId)
-  const canWrite = unlocked // both staff and unlocked adopters can write
+  // Staff can always see; regular users need unlock to READ
+  const isStaff = role === 'ADMIN' || role === 'MODERATOR'
+  const unlocked = isStaff || hasAccess(animalId)
+
+  // 🔒 Only staff are allowed to WRITE
+  const canWrite = isStaff
 
   const [posts, setPosts] = useState<Post[]>([])
   const [loading, setLoading] = useState(true)
@@ -69,6 +73,7 @@ export default function PostsSection({ animalId }: { animalId: string }) {
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (!canWrite) return
     if (!title.trim() && !body.trim() && media.length === 0) return
     setSaving(true); setErr(null)
     try {
@@ -189,7 +194,7 @@ export default function PostsSection({ animalId }: { animalId: string }) {
         </Stack>
       )}
 
-      {/* Composer — visible to staff and unlocked adopters */}
+      {/* Composer — visible to staff ONLY */}
       {canWrite && (
         <Box component="form" onSubmit={onSubmit} sx={{ mt: 2 }}>
           <Stack spacing={1.5}>
