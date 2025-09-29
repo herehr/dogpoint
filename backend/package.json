@@ -18,7 +18,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.882.0",
-    "@prisma/client": "^6.10.1",
+    "@prisma/client": "^6.16.2",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
@@ -26,7 +26,6 @@
     "jsonwebtoken": "^9.0.2",
     "mime-types": "^2.1.35",
     "multer": "^2.0.2",
-    "prisma": "^6.10.1",
     "stripe": "^18.5.0"
   },
   "devDependencies": {
@@ -37,6 +36,7 @@
     "@types/mime-types": "^2.1.4",
     "@types/multer": "^2.0.0",
     "cross-env": "^10.0.0",
+    "prisma": "^6.16.2",
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.5.4"
