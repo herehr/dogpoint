@@ -4,7 +4,7 @@ import {
   Container, Paper, Typography, TextField, Button, Stack, Alert
 } from '@mui/material'
 import LockIcon from '@mui/icons-material/Lock'
-import { loginModerator } from '../services/api'
+import { loginModerator } from '../api'
 import { useAuth } from '../context/AuthContext'
 
 type FromState = { from?: { pathname?: string } } | null

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { Container, Typography, Grid } from '@mui/material'
 import AnimalCard from '../components/AnimalCard'
-import { fetchAnimals } from '../services/api'
+import { getAnimals } from '../api'
 
 type Animal = { id: string; name?: string; jmeno?: string; description?: string; popis?: string; galerie?: { url: string }[] }
 
@@ -10,7 +10,7 @@ export default function AnimalsPage() {
   const [error, setError] = useState<string|null>(null)
 
   useEffect(() => {
-    fetchAnimals().then(setAnimals).catch(e => setError(e.message || 'Chyba'))
+    getAnimals().then(setAnimals).catch(e => setError(e.message || 'Chyba'))
   }, [])
 
   return (

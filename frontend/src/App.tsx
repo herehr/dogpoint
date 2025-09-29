@@ -4,7 +4,7 @@ import { Routes, Route, Link, Outlet, Navigate, useNavigate } from 'react-router
 import { AppBar, Toolbar, Button, Container, Stack, Typography } from '@mui/material'
 
 // Pages
-import HomePage from './pages/HomePage'
+import LandingPage from './pages/LandingPage'
 import AnimalsPage from './pages/AnimalsPage'
 import AnimalDetail from './pages/AnimalDetail'
 import AdminDashboard from './pages/AdminDashboard'
@@ -106,7 +106,7 @@ export default function App() {
     <Routes>
       <Route element={<AppLayout />}>
         {/* Public */}
-        <Route path="/" element={<HomePage />} />
+        <Route path="/" element={<LandingPage />} />
         <Route path="/zvirata" element={<AnimalsPage />} />
         <Route path="/zvirata/:id" element={<AnimalDetail />} />
 

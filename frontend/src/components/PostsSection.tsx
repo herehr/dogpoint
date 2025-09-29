@@ -8,7 +8,7 @@ import UploadIcon from '@mui/icons-material/UploadFile'
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera'
 import DeleteIcon from '@mui/icons-material/Delete'
 
-import { createPost, listPostsPublic, uploadMediaMany } from '../services/api'
+import { createPost, listPostsPublic, uploadMediaMany } from '../api'
 import { useAccess } from '../context/AccessContext'
 import { useAuth } from '../context/AuthContext'
 

@@ -3,7 +3,7 @@ import React, { useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Container, Paper, Typography, TextField, Button, Stack, Alert } from '@mui/material'
 import LockIcon from '@mui/icons-material/Lock'
-import { loginAdmin } from '../services/api' // unified /api/auth/login
+import { loginAdmin } from '../api' // unified /api/auth/login
 
 type FromState = { from?: { pathname?: string } } | null
 

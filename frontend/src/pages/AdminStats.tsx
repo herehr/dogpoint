@@ -5,7 +5,7 @@ import {
   ToggleButtonGroup, ToggleButton, Alert, Table, TableHead, TableRow,
   TableCell, TableBody, Box
 } from '@mui/material'
-import { adminStatsPayments, adminStatsPledges, adminStatsExpected } from '../services/api'
+import { adminStatsPayments, adminStatsPledges, adminStatsExpected } from '../api'
 
 type Range = { from?: string; to?: string }
 type Tab = 'payments' | 'pledges' | 'expected'

@@ -10,7 +10,7 @@ import LockResetIcon from '@mui/icons-material/LockReset'
 import PersonAddAlt1Icon from '@mui/icons-material/PersonAddAlt1'
 import {
   listModerators, createModerator, deleteModerator, resetModeratorPassword
-} from '../services/api'
+} from '../api'
 
 type ModRow = { id: string; email: string; role: string; active?: boolean }
 

@@ -19,8 +19,9 @@ import { useNavigate } from 'react-router-dom'
 
 import {
   fetchAnimals, type Animal, createAnimal, updateAnimal, deleteAnimal,
-  uploadMediaMany, logout as apiLogout, createPost
-} from '../services/api'
+  uploadMedia, createPost
+} from '../api'
+import { useAuth } from '../context/AuthContext'
 
 type FormAnimal = {
   id?: string
@@ -55,6 +56,7 @@ export default function AnimalsManager() {
   const cameraInputRef = useRef<HTMLInputElement>(null)
 
   const navigate = useNavigate()
+  const { logout } = useAuth()
 
   // Post composer dialog
   const [postOpen, setPostOpen] = useState(false)
@@ -82,7 +84,7 @@ export default function AnimalsManager() {
   useEffect(() => { refresh() }, [])
 
   function onLogout() {
-    apiLogout()
+    logout()
     navigate('/', { replace: true })
   }
 
@@ -157,16 +159,23 @@ export default function AnimalsManager() {
     setUploading(true)
     setErr(null)
     try {
-      const urls = await uploadMediaMany(arr, (index, total) => {
-        setUploadNote(`Nahrávám ${index + 1} / ${total}…`)
-      })
+      const results: string[] = []
+      for (let i = 0; i < arr.length; i++) {
+        setUploadNote(`Nahrávám ${i + 1} / ${arr.length}…`)
+        // eslint-disable-next-line no-await-in-loop
+        const one = await uploadMedia(arr[i]) // { url?, key?, type? }
+        const url = (one as any)?.url || (one as any)?.key || ''
+        if (url) results.push(url)
+      }
+
       const now = Date.now()
       setForm(f => {
         const newGallery = [
           ...(f.galerie || []),
-          ...urls.map(raw => ({ url: `${raw}${raw.includes('?') ? '&' : '?'}v=${now}` }))
+          ...results.map(raw => ({ url: `${raw}${raw.includes('?') ? '&' : '?'}v=${now}` }))
         ]
-        const cleanMain = f.main || (urls[0] ? `${urls[0]}${urls[0].includes('?') ? '&' : '?'}v=${now}` : null)
+        const first = results[0]
+        const cleanMain = f.main || (first ? `${first}${first.includes('?') ? '&' : '?'}v=${now}` : null)
         return { ...f, galerie: newGallery, main: cleanMain }
       })
       setOk('Soubor(y) nahrány')
@@ -256,13 +265,19 @@ export default function AnimalsManager() {
     setPostUploading(true)
     setErr(null)
     try {
-      const urls = await uploadMediaMany(arr, (index, total) => {
-        setPostUploadNote(`Nahrávám ${index + 1} / ${total}…`)
-      })
+      const results: string[] = []
+      for (let i = 0; i < arr.length; i++) {
+        setPostUploadNote(`Nahrávám ${i + 1} / ${arr.length}…`)
+        // eslint-disable-next-line no-await-in-loop
+        const one = await uploadMedia(arr[i])
+        const url = (one as any)?.url || (one as any)?.key || ''
+        if (url) results.push(url)
+      }
+
       const now = Date.now()
       setPostMedia(cur => ([
         ...cur,
-        ...urls.map(u => ({
+        ...results.map(u => ({
           url: `${u}${u.includes('?') ? '&' : '?'}v=${now}`,
           type: guessTypeFromUrl(u)
         }))
@@ -306,9 +321,16 @@ export default function AnimalsManager() {
       await createPost({
         animalId: postAnimalId,
         title: postTitle.trim() || 'Bez názvu',
-        body: postBody.trim() || undefined,
-        media: postMedia.length ? postMedia : undefined
-      })
+        text: postBody.trim() || undefined,
+        // backend může přijmout {key,type} nebo {url,type}; pošleme oboje (key=url)
+        media: postMedia.length
+          ? postMedia.map(m => ({
+              key: m.url,
+              url: m.url,
+              type: m.type || guessTypeFromUrl(m.url) || 'image'
+            }))
+          : undefined
+      } as any)
       setOk('Příspěvek uložen')
       closePost()
     } catch (e: any) {

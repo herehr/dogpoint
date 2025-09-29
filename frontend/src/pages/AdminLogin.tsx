@@ -2,7 +2,7 @@
 import React, { useState } from 'react'
 import { Container, Paper, Stack, Typography, TextField, Button, Alert } from '@mui/material'
 import { useNavigate } from 'react-router-dom'
-import { loginAdmin as login, setPasswordFirstTime } from '../services/api'
+import { loginAdmin as login, setPasswordFirstTime } from '../api'
 
 export default function AdminLogin() {
   const nav = useNavigate()

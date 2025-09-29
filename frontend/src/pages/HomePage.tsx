@@ -8,7 +8,7 @@ import {
 import PetsIcon from '@mui/icons-material/Pets'
 import FavoriteBorderIcon from '@mui/icons-material/FavoriteBorder'
 import InfoIcon from '@mui/icons-material/Info'
-import { fetchAnimals } from '../services/api'
+import { getAnimals } from '../api'
 
 type Media = { url: string; type?: 'image' | 'video' }
 type Animal = {
@@ -30,8 +30,8 @@ export default function HomePage() {
   useEffect(() => {
     let mounted = true
     setLoading(true)
-    fetchAnimals()
-      .then((list: any[]) => {
+    getAnimals()
+  .then((list: any[]) => {
         if (!mounted) return
         const normalized = (list || []).map((a) => {
           const gal: Media[] = a?.galerie || a?.gallery || []

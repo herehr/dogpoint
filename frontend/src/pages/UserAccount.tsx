@@ -1,7 +1,7 @@
 // frontend/src/pages/UserAccount.tsx
 import React, { useEffect, useState } from 'react'
 import { Container, Typography, Alert, List, ListItem, ListItemText } from '@mui/material'
-import { getMyAdoptions } from '../services/api'
+import { getMyAdoptions } from '../api'
 
 type Adoption = {
   animal: { id: string; jmeno: string; main?: string | null; active: boolean }

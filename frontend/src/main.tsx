@@ -1,17 +1,17 @@
-// frontend/src/main.tsx
-import React from 'react'
-import ReactDOM from 'react-dom/client'
-import { BrowserRouter } from 'react-router-dom'
-import { ThemeProvider } from '@mui/material/styles'
-
-import App from './App'
-import theme from './theme'
-import { AuthProvider } from './context/AuthContext'
-import { AccessProvider } from './context/AccessContext'
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import { BrowserRouter } from 'react-router-dom';
+import { ThemeProvider } from '@mui/material/styles';
+import CssBaseline from '@mui/material/CssBaseline';
+import App from './App';
+import theme from './theme';
+import { AuthProvider } from './context/AuthContext';
+import { AccessProvider } from './context/AccessContext';
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
     <ThemeProvider theme={theme}>
+      <CssBaseline />
       <BrowserRouter>
         <AuthProvider>
           <AccessProvider>
@@ -21,4 +21,4 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
       </BrowserRouter>
     </ThemeProvider>
   </React.StrictMode>
-)
+);

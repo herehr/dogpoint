@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { Container, Typography, Grid, Card, CardMedia, CardContent, Stack, Chip, Button, Alert } from '@mui/material'
 import { useNavigate } from 'react-router-dom'
-import { myAdoptedAnimals, markAnimalSeen, endAdoption } from '../services/api'
+import { myAdoptedAnimals, markAnimalSeen, endAdoption } from '../api'
 
 type Row = {
   animal: { id: string; jmeno: string; main: string | null; active: boolean }

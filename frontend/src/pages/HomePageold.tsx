@@ -11,7 +11,7 @@ import ArrowForwardIcon from '@mui/icons-material/ArrowForward'
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline'
 import FavoriteIcon from '@mui/icons-material/Favorite'
 import LocalPhoneIcon from '@mui/icons-material/LocalPhone'
-import { fetchAnimals, type Animal } from '../services/api'
+import { fetchAnimals, type Animal } from '../api'
 
 export default function HomePage() {
   const [animals, setAnimals] = useState<Animal[]>([])

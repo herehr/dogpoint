@@ -6,7 +6,7 @@ import {
 } from '@mui/material'
 import Visibility from '@mui/icons-material/Visibility'
 import VisibilityOff from '@mui/icons-material/VisibilityOff'
-import { login as apiLogin } from '../services/api'
+import { login as apiLogin } from '../api'
 import { useAuth } from '../context/AuthContext'
 
 export default function Login() {

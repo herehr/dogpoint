@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { Dialog, DialogTitle, DialogContent, DialogActions, TextField, Button, Stack, Alert } from '@mui/material'
-import { setPasswordFirstTime } from '../services/api'
+import { setPasswordFirstTime } from '../api'
 
 type Props = {
   open: boolean

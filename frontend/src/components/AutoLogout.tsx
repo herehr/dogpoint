@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Snackbar, Alert } from '@mui/material'
-import { isAuthenticated, logout as apiLogout } from '../services/api'
+import { useAuth } from '../context/AuthContext'
 
 type Props = {
   /** Inactivity period before auto-logout (ms). Default: 10 minutes */
@@ -22,6 +22,9 @@ export default function AutoLogout({
   redirectTo = '/',
 }: Props) {
   const navigate = useNavigate()
+  const { token, logout } = useAuth()
+  const isAuthed = !!token
+
   const [showWarn, setShowWarn] = useState(false)
   const warnTimer = useRef<number | null>(null)
   const logoutTimer = useRef<number | null>(null)
@@ -33,32 +36,28 @@ export default function AutoLogout({
 
   const doLogout = useCallback(() => {
     clearTimers()
-    apiLogout()
+    logout()
     setShowWarn(false)
     navigate(redirectTo, { replace: true })
-  }, [clearTimers, navigate, redirectTo])
+  }, [clearTimers, logout, navigate, redirectTo])
 
   const startTimers = useCallback(() => {
     clearTimers()
-    if (!isAuthenticated()) return
-    // show the warning before auto-logout
+    if (!isAuthed) return
     const warnDelay = Math.max(0, ms - warnBeforeMs)
     warnTimer.current = window.setTimeout(() => setShowWarn(true), warnDelay)
-    // auto-logout
     logoutTimer.current = window.setTimeout(() => doLogout(), ms)
-  }, [ms, warnBeforeMs, clearTimers, doLogout])
+  }, [ms, warnBeforeMs, clearTimers, doLogout, isAuthed])
 
   const onActivity = useCallback(() => {
-    if (!isAuthenticated()) return
+    if (!isAuthed) return
     setShowWarn(false)
     startTimers()
-  }, [startTimers])
+  }, [startTimers, isAuthed])
 
   useEffect(() => {
-    // only arm timers when authenticated
-    if (isAuthenticated()) startTimers()
+    if (isAuthed) startTimers()
 
-    // global activity listeners
     const evs: (keyof WindowEventMap)[] = ['mousemove', 'keydown', 'click', 'touchstart', 'scroll']
     evs.forEach(e => window.addEventListener(e, onActivity, { passive: true }))
 
@@ -66,20 +65,11 @@ export default function AutoLogout({
       evs.forEach(e => window.removeEventListener(e, onActivity as any))
       clearTimers()
     }
-  }, [onActivity, startTimers, clearTimers])
+  }, [onActivity, startTimers, clearTimers, isAuthed])
 
   return (
-    <Snackbar
-      open={showWarn}
-      anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-    >
-      <Alert
-        elevation={3}
-        variant="filled"
-        severity="warning"
-        onClose={() => setShowWarn(false)}
-        sx={{ width: '100%' }}
-      >
+    <Snackbar open={showWarn} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
+      <Alert elevation={3} variant="filled" severity="warning" onClose={() => setShowWarn(false)} sx={{ width: '100%' }}>
         Neaktivita zjištěna. Budete automaticky odhlášeni během jedné minuty. Pohněte myší nebo napište, abyste zůstali přihlášeni.
       </Alert>
     </Snackbar>

@@ -4,7 +4,7 @@ import { useParams } from 'react-router-dom'
 import {
   Container, Typography, Box, Stack, Chip, Alert, Skeleton, Grid, Button, Divider
 } from '@mui/material'
-import { fetchAnimal, endAdoption } from '../services/api'   // ← add endAdoption
+import { fetchAnimal, endAdoption } from '../api'   // ← add endAdoption
 import { useAccess } from '../context/AccessContext'
 import PostsSection from '../components/PostsSection'
 import BlurBox from '../components/BlurBox'

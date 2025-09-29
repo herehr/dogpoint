@@ -4,7 +4,7 @@ import {
   Dialog, DialogTitle, DialogContent, DialogActions,
   TextField, Button, Stack, Alert, Typography, Chip, Box, Divider, ToggleButtonGroup, ToggleButton, Paper
 } from '@mui/material'
-import { startAdoption, getAdoptionMe } from '../services/api'
+import { startAdoption, getAdoptionMe } from '../api'
 import SetPasswordDialog from './SetPasswordDialog'
 import { useAccess } from '../context/AccessContext'
 
