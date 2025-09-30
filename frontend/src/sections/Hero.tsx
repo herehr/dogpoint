@@ -48,9 +48,9 @@ export default function Hero() {
           <Grid item xs={12} md={6}>
             <Paper elevation={6} sx={{ borderRadius: 6, p: { xs: 1.5, sm: 2.5 }, mx: { xs: 'auto', md: 0 }, maxWidth: 520 }}>
               <img
-                src="https://images.unsplash.com/photo-1601758124093-27e9c3d37a6a?q=80&w=1600&auto=format&fit=crop"
+                src="hero.jpg"
                 alt="Pes čekající na nový domov"
-                onError={(e) => { (e.currentTarget as HTMLImageElement).src = '/hero-fallback.jpg' }}
+                onError={(e) => { (e.currentTarget as HTMLImageElement).src = '/hero-dog.jpg' }}
                 style={{ width: '100%', height: 'auto', display: 'block', borderRadius: 16 }}
               />
             </Paper>
