@@ -21,12 +21,10 @@ import UserDashboard from './pages/UserDashboard'
 // Guards
 import RequireRole from './routes/RequireRole'
 
-import Header from './components/Header'
-
 function AppLayout() {
   return (
     <>
-      <Header />
+      <Header logoSrc="/logo1.png" />
       <Outlet />
     </>
   )
