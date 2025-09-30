@@ -32,23 +32,23 @@ export default function Header({
       component="header"
       sx={{
         position: 'relative',
-        backgroundColor: '#23D3DF', // dark turquoise
+        backgroundColor: '#23D3DF', // dark turquoise band
         color: '#000',
         overflow: 'hidden',
       }}
     >
-      {/* Make the turquoise band thicker and keep content above the SVG */}
+      {/* Thicker turquoise band */}
       <Container
         maxWidth="lg"
         sx={{
           pt: { xs: 1, md: 1.5 },
-          pb: { xs: 6, md: 8 },          // <<< thicker turquoise
+          pb: { xs: 6, md: 8 },      // visually ~2× thicker
           position: 'relative',
-          zIndex: 2,                      // content above the wave
+          zIndex: 2,                  // above SVG
         }}
       >
         <Stack direction="row" alignItems="center" justifyContent="space-between" gap={2}>
-          {/* Logo (~70% on phones) + subtitle */}
+          {/* Logo + subtitle */}
           <Button
             component={RouterLink}
             to="/"
@@ -90,7 +90,7 @@ export default function Header({
         </Stack>
       </Container>
 
-      {/* Wave: ONLY white stroke (10px). No fill underneath. */}
+      {/* Wave: fill the area BELOW the curve with #ECFBFB + draw a 10px white line */}
       <Box
         sx={{
           position: 'absolute',
@@ -99,7 +99,7 @@ export default function Header({
           bottom: -1,
           lineHeight: 0,
           zIndex: 1,
-          pointerEvents: 'none', // <<< lets clicks pass through to buttons
+          pointerEvents: 'none', // buttons remain clickable
         }}
       >
         <svg
@@ -109,11 +109,17 @@ export default function Header({
           aria-hidden="true"
           focusable="false"
         >
+          {/* 1) Fill under the curve so it blends into hero */}
+          <path
+            d="M0,66 C260,116 520,30 780,40 C1040,50 1300,94 1440,82 L1440,120 L0,120 Z"
+            fill="#ECFBFB"
+          />
+          {/* 2) White crest line */}
           <path
             d="M0,66 C260,116 520,30 780,40 C1040,50 1300,94 1440,82"
             fill="none"
             stroke="#ffffff"
-            strokeWidth="10"   // <<< 10 pt line
+            strokeWidth="10"
           />
         </svg>
       </Box>
