@@ -34,68 +34,54 @@ export default function Header({
         position: 'relative',
         backgroundColor: '#23D3DF',
         color: '#000',
+        overflow: 'hidden',
       }}
     >
-      <Container maxWidth="lg" sx={{ py: { xs: 1.25, md: 1.75 } }}>
-        <Stack
-          direction="row"
-          alignItems="center"
-          justifyContent="space-between"
-          gap={2}
-        >
-          {/* Logo + subtitle (logo ~70% on mobile) */}
+      <Container maxWidth="lg" sx={{ py: { xs: 1, md: 1.75 } }}>
+        <Stack direction="row" alignItems="center" justifyContent="space-between" gap={2}>
+          {/* Logo (scaled ~70% on xs) */}
           <Button
             component={RouterLink}
             to="/"
             color="inherit"
             sx={{ px: 0, minWidth: 'auto', '&:hover': { bgcolor: 'transparent' } }}
+            aria-label="Domů"
           >
             <Stack direction="column" spacing={0} alignItems="flex-start">
-              <img
+              <Box
+                component="img"
                 src={logoSrc}
                 alt="DOGPOINT"
-                style={{
-                  height: 'auto',
+                sx={{
+                  height: { xs: 24, sm: 32, md: 40 },
                   display: 'block',
                   objectFit: 'contain',
-                  // ~70% size on mobile, grow on larger screens
-                  width: '70%',
-                  maxWidth: 170,
                 }}
               />
-              <span
-                style={{
-                  marginTop: 4,
-                  fontSize: 14,
+              <Box
+                component="span"
+                sx={{
+                  mt: 0.5,
+                  fontSize: 13,
                   fontWeight: 700,
-                  color: '#ffffff',
+                  color: '#fff',
                   lineHeight: 1.1,
                   whiteSpace: 'nowrap',
                 }}
               >
                 {subtitle}
-              </span>
+              </Box>
             </Stack>
           </Button>
 
-          {/* Menu trimmed → only account button(s) */}
+          {/* Account buttons */}
           {!token ? (
-            <Button
-              component={RouterLink}
-              to="/login"
-              variant="outlined"
-              sx={pillBtn}
-            >
-              {accountLabel}
+            <Button component={RouterLink} to="/login" variant="outlined" sx={pillBtn}>
+              PŘIHLÁŠENÍ
             </Button>
           ) : (
             <Stack direction="row" spacing={1}>
-              <Button
-                component={RouterLink}
-                to={dashboardHref}
-                variant="outlined"
-                sx={pillBtn}
-              >
+              <Button component={RouterLink} to={dashboardHref} variant="outlined" sx={pillBtn}>
                 {accountLabel}
               </Button>
               <Button onClick={logout} variant="text" sx={textBtn}>
@@ -106,22 +92,20 @@ export default function Header({
         </Stack>
       </Container>
 
-      {/* Bigger wave on mobile + 5px white border */}
+      {/* Wave: only white stroke, hero background visible below */}
       <Box sx={{ position: 'absolute', left: 0, right: 0, bottom: -1, lineHeight: 0 }}>
         <svg
-          viewBox="0 0 1440 100"
+          viewBox="0 0 1440 120"
           preserveAspectRatio="none"
-          style={{
-            width: '100%',
-            height: '86px',          // bigger on mobile
-          }}
+          style={{ width: '100%', height: '100px', display: 'block' }}
+          aria-hidden="true"
+          focusable="false"
         >
           <path
-            // slightly deeper curve so subtitle stays fully visible on small screens
-            d="M0,60 C260,110 520,26 780,36 C1040,46 1300,88 1440,76 L1440,100 L0,100 Z"
-            fill="#ffffff"
+            d="M0,66 C260,116 520,30 780,40 C1040,50 1300,94 1440,82"
+            fill="none"
             stroke="#ffffff"
-            strokeWidth="5"
+            strokeWidth="8"
           />
         </svg>
       </Box>

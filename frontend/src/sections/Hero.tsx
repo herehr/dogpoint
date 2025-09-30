@@ -1,64 +1,73 @@
 // frontend/src/sections/Hero.tsx
-import React from 'react';
-import { Box, Button, Container, Stack, Typography } from '@mui/material';
-import { Link as RouterLink } from 'react-router-dom';
+import React from 'react'
+import { Box, Container, Grid, Typography, Button, Paper } from '@mui/material'
+import { Link as RouterLink } from 'react-router-dom'
 
 export default function Hero() {
   return (
     <Box
       sx={{
-        position: 'relative',
-        overflow: 'hidden',
-        bgcolor: '#EFFFFF',
-        pb: { xs: 6, md: 10 },
+        background: 'linear-gradient(180deg, #F2FEFE 0%, #ECFBFB 100%)',
+        // pull closer to the wave to remove white band
+        mt: { xs: -3, sm: -4, md: -5 },
+        pt: { xs: 3.5, md: 5.5 },
+        pb: { xs: 5, md: 8 },
+        borderTopLeftRadius: { xs: 28, md: 36 },  // visually matches your rounded hero frame
+        borderTopRightRadius: { xs: 28, md: 36 },
       }}
     >
-      {/* curved aqua bar */}
-      <Box
-        sx={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          height: { xs: 120, md: 160 },
-          background: 'linear-gradient(90deg, #00A0A6, #00B3B8)',
-          clipPath: 'ellipse(120% 80% at 50% 0%)',
-        }}
-      />
-      <Container sx={{ pt: { xs: 12, md: 16 } }}>
-        <Stack direction={{ xs: 'column', md: 'row' }} gap={4} alignItems="center">
-          <Stack flex={1} gap={2}>
-            <Typography variant="h3" sx={{ fontWeight: 900, letterSpacing: '-0.02em' }}>
-              Změňte život mazlíčků.
+      <Container maxWidth="lg">
+        <Grid container spacing={3} alignItems="center">
+          <Grid item xs={12} md={6}>
+            <Typography
+              component="h1"
+              sx={{
+                fontSize: { xs: 32, sm: 40, md: 48 },
+                fontWeight: 900,
+                lineHeight: 1.1,
+                color: '#0E1C2B',
+                mb: 1.5,
+              }}
+            >
+              Změňte život
+              <br />
+              mazlíčků.
             </Typography>
-            <Typography variant="h6" sx={{ color: 'text.secondary' }}>
+
+            <Typography color="text.secondary" sx={{ mb: 2 }}>
               Dálková adopce, blízké pouto.
             </Typography>
-            <Stack direction="row" gap={2} mt={1}>
-              <Button component={RouterLink} to="/prihlaseni" variant="contained">
+
+            <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
+              <Button component={RouterLink} to="/login" variant="contained">
                 Přihlásit se
               </Button>
               <Button component={RouterLink} to="/zvirata" variant="outlined">
                 Vybrat zvíře
               </Button>
-            </Stack>
-          </Stack>
-          <Box
-            flex={1}
-            sx={{
-              width: '100%',
-              borderRadius: 4,
-              overflow: 'hidden',
-              boxShadow: 3,
-              minHeight: { xs: 220, md: 360 },
-              backgroundImage: `url(/hero-dog.jpg)`,
-              backgroundSize: 'cover',
-              backgroundPosition: 'center',
-            }}
-            aria-label="Pes a kočka – hero"
-          />
-        </Stack>
+            </Box>
+          </Grid>
+
+          <Grid item xs={12} md={6}>
+            <Paper
+              elevation={6}
+              sx={{
+                borderRadius: 6,
+                p: { xs: 1.5, sm: 2.5 },
+                mx: { xs: 'auto', md: 0 },
+                maxWidth: 520,
+              }}
+            >
+              <img
+                src="https://images.unsplash.com/photo-1601758124093-27e9c3d37a6a?q=80&w=1600&auto=format&fit=crop"
+                alt="Pes čekající na nový domov"
+                onError={(e) => { (e.currentTarget as HTMLImageElement).src = '/hero-fallback.jpg' }}
+                style={{ width: '100%', height: 'auto', display: 'block', borderRadius: 16 }}
+              />
+            </Paper>
+          </Grid>
+        </Grid>
       </Container>
     </Box>
-  );
+  )
 }
