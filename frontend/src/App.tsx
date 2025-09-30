@@ -1,7 +1,10 @@
 // frontend/src/App.tsx
 import React from 'react'
-import { Routes, Route, Link, Outlet, Navigate, useNavigate } from 'react-router-dom'
-import { AppBar, Toolbar, Button, Container, Stack, Typography } from '@mui/material'
+import { Routes, Route, Link, Outlet } from 'react-router-dom'
+import { Container, Typography, Button } from '@mui/material'
+
+// Components
+import Header from './components/Header'
 
 // Pages
 import LandingPage from './pages/LandingPage'
@@ -17,71 +20,12 @@ import UserDashboard from './pages/UserDashboard'
 
 // Guards
 import RequireRole from './routes/RequireRole'
-import { useAuth } from './context/AuthContext'
-import UserAccount from './pages/UserAccount'
-import PrivateRoute from './components/PrivateRoute'
 
 function AppLayout() {
-  const { token, role, logout } = useAuth()
-  const navigate = useNavigate()
-
-  function onLogout() {
-    logout()
-    navigate('/', { replace: true })
-  }
-
-  const dashboardHref =
-    role === 'ADMIN'
-      ? '/admin'
-      : role === 'MODERATOR'
-      ? '/moderator'
-      : role === 'USER'
-      ? '/user'
-      : '/login'
-
   return (
     <>
-      <AppBar position="sticky" color="default" elevation={0}>
-        <Toolbar>
-          <Container maxWidth="lg" sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            {/* Left: Logo → Home */}
-           <Button
-  component={Link}
-  to="/"
-  color="inherit"
-  sx={{ px: 0, minWidth: 'auto' }}
->
-  <img
-    src="/logo1.png"
-    alt="Dogpoint Logo"
-    style={{ height: 30, objectFit: 'contain', display: 'block' }}
-  />
-</Button>
-
-            {/* Right: Single Login (or dashboard + logout when authed) */}
-            <Stack direction="row" spacing={1}>
-              {!token ? (
-                <Button component={Link} to="/login" variant="contained">
-                  Přihlásit
-                </Button>
-              ) : (
-                <>
-                  <Button component={Link} to={dashboardHref} variant="outlined">
-                    {role === 'ADMIN'
-                      ? 'Admin'
-                      : role === 'MODERATOR'
-                      ? 'Moderátor'
-                      : 'Můj účet'}
-                  </Button>
-                  <Button onClick={onLogout} color="inherit">
-                    Odhlásit
-                  </Button>
-                </>
-              )}
-            </Stack>
-          </Container>
-        </Toolbar>
-      </AppBar>
+      {/* New turquoise header with wave bottom */}
+      <Header logoSrc="/logo1.png" />
       <Outlet />
     </>
   )
@@ -96,7 +40,9 @@ function NotFound() {
       <Typography color="text.secondary" sx={{ mb: 2 }}>
         Zkontrolujte adresu nebo přejděte na domovskou stránku.
       </Typography>
-      <Button component={Link} to="/" variant="contained">Zpět na domů</Button>
+      <Button component={Link} to="/" variant="contained">
+        Zpět na domů
+      </Button>
     </Container>
   )
 }
@@ -158,15 +104,14 @@ export default function App() {
         />
 
         {/* User */}
-
-<Route
-  path="/user"
-  element={
-    <RequireRole roles={['USER', 'MODERATOR', 'ADMIN']}>
-      <UserDashboard />
-    </RequireRole>
-  }
-/>
+        <Route
+          path="/user"
+          element={
+            <RequireRole roles={['USER', 'MODERATOR', 'ADMIN']}>
+              <UserDashboard />
+            </RequireRole>
+          }
+        />
 
         {/* Prototype (optional) */}
         <Route path="/proto/*" element={<UXPrototype />} />

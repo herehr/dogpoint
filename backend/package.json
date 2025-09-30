@@ -14,7 +14,11 @@
     "migrate:deploy": "prisma migrate deploy",
     "migrate:dev": "prisma migrate dev",
     "db:push": "prisma db push",
-    "reset-admin": "node scripts/resetAdmin.mjs"
+    "reset-admin": "node scripts/resetAdmin.mjs",
+    "db:seed": "prisma db seed"
+  },
+  "prisma": {
+    "seed": "ts-node prisma/seed.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.882.0",
