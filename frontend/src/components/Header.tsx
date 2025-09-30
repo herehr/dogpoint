@@ -32,14 +32,23 @@ export default function Header({
       component="header"
       sx={{
         position: 'relative',
-        backgroundColor: '#23D3DF',
+        backgroundColor: '#23D3DF', // dark turquoise
         color: '#000',
         overflow: 'hidden',
       }}
     >
-      <Container maxWidth="lg" sx={{ py: { xs: 1, md: 1.75 } }}>
+      {/* Make the turquoise band thicker and keep content above the SVG */}
+      <Container
+        maxWidth="lg"
+        sx={{
+          pt: { xs: 1, md: 1.5 },
+          pb: { xs: 6, md: 8 },          // <<< thicker turquoise
+          position: 'relative',
+          zIndex: 2,                      // content above the wave
+        }}
+      >
         <Stack direction="row" alignItems="center" justifyContent="space-between" gap={2}>
-          {/* Logo (scaled ~70% on xs) */}
+          {/* Logo (~70% on phones) + subtitle */}
           <Button
             component={RouterLink}
             to="/"
@@ -52,22 +61,11 @@ export default function Header({
                 component="img"
                 src={logoSrc}
                 alt="DOGPOINT"
-                sx={{
-                  height: { xs: 24, sm: 32, md: 40 },
-                  display: 'block',
-                  objectFit: 'contain',
-                }}
+                sx={{ height: { xs: 24, sm: 32, md: 40 }, display: 'block', objectFit: 'contain' }}
               />
               <Box
                 component="span"
-                sx={{
-                  mt: 0.5,
-                  fontSize: 13,
-                  fontWeight: 700,
-                  color: '#fff',
-                  lineHeight: 1.1,
-                  whiteSpace: 'nowrap',
-                }}
+                sx={{ mt: 0.5, fontSize: 13, fontWeight: 700, color: '#fff', lineHeight: 1.1, whiteSpace: 'nowrap' }}
               >
                 {subtitle}
               </Box>
@@ -92,12 +90,22 @@ export default function Header({
         </Stack>
       </Container>
 
-      {/* Wave: only white stroke, hero background visible below */}
-      <Box sx={{ position: 'absolute', left: 0, right: 0, bottom: -1, lineHeight: 0 }}>
+      {/* Wave: ONLY white stroke (10px). No fill underneath. */}
+      <Box
+        sx={{
+          position: 'absolute',
+          left: 0,
+          right: 0,
+          bottom: -1,
+          lineHeight: 0,
+          zIndex: 1,
+          pointerEvents: 'none', // <<< lets clicks pass through to buttons
+        }}
+      >
         <svg
           viewBox="0 0 1440 120"
           preserveAspectRatio="none"
-          style={{ width: '100%', height: '100px', display: 'block' }}
+          style={{ width: '100%', height: '110px', display: 'block' }}
           aria-hidden="true"
           focusable="false"
         >
@@ -105,7 +113,7 @@ export default function Header({
             d="M0,66 C260,116 520,30 780,40 C1040,50 1300,94 1440,82"
             fill="none"
             stroke="#ffffff"
-            strokeWidth="8"
+            strokeWidth="10"   // <<< 10 pt line
           />
         </svg>
       </Box>

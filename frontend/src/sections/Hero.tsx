@@ -7,13 +7,10 @@ export default function Hero() {
   return (
     <Box
       sx={{
-        background: 'linear-gradient(180deg, #F2FEFE 0%, #ECFBFB 100%)',
-        // pull closer to the wave to remove white band
-        mt: { xs: -3, sm: -4, md: -5 },
+        background: '#ECFBFB',      // <<< solid light color right under the wave
+        mt: { xs: -2, md: -3 },     // tuck slightly under the wave line
         pt: { xs: 3.5, md: 5.5 },
         pb: { xs: 5, md: 8 },
-        borderTopLeftRadius: { xs: 28, md: 36 },  // visually matches your rounded hero frame
-        borderTopRightRadius: { xs: 28, md: 36 },
       }}
     >
       <Container maxWidth="lg">
@@ -49,15 +46,7 @@ export default function Hero() {
           </Grid>
 
           <Grid item xs={12} md={6}>
-            <Paper
-              elevation={6}
-              sx={{
-                borderRadius: 6,
-                p: { xs: 1.5, sm: 2.5 },
-                mx: { xs: 'auto', md: 0 },
-                maxWidth: 520,
-              }}
-            >
+            <Paper elevation={6} sx={{ borderRadius: 6, p: { xs: 1.5, sm: 2.5 }, mx: { xs: 'auto', md: 0 }, maxWidth: 520 }}>
               <img
                 src="https://images.unsplash.com/photo-1601758124093-27e9c3d37a6a?q=80&w=1600&auto=format&fit=crop"
                 alt="Pes čekající na nový domov"
