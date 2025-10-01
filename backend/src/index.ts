@@ -70,6 +70,12 @@ app.get('/health/stripe', (_req, res) => {
   res.json({ stripe: !!process.env.STRIPE_API_KEY })
 })
 
+app.get('/healthz', (_req, res) => res.status(200).json({ status: 'ok' }))
+app.get('/readyz', async (_req, res) => {
+  try { await prisma.$queryRaw`SELECT 1`; res.status(200).json({ ready: true }) }
+  catch (e) { res.status(503).json({ ready: false, error: (e as Error).message }) }
+})
+
 // Error handler
 app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
   console.error('Unhandled error:', err)
