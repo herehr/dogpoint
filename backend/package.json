@@ -10,15 +10,13 @@
     "dev": "ts-node-dev src/index.ts",
     "build": "prisma generate && tsc",
     "start": "node dist/index.js",
+    "start:with-migrate": "npm run migrate:deploy && node dist/index.js",
     "postinstall": "prisma generate",
     "migrate:deploy": "prisma migrate deploy",
     "migrate:dev": "prisma migrate dev",
     "db:push": "prisma db push",
     "reset-admin": "node scripts/resetAdmin.mjs",
     "db:seed": "prisma db seed"
-  },
-  "prisma": {
-    "seed": "ts-node prisma/seed.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.882.0",

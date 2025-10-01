@@ -1,4 +1,3 @@
-// backend/prisma/schema.prisma
 generator client {
   provider = "prisma-client-js"
 }
@@ -8,11 +7,207 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-/**
- * =========================
- * Enums
- * =========================
- */
+/// *
+/// * =========================
+/// * Core models
+/// * =========================
+model User {
+  id            String         @id @default(cuid())
+  email         String         @unique
+  passwordHash  String?
+  role          Role           @default(USER)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  posts         Post[]
+  subscriptions Subscription[]
+}
+
+model Animal {
+  id               String            @id @default(cuid())
+  name             String?
+  jmeno            String?
+  description      String?
+  popis            String?
+  active           Boolean           @default(true)
+  main             String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  bornYear         Int?
+  bornMonth        Int?
+  bornDay          Int?
+  dobGuessed       Boolean?          @default(false)
+  strapline        String?
+  adoptionRequests AdoptionRequest[]
+  galerie          GalerieMedia[]
+  posts            Post[]
+  subscriptions    Subscription[]
+}
+
+model GalerieMedia {
+  id        String   @id @default(cuid())
+  url       String
+  typ       String   @default("image")
+  animalId  String?
+  createdAt DateTime @default(now())
+  animal    Animal?  @relation(fields: [animalId], references: [id], onDelete: Cascade)
+}
+
+model AdoptionRequest {
+  id                      String    @id @default(cuid())
+  animalId                String
+  name                    String
+  email                   String
+  phone                   String?
+  message                 String?
+  status                  String    @default("NEW")
+  monthly                 Int?
+  lastViewedAt            DateTime?
+  lastSeenAt              DateTime?
+  endedAt                 DateTime?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+  stripeCustomerId        String?
+  stripeSubscriptionId    String?
+  stripeCheckoutSessionId String?
+  animal                  Animal    @relation(fields: [animalId], references: [id], onDelete: Cascade)
+
+  @@index([animalId])
+  @@index([email, animalId])
+}
+
+model Post {
+  id          String      @id @default(cuid())
+  title       String?
+  body        String?
+  active      Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  status      PostStatus  @default(DRAFT)
+  publishAt   DateTime?
+  publishedAt DateTime?
+  animalId    String
+  authorId    String?
+  animal      Animal      @relation(fields: [animalId], references: [id], onDelete: Cascade)
+  author      User?       @relation(fields: [authorId], references: [id])
+  media       PostMedia[]
+
+  @@index([animalId])
+  @@index([authorId])
+  @@index([status])
+  @@index([publishAt])
+}
+
+model PostMedia {
+  id        String   @id @default(cuid())
+  url       String
+  typ       String   @default("image")
+  postId    String
+  createdAt DateTime @default(now())
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+}
+
+/// *
+/// * =========================
+/// * Donations / subscriptions (Fio-ready)
+/// * =========================
+model Subscription {
+  id             String             @id @default(cuid())
+  userId         String
+  animalId       String
+  monthlyAmount  Int
+  currency       String             @default("CZK")
+  provider       PaymentProvider
+  providerRef    String?
+  variableSymbol String?            @unique
+  message        String?
+  status         SubscriptionStatus @default(PENDING)
+  startedAt      DateTime           @default(now())
+  canceledAt     DateTime?
+  note           String?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  payments       Payment[]
+  animal         Animal             @relation(fields: [animalId], references: [id], onDelete: Cascade)
+  user           User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, animalId, status])
+  @@index([userId])
+  @@index([animalId])
+  @@index([status])
+}
+
+model Payment {
+  id             String          @id @default(cuid())
+  subscriptionId String
+  provider       PaymentProvider
+  providerRef    String?
+  amount         Int
+  currency       String          @default("CZK")
+  status         PaymentStatus
+  paidAt         DateTime?
+  failureReason  String?
+  createdAt      DateTime        @default(now())
+  subscription   Subscription    @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@index([subscriptionId])
+  @@index([status])
+}
+
+model WebhookEvent {
+  id         String          @id @default(cuid())
+  provider   PaymentProvider
+  rawPayload Json
+  processed  Boolean         @default(false)
+  createdAt  DateTime        @default(now())
+}
+
+model FioCursor {
+  id        Int      @id @default(1)
+  lastId    String?
+  updatedAt DateTime @updatedAt
+}
+
+/// *
+/// * =========================
+/// * Lightweight pledge + payments (for simple flow)
+/// * =========================
+model Pledge {
+  id         String          @id @default(cuid())
+  animalId   String
+  email      String
+  name       String?
+  amount     Int
+  interval   PaymentInterval @default(MONTHLY)
+  method     PaymentMethod
+  status     PaymentStatus   @default(PENDING)
+  providerId String?
+  note       String?
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+  payments   PledgePayment[]
+
+  @@index([email, animalId])
+  @@index([status, method])
+}
+
+model PledgePayment {
+  id         String        @id @default(cuid())
+  pledgeId   String
+  status     PaymentStatus
+  amount     Int
+  provider   String?
+  providerId String?
+  raw        Json?
+  createdAt  DateTime      @default(now())
+  pledge     Pledge        @relation(fields: [pledgeId], references: [id], onDelete: Cascade)
+
+  @@index([pledgeId])
+}
+
+/// *
+/// * =========================
+/// * Enums
+/// * =========================
 enum Role {
   USER
   MODERATOR
@@ -55,242 +250,4 @@ enum PostStatus {
   DRAFT
   SCHEDULED
   PUBLISHED
-}
-
-/**
- * =========================
- * Core models
- * =========================
- */
-model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  passwordHash String?
-  role         Role     @default(USER)     // safer default than MODERATOR
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  // back-relations
-  posts         Post[]
-  subscriptions Subscription[]
-}
-
-model Animal {
-  id               String            @id @default(cuid())
-  name             String?
-  jmeno            String?
-  description      String?
-  popis            String?
-  active           Boolean           @default(true)
-  main             String?
-  galerie          GalerieMedia[]
-  adoptionRequests AdoptionRequest[]
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
-    // Approximate date of birth — any of these may be NULL.
-  bornYear   Int?
-  bornMonth  Int?
-  bornDay    Int?
-  dobGuessed Boolean? @default(false)
-
-  // Short characteristic/strapline, e.g. “Miloučký a klidný psí dědulka.”
-  strapline  String?
-
-  // back-relations
-  posts         Post[]
-  subscriptions Subscription[]
-}
-
-model GalerieMedia {
-  id        String   @id @default(cuid())
-  url       String
-  typ       String   @default("image")
-  animal    Animal?  @relation(fields: [animalId], references: [id], onDelete: Cascade)
-  animalId  String?
-  createdAt DateTime @default(now())
-}
-
-model AdoptionRequest {
-  id           String    @id @default(cuid())
-  animal       Animal    @relation(fields: [animalId], references: [id], onDelete: Cascade)
-  animalId     String
-  name         String
-  email        String
-  phone        String?
-  message      String?
-  status       String    @default("NEW")
-  monthly      Int?
-  lastViewedAt DateTime?
-  lastSeenAt   DateTime?
-  endedAt      DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-
-  // Optional Stripe linkage
-  stripeCustomerId        String?
-  stripeSubscriptionId    String?
-  stripeCheckoutSessionId String?
-
-  @@index([animalId])
-  @@index([email, animalId])
-}
-
-/**
- * =========================
- * Posts with media
- * =========================
- */
-
-
-model Post {
-  id           String     @id @default(cuid())
-  title        String?
-  body         String?    // keep existing data here; frontend can render as rich text later
-  active       Boolean    @default(true)
-
-  // scheduling / lifecycle
-  status       PostStatus @default(DRAFT)
-  publishAt    DateTime?
-  publishedAt  DateTime?
-
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
-
-  // relations
-  animal    Animal  @relation(fields: [animalId], references: [id], onDelete: Cascade)
-  animalId  String
-
-  author    User?   @relation(fields: [authorId], references: [id])
-  authorId  String?
-
-  media     PostMedia[]
-
-  @@index([animalId])
-  @@index([authorId])
-  @@index([status])
-  @@index([publishAt])
-}
-
-model PostMedia {
-  id        String   @id @default(cuid())
-  url       String
-  typ       String   @default("image") // "image" | "video"
-  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
-  postId    String
-  createdAt DateTime @default(now())
-}
-
-/**
- * =========================
- * Donations / subscriptions (Fio-ready)
- * =========================
- */
-model Subscription {
-  id       String @id @default(cuid())
-  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId   String
-  animal   Animal @relation(fields: [animalId], references: [id], onDelete: Cascade)
-  animalId String
-
-  monthlyAmount Int
-  currency      String          @default("CZK")
-  provider      PaymentProvider
-  providerRef   String? // For cards/PayPal; null for Fio
-
-  // Fio specifics
-  variableSymbol String? @unique
-  message        String?
-
-  status     SubscriptionStatus @default(PENDING)
-  startedAt  DateTime           @default(now())
-  canceledAt DateTime?
-  note       String?
-
-  payments  Payment[]
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-
-  // Prevent multiple ACTIVE adoptions by the same user for the same animal
-  @@unique([userId, animalId, status])
-  
-  @@index([userId])
-  @@index([animalId])
-  @@index([status])
-}
-
-model Payment {
-  id             String       @id @default(cuid())
-  subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
-  subscriptionId String
-
-  provider      PaymentProvider
-  providerRef   String? // For Fio: bank transaction id
-  amount        Int
-  currency      String          @default("CZK")
-  status        PaymentStatus
-  paidAt        DateTime?
-  failureReason String?
-
-  createdAt DateTime @default(now())
-
-  @@index([subscriptionId])
-  @@index([status])
-}
-
-model WebhookEvent {
-  id         String          @id @default(cuid())
-  provider   PaymentProvider
-  rawPayload Json
-  processed  Boolean         @default(false)
-  createdAt  DateTime        @default(now())
-}
-
-// Optional: track Fio pagination state
-model FioCursor {
-  id        Int      @id @default(1)
-  lastId    String?
-  updatedAt DateTime @updatedAt
-}
-
-/**
- * =========================
- * Lightweight pledge + payments (for simple flow)
- * =========================
- */
-model Pledge {
-  id         String          @id @default(cuid())
-  animalId   String
-  email      String
-  name       String?
-  amount     Int // CZK
-  interval   PaymentInterval @default(MONTHLY)
-  method     PaymentMethod
-  status     PaymentStatus   @default(PENDING)
-  providerId String? // Stripe session id or Fio VS
-  note       String?
-  createdAt  DateTime        @default(now())
-  updatedAt  DateTime        @updatedAt
-
-  payments PledgePayment[]
-
-  // Optional: prevent the same email pledging the same animal twice
-  // @@unique([email, animalId])
-
-  @@index([email, animalId])
-  @@index([status, method])
-}
-
-model PledgePayment {
-  id       String @id @default(cuid())
-  pledge   Pledge @relation(fields: [pledgeId], references: [id], onDelete: Cascade)
-  pledgeId String
-
-  status     PaymentStatus
-  amount     Int
-  provider   String? // 'stripe' | 'fio'
-  providerId String? // charge id / transaction id
-  raw        Json?
-  createdAt  DateTime @default(now())
-
-  @@index([pledgeId])
 }

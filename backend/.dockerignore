@@ -1,0 +1,6 @@
+node_modules
+dist
+# keep prisma folder so migrations are included!
+# prisma/.cache
+npm-debug.log*
+.DS_Store

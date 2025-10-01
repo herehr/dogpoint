@@ -11,7 +11,7 @@ import { prisma } from './prisma'
 import paymentsRoutes from './routes/payments'
 import adminStatsRoutes from './routes/adminStats'
 import subscriptionRoutes from './routes/subscriptionRoutes'
-import paymentRouter from './routes/paymentRoutes'
+import paymentRouter from './routes/paymentRoutes' //do not know
 import adoptionRouter from './routes/adoption'
 
 dotenv.config()

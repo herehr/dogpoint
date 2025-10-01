@@ -1,30 +1,36 @@
-# Stage 1: Build
+# ---------- Stage 1: Build ----------
 FROM node:20.19.0 AS builder
-
 WORKDIR /app
 
-# Copy only what's needed for install/build
-COPY package*.json tsconfig.json ./
-COPY prisma ./prisma
-COPY ./src ./src
+# 1) install with lockfile (reproducible)
+COPY package*.json ./
+RUN npm ci
 
-# Install & build
-RUN npm install
+# 2) copy source and prisma schema+migrations
+COPY tsconfig.json ./
+COPY prisma ./prisma
+COPY src ./src
+
+# 3) build TS and generate Prisma client
 RUN npm run build
 RUN npx prisma generate
-RUN npm install -g npm@11.4.2
 
-# Stage 2: Production
-FROM node:20.19.0
-
+# ---------- Stage 2: Production ----------
+FROM node:20.19.0 AS runner
 WORKDIR /app
-
-# Copy production build and necessary files
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/package*.json ./
-COPY --from=builder /app/prisma ./prisma
-
 ENV NODE_ENV=production
 
-CMD ["node", "dist/index.js"]
+# 1) install prod-only deps
+COPY package*.json ./
+RUN npm ci --omit=dev
+
+# 2) copy compiled app + prisma (schema + migrations)
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/prisma ./prisma
+
+# (optional) generate again — usually not needed because @prisma/client was generated in builder.
+# RUN npx prisma generate
+
+# health: show version on startup if you want
+# CMD ["sh", "-c", "node -e \"console.log('Backend up')\" && node dist/index.js"]
+CMD ["sh", "-c", "npm run migrate:deploy && node dist/index.js"]
