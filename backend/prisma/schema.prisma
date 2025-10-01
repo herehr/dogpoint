@@ -51,6 +51,12 @@ enum PaymentInterval {
   MONTHLY
 }
 
+enum PostStatus {
+  DRAFT
+  SCHEDULED
+  PUBLISHED
+}
+
 /**
  * =========================
  * Core models
@@ -81,6 +87,14 @@ model Animal {
   adoptionRequests AdoptionRequest[]
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
+    // Approximate date of birth — any of these may be NULL.
+  bornYear   Int?
+  bornMonth  Int?
+  bornDay    Int?
+  dobGuessed Boolean? @default(false)
+
+  // Short characteristic/strapline, e.g. “Miloučký a klidný psí dědulka.”
+  strapline  String?
 
   // back-relations
   posts         Post[]
@@ -126,24 +140,35 @@ model AdoptionRequest {
  * Posts with media
  * =========================
  */
+
+
 model Post {
-  id     String  @id @default(cuid())
-  title  String
-  body   String?
-  active Boolean @default(true)
+  id           String     @id @default(cuid())
+  title        String?
+  body         String?    // keep existing data here; frontend can render as rich text later
+  active       Boolean    @default(true)
+
+  // scheduling / lifecycle
+  status       PostStatus @default(DRAFT)
+  publishAt    DateTime?
+  publishedAt  DateTime?
+
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
 
   // relations
-  animal   Animal @relation(fields: [animalId], references: [id], onDelete: Cascade)
-  animalId String
+  animal    Animal  @relation(fields: [animalId], references: [id], onDelete: Cascade)
+  animalId  String
 
-  author   User?   @relation(fields: [authorId], references: [id])
-  authorId String?
+  author    User?   @relation(fields: [authorId], references: [id])
+  authorId  String?
 
   media     PostMedia[]
-  createdAt DateTime    @default(now())
 
   @@index([animalId])
   @@index([authorId])
+  @@index([status])
+  @@index([publishAt])
 }
 
 model PostMedia {
