@@ -11,26 +11,29 @@ COPY tsconfig.json ./
 COPY prisma ./prisma
 COPY src ./src
 
-# 3) build TS and generate Prisma client
-RUN npm run build
+# 3) generate Prisma client BEFORE TypeScript build (types rely on it)
 RUN npx prisma generate
+
+# 4) build TS
+RUN npm run build
 
 # ---------- Stage 2: Production ----------
 FROM node:20.19.0 AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 
-# 1) install prod-only deps
+# 1) copy prisma FIRST so schema exists during install/generate
+COPY --from=builder /app/prisma ./prisma
+
+# 2) install prod-only deps (no postinstall anymore)
 COPY package*.json ./
 RUN npm ci --omit=dev
 
-# 2) copy compiled app + prisma (schema + migrations)
+# 3) generate Prisma client in the runtime image
+RUN npx prisma generate
+
+# 4) copy compiled app
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/prisma ./prisma
 
-# (optional) generate again — usually not needed because @prisma/client was generated in builder.
-# RUN npx prisma generate
-
-# health: show version on startup if you want
-# CMD ["sh", "-c", "node -e \"console.log('Backend up')\" && node dist/index.js"]
+# 5) run migrations on start, then launch server
 CMD ["sh", "-c", "npm run migrate:deploy && node dist/index.js"]
