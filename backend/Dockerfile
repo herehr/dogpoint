@@ -1,30 +1,28 @@
 # backend/Dockerfile
-# Multi-stage build: deterministic, Prisma-safe (no watch), Node 20.12.2
-
 ARG NODE_VERSION=20.12.2
 
-# ---------- base ----------
-FROM node:${NODE_VERSION}-alpine AS base
+# ---------- deps ----------
+FROM node:${NODE_VERSION}-alpine AS deps
 ENV CI=true \
-    NODE_ENV=production \
-    PRISMA_SKIP_POSTINSTALL_GENERATE=true \
-    PRISMA_GENERATE_WATCH=
+    NODE_ENV=development \
+    PRISMA_SKIP_POSTINSTALL_GENERATE=true
 WORKDIR /app
 
-# ---------- deps ----------
-FROM base AS deps
+# Only package files first (better cache)
 COPY package.json package-lock.json ./
 RUN echo "[deps] npm ci..." && npm ci --no-audit --no-fund && echo "[deps] done."
 
-# ---------- builder ----------
-FROM deps AS builder
-# Copy prisma first; generate client BEFORE TS build so types exist
+# Copy prisma and generate client into THIS stage's node_modules
 COPY prisma ./prisma
-RUN echo "[builder] prisma generate..." \
+RUN echo "[deps] prisma generate..." \
  && npx prisma generate --schema=./prisma/schema.prisma \
- && echo "[builder] prisma generate done."
+ && echo "[deps] prisma generate done."
 
-# Copy tsconfig + sources, then build
+# ---------- builder ----------
+FROM node:${NODE_VERSION}-alpine AS builder
+WORKDIR /app
+# Reuse deps (including generated @prisma/client)
+COPY --from=deps /app/node_modules ./node_modules
 COPY tsconfig.json tsconfig.json
 COPY src ./src
 RUN echo "[builder] tsc..." && npx tsc && echo "[builder] build done."
@@ -35,8 +33,9 @@ ENV NODE_ENV=production \
     PORT=8080
 WORKDIR /app
 
-# Copy runtime deps and built files
+# Copy runtime deps WITH the generated Prisma client
 COPY --from=deps /app/node_modules ./node_modules
+# App files
 COPY --from=builder /app/dist ./dist
 COPY prisma ./prisma
 
