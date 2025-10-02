@@ -18,13 +18,13 @@ RUN echo "[deps] npm ci..." && npm ci --no-audit --no-fund && echo "[deps] done.
 
 # ---------- builder ----------
 FROM deps AS builder
-# Copy prisma first for better caching; generate client BEFORE TS build
+# Copy prisma first; generate client BEFORE TS build so types exist
 COPY prisma ./prisma
 RUN echo "[builder] prisma generate..." \
- && npx prisma generate --no-engine-warning --schema=./prisma/schema.prisma \
+ && npx prisma generate --schema=./prisma/schema.prisma \
  && echo "[builder] prisma generate done."
 
-# Copy tsconfig and sources, then build
+# Copy tsconfig + sources, then build
 COPY tsconfig.json tsconfig.json
 COPY src ./src
 RUN echo "[builder] tsc..." && npx tsc && echo "[builder] build done."

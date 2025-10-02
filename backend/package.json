@@ -4,7 +4,7 @@
   "private": true,
   "type": "commonjs",
   "engines": {
-    "node": ">=18 <21"
+    "node": ">=20.12.2 <21"
   },
   "scripts": {
     "dev": "ts-node-dev src/index.ts",
@@ -17,11 +17,8 @@
     "migrate:dev": "prisma migrate dev",
     "db:push": "prisma db push",
     "reset-admin": "node scripts/resetAdmin.mjs",
-    "db:seed": "prisma db seed",
-    "prisma:generate": "prisma generate --no-engine-warning --schema=./prisma/schema.prisma"
-  },
-  "prisma": {
-    "seed": "ts-node prisma/seed.ts"
+    "db:seed": "ts-node prisma/seed.ts",
+    "prisma:generate": "prisma generate --schema=./prisma/schema.prisma"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.882.0",
@@ -48,5 +45,9 @@
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.5.4"
+  },
+  "overrides": {
+    "glob": "^10.3.12",
+    "minimatch": "^9.0.5"
   }
 }

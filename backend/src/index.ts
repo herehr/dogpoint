@@ -11,10 +11,7 @@ import uploadRoutes from './routes/upload'
 import postsRoutes from './routes/posts'
 import adminStatsRoutes from './routes/adminStats'
 import subscriptionRoutes from './routes/subscriptionRoutes'
-// Keep ONE payments router mounted:
 import paymentRouter from './routes/paymentRoutes'
-// import paymentsRoutes from './routes/payments' // <- do NOT mount both
-
 import adoptionRouter from './routes/adoption'
 import { prisma } from './prisma'
 
@@ -36,7 +33,7 @@ app.set('trust proxy', 1)
 app.use(cors(corsOptions))
 app.use(express.json({ limit: '2mb' }))
 
-// Optional: simple request logger (helpful for 500s)
+// Optional: simple request logger
 app.use((req, _res, next) => {
   const role = (req as any).user?.role
   console.log(`[REQ] ${req.method} ${req.originalUrl} ${role ? `(role=${role})` : ''}`)
@@ -51,9 +48,7 @@ app.use('/api/upload', uploadRoutes)
 app.use('/api/posts', postsRoutes)
 app.use('/api/admin/stats', adminStatsRoutes)
 app.use('/api/subscriptions', subscriptionRoutes)
-// Mount exactly one payments router:
 app.use('/api/payments', paymentRouter)
-// app.use('/api/payments', paymentsRoutes) // <- use this instead of the line above if you prefer the old router
 app.use('/api/adoption', adoptionRouter)
 
 // ----- Base -----
