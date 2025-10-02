@@ -17,7 +17,7 @@
     "migrate:dev": "prisma migrate dev",
     "db:push": "prisma db push",
     "reset-admin": "node scripts/resetAdmin.mjs",
-    "db:seed": "ts-node prisma/seed.ts",
+    "db:seed": "prisma db seed",
     "prisma:generate": "prisma generate --schema=./prisma/schema.prisma"
   },
   "dependencies": {
