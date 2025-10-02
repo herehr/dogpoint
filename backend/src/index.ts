@@ -2,57 +2,73 @@
 import express, { Request, Response, NextFunction } from 'express'
 import dotenv from 'dotenv'
 import cors from 'cors'
+
+// Routes
 import adminModeratorsRoutes from './routes/adminModerators'
 import animalRoutes from './routes/animals'
 import authRoutes from './routes/auth'
 import uploadRoutes from './routes/upload'
 import postsRoutes from './routes/posts'
-import { prisma } from './prisma'
-import paymentsRoutes from './routes/payments'
 import adminStatsRoutes from './routes/adminStats'
 import subscriptionRoutes from './routes/subscriptionRoutes'
-import paymentRouter from './routes/paymentRoutes' //do not know
+// ⚠️ Choose ONE of the payments routers. We keep the newer paymentRouter:
+import paymentRouter from './routes/paymentRoutes'
+// If you prefer the old one, import it instead and mount it where we mount paymentRouter.
+// import paymentsRoutes from './routes/payments'
+
 import adoptionRouter from './routes/adoption'
+import { prisma } from './prisma'
 
 dotenv.config()
 
-// ---- Wide-open CORS (development / testing) ----
-const corsOptions = {
-  origin: '*',          // allow all origins
-  credentials: true,    // allow cookies/headers
-}
+// ---------- CORS ----------
+// Use comma-separated origins from env, e.g.:
+// CORS_ALLOWED_ORIGINS="https://dogpoint-uk3y8.ondigitalocean.app,http://localhost:5173"
+const allowed = (process.env.CORS_ALLOWED_ORIGINS || '')
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean)
 
-// ---- App ----
+const corsOptions: cors.CorsOptions = allowed.length
+  ? {
+      origin: allowed,
+      credentials: true,
+    }
+  : {
+      // fallback during development (no credentials!)
+      origin: '*',
+      credentials: false,
+    }
+
+// ---------- App ----------
 const app = express()
+app.set('trust proxy', 1)
 app.use(cors(corsOptions))
-app.use(express.json())
+app.use(express.json({ limit: '2mb' }))
 
-// Routes
+// ---------- Routes ----------
 app.use('/api/admin', adminModeratorsRoutes)
 app.use('/api/animals', animalRoutes)
 app.use('/api/auth', authRoutes)
 app.use('/api/upload', uploadRoutes)
 app.use('/api/posts', postsRoutes)
-app.use('/api/payments', paymentsRoutes)
 app.use('/api/admin/stats', adminStatsRoutes)
 app.use('/api/subscriptions', subscriptionRoutes)
+// Mount exactly one payments router:
 app.use('/api/payments', paymentRouter)
+// app.use('/api/payments', paymentsRoutes) // <- use this instead if you keep the old router
 app.use('/api/adoption', adoptionRouter)
-// endpoints become:
-//   GET /api/admin/stats/payments
-//   GET /api/admin/stats/pledges
-//   GET /api/admin/stats/expected
 
-// Base
+// ---------- Base ----------
 app.get('/', (_req: Request, res: Response): void => {
-  res.send('Dogpoint backend is running.')
+  res.json({ ok: true, component: 'backend', root: '/' })
 })
 
 app.get('/api/proto', (_req: Request, res: Response): void => {
   res.json({ ok: true, component: 'backend', route: '/api/proto' })
 })
 
-// Health
+// ---------- Health ----------
 app.get('/health', (_req: Request, res: Response): void => {
   res.status(200).json({ status: 'ok', server: true })
 })
@@ -62,34 +78,45 @@ app.get('/health/db', async (_req: Request, res: Response): Promise<void> => {
     await prisma.$queryRaw`SELECT 1`
     res.status(200).json({ status: 'ok', db: true })
   } catch (e: any) {
-    res.status(500).json({ status: 'error', db: false, error: e.message })
+    res.status(500).json({ status: 'error', db: false, error: e?.message })
   }
 })
 
 app.get('/health/stripe', (_req, res) => {
-  res.json({ stripe: !!process.env.STRIPE_API_KEY })
+  const hasStripe =
+    !!process.env.STRIPE_SECRET_KEY || !!process.env.STRIPE_API_KEY
+  res.json({ stripe: hasStripe })
 })
 
-app.get('/healthz', (_req, res) => res.status(200).json({ status: 'ok' }))
-app.get('/readyz', async (_req, res) => {
-  try { await prisma.$queryRaw`SELECT 1`; res.status(200).json({ ready: true }) }
-  catch (e) { res.status(503).json({ ready: false, error: (e as Error).message }) }
+// ---------- 404 ----------
+app.use((req: Request, res: Response) => {
+  res.status(404).json({ error: 'Not Found', path: req.originalUrl })
 })
 
-// Error handler
+// ---------- Error handler ----------
 app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
   console.error('Unhandled error:', err)
   res.status(500).json({ error: 'Internal server error' })
 })
 
-//const PORT = process.env.PORT || 3000
-//////app.listen(PORT, () => {
-  //console.log(`Server running on port ${PORT}`)
-//})
+// ---------- Server ----------
+const PORT = Number(process.env.PORT) || 8080
+const HOST = '0.0.0.0'
 
-const PORT = Number(process.env.PORT) || 8080;
-const HOST = '0.0.0.0';
+const server = app.listen(PORT, HOST, () => {
+  console.log(`Server listening on http://${HOST}:${PORT}`)
+})
 
-app.listen(PORT, HOST, () => {
-  console.log(`Server listening on http://${HOST}:${PORT}`);
-});
+// Graceful shutdown
+const shutdown = async (signal: string) => {
+  console.log(`[${signal}] shutting down...`)
+  server.close(async () => {
+    try {
+      await prisma.$disconnect()
+    } finally {
+      process.exit(0)
+    }
+  })
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'))
+process.on('SIGINT', () => shutdown('SIGINT'))

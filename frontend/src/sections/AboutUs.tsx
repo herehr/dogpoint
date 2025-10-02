@@ -16,7 +16,7 @@ export default function AboutUs() {
       <Stack direction={{ xs: 'column', md: 'row' }} gap={3} alignItems="center">
         <Box
           component="img"
-          src="/team.jpg"
+          src="team.jpg"
           alt="Tým Dogpoint"
           sx={{
             flex: 1,
