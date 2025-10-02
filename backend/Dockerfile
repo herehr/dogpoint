@@ -8,13 +8,13 @@ ENV CI=true \
     PRISMA_SKIP_POSTINSTALL_GENERATE=true
 WORKDIR /app
 
-# Copy package files explicitly (no patterns)
+# explicit copies (no globs)
 COPY package.json ./
 COPY package-lock.json ./
 RUN (npm ci --no-audit --no-fund || npm install --no-audit --no-fund) \
  && echo "[deps] deps installed."
 
-# Generate Prisma Client into THIS stage's node_modules
+# generate Prisma Client into THIS stage's node_modules
 COPY prisma ./prisma
 RUN echo "[deps] prisma generate..." \
  && npx prisma generate --schema=./prisma/schema.prisma \
@@ -23,7 +23,6 @@ RUN echo "[deps] prisma generate..." \
 # ---------- builder ----------
 FROM node:${NODE_VERSION}-alpine AS builder
 WORKDIR /app
-# Use deps with generated @prisma/client
 COPY --from=deps /app/node_modules ./node_modules
 COPY tsconfig.json ./tsconfig.json
 COPY src ./src
@@ -35,23 +34,20 @@ ENV NODE_ENV=production \
     PORT=8080
 WORKDIR /app
 
-# (1) package files are required because we run `npm run ...` in the container
+# npm run needs package files present
 COPY package.json ./
 COPY package-lock.json ./
 
-# (2) runtime deps (already contain the generated @prisma/client)
+# runtime deps (already have generated @prisma/client)
 COPY --from=deps /app/node_modules ./node_modules
 
-# (3) app artifacts
+# app artifacts
 COPY --from=builder /app/dist ./dist
 COPY prisma ./prisma
-# If you use prisma.config.ts, also copy it:
+# If you use prisma.config.ts, copy it too:
 # COPY prisma.config.ts ./prisma.config.ts
 
-# Debug aid: list what made it into the image (leave in until stable)
-RUN echo "[runner] tree:" && ls -la /app && echo "---" && ls -la /app/dist && echo "---" && ls -la /app/prisma
-
 EXPOSE 8080
-# DO App Platform run command: npm run start:with-migrate
-# If you want a default inside the image, uncomment:
+# DO run command: npm run start:with-migrate
+# (optional default)
 # CMD ["npm", "run", "start:with-migrate"]
