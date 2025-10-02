@@ -3,7 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "type": "commonjs",
-  "engines": { "node": ">=20.12.2 <21" },
+  "engines": {
+    "node": ">=20.12.2 <21"
+  },
   "scripts": {
     "dev": "ts-node-dev src/index.ts",
     "clean": "rimraf dist",
@@ -45,7 +47,7 @@
     "typescript": "^5.5.4"
   },
   "overrides": {
-    "glob": "^10.3.12",
+    "glob": "^10.4.5",
     "minimatch": "^9.0.5"
   }
 }
