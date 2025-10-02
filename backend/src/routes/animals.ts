@@ -26,13 +26,25 @@ function parseGalerie(input: any): Array<{ url: string; typ?: string }> {
 router.get('/', async (_req: Request, res: Response): Promise<void> => {
   try {
     const animals = await prisma.animal.findMany({
-      orderBy: { createdAt: 'desc' },
-      include: { galerie: true },
+      // Use id to avoid schema drift on createdAt
+      orderBy: { id: 'desc' },
+      // Include only what we need from galerie; order by id to avoid createdAt drift
+      include: {
+        galerie: {
+          select: { url: true, typ: true },
+          orderBy: { id: 'asc' },
+        },
+      },
     })
-    const shaped = animals.map(a => ({ ...a, main: a.main ?? a.galerie[0]?.url ?? null }))
+    const shaped = animals.map(a => ({
+      ...a,
+      main: a.main ?? a.galerie?.[0]?.url ?? null,
+    }))
     res.json(shaped)
   } catch (e: any) {
-    console.error('GET /api/animals error:', e)
+    console.error('GET /api/animals error:', {
+      message: e?.message, code: e?.code, meta: e?.meta, stack: e?.stack,
+    })
     res.status(500).json({ error: 'Internal error fetching animals' })
   }
 })
@@ -42,13 +54,21 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
     const a = await prisma.animal.findUnique({
       where: { id: String(req.params.id) },
-      include: { galerie: true },
+      include: {
+        galerie: {
+          select: { url: true, typ: true },
+          orderBy: { id: 'asc' },
+        },
+      },
     })
     if (!a) { res.status(404).json({ error: 'Not found' }); return }
-    const shaped = { ...a, main: a.main ?? a.galerie[0]?.url ?? null }
+    const shaped = { ...a, main: a.main ?? a.galerie?.[0]?.url ?? null }
     res.json(shaped)
   } catch (e: any) {
-    console.error('GET /api/animals/:id error:', e)
+    console.error('GET /api/animals/:id error:', {
+      id: req.params.id,
+      message: e?.message, code: e?.code, meta: e?.meta, stack: e?.stack,
+    })
     res.status(500).json({ error: 'Internal error fetching animal' })
   }
 })
