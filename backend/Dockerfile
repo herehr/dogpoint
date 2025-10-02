@@ -1,30 +1,44 @@
-# Stage 1: Build
-FROM node:20.19.0 AS builder
+# backend/Dockerfile
+# Multi-stage build: deterministic, Prisma-safe (no watch), Node 20.12.2
 
+ARG NODE_VERSION=20.12.2
+
+# ---------- base ----------
+FROM node:${NODE_VERSION}-alpine AS base
+ENV CI=true \
+    NODE_ENV=production \
+    PRISMA_SKIP_POSTINSTALL_GENERATE=true \
+    PRISMA_GENERATE_WATCH=
 WORKDIR /app
 
-# Copy only what's needed for install/build
-COPY package*.json tsconfig.json ./
+# ---------- deps ----------
+FROM base AS deps
+COPY package.json package-lock.json ./
+RUN echo "[deps] npm ci..." && npm ci --no-audit --no-fund && echo "[deps] done."
+
+# ---------- builder ----------
+FROM deps AS builder
+# Copy prisma first for better caching; generate client BEFORE TS build
 COPY prisma ./prisma
-COPY ./src ./src
+RUN echo "[builder] prisma generate..." \
+ && npx prisma generate --no-engine-warning --schema=./prisma/schema.prisma \
+ && echo "[builder] prisma generate done."
 
-# Install & build
-RUN npm install
-RUN npm run build
-RUN npx prisma generate
-RUN npm install -g npm@11.4.2
+# Copy tsconfig and sources, then build
+COPY tsconfig.json tsconfig.json
+COPY src ./src
+RUN echo "[builder] tsc..." && npx tsc && echo "[builder] build done."
 
-# Stage 2: Production
-FROM node:20.19.0
-
+# ---------- runner ----------
+FROM node:${NODE_VERSION}-alpine AS runner
+ENV NODE_ENV=production \
+    PORT=8080
 WORKDIR /app
 
-# Copy production build and necessary files
+# Copy runtime deps and built files
+COPY --from=deps /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/package*.json ./
-COPY --from=builder /app/prisma ./prisma
+COPY prisma ./prisma
 
-ENV NODE_ENV=production
-
-CMD ["node", "dist/index.js"]
+EXPOSE 8080
+CMD node dist/index.js
