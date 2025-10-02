@@ -1,7 +1,7 @@
 // backend/src/index.ts
 import express, { Request, Response, NextFunction } from 'express'
 import dotenv from 'dotenv'
-import cors, { type CorsOptions } from 'cors'
+import cors from 'cors'
 
 // Route modules
 import adminModeratorsRoutes from './routes/adminModerators'
@@ -12,20 +12,24 @@ import postsRoutes from './routes/posts'
 import adminStatsRoutes from './routes/adminStats'
 import subscriptionRoutes from './routes/subscriptionRoutes'
 import paymentRouter from './routes/paymentRoutes'
+// import paymentsRoutes from './routes/payments' // <- don't mount both
+
 import adoptionRouter from './routes/adoption'
 import { prisma } from './prisma'
 
 dotenv.config()
 
 // ----- CORS -----
+// Use allowlist if provided (comma-separated), else permissive fallback (no credentials)
 const allowed = (process.env.CORS_ALLOWED_ORIGINS || '')
   .split(',')
   .map(s => s.trim())
   .filter(Boolean)
 
-const corsOptions: CorsOptions = allowed.length
+// Type the options using the middleware signature to avoid named type import issues
+const corsOptions: Parameters<typeof cors>[0] = allowed.length
   ? { origin: allowed, credentials: true }
-  : { origin: '*', credentials: false } // fallback for dev-only
+  : { origin: '*', credentials: false }
 
 // ----- App -----
 const app = express()
@@ -33,7 +37,7 @@ app.set('trust proxy', 1)
 app.use(cors(corsOptions))
 app.use(express.json({ limit: '2mb' }))
 
-// Optional: simple request logger
+// Optional: request logger
 app.use((req, _res, next) => {
   const role = (req as any).user?.role
   console.log(`[REQ] ${req.method} ${req.originalUrl} ${role ? `(role=${role})` : ''}`)
@@ -49,6 +53,7 @@ app.use('/api/posts', postsRoutes)
 app.use('/api/admin/stats', adminStatsRoutes)
 app.use('/api/subscriptions', subscriptionRoutes)
 app.use('/api/payments', paymentRouter)
+// app.use('/api/payments', paymentsRoutes)
 app.use('/api/adoption', adoptionRouter)
 
 // ----- Base -----
