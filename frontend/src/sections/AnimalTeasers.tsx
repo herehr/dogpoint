@@ -4,31 +4,42 @@ import {
   Box, Button, Card, CardActions, CardContent, CardMedia,
   Container, Grid, Skeleton, Stack, Typography
 } from '@mui/material';
-import { Link as RouterLink } from 'react-router-dom';
-import { getJSON } from '../api';
+import { Link as RouterLink, useNavigate } from 'react-router-dom';
+import { getJSON } from '../services/api'; // unified API helper
 import type { Animal } from '../types/animal';
 
 const FALLBACK_IMG = '/no-image.jpg';
 const SPACE_CDN = 'https://dogpoint.fra1.digitaloceanspaces.com'; // used only if server sends S3 key without full URL
 
 function mediaUrl(a: Animal): string {
-  const first = a.galerie?.find(g => g.type !== 'video') || a.galerie?.[0];
+  const first = a.galerie?.find((g: any) => (g.type ?? g.typ) !== 'video') || a.galerie?.[0];
   if (!first) return FALLBACK_IMG;
   if (first.url) return first.url;
-  if (first.key) return `${SPACE_CDN.replace(/\/$/, '')}/${first.key.replace(/^\//, '')}`;
+  if ((first as any).key) {
+    return `${SPACE_CDN.replace(/\/$/, '')}/${String((first as any).key).replace(/^\//, '')}`;
+  }
   return FALLBACK_IMG;
 }
 
 function displayName(a: Animal): string {
   return (a.jmeno || a.name || 'Zvíře').toUpperCase();
 }
-function displayText(a: Animal): string {
+function shortLine(a: Animal): string {
+  // charakteristik (preferred) → otherwise first 70 chars of description
+  const ch = (a as any).charakteristik || (a as any).charakteristika;
+  if (ch) return String(ch);
+  const base = a.popis || a.description || '';
+  const s = base.slice(0, 70);
+  return base.length > 70 ? `${s}…` : s;
+}
+function longText(a: Animal): string {
   return a.popis || a.description || 'Zobrazit detail zvířete a podat adopci.';
 }
 
 export default function AnimalTeasers() {
   const [items, setItems] = React.useState<Animal[] | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const navigate = useNavigate();
 
   React.useEffect(() => {
     let alive = true;
@@ -71,30 +82,89 @@ export default function AnimalTeasers() {
               </Grid>
             ))}
 
-          {!loading && items?.map((a) => (
-            <Grid item xs={12} md={4} key={a.id}>
-              <Card variant="outlined" sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-                <CardMedia component="img" height="220" image={mediaUrl(a)} alt={displayName(a)} />
-                <CardContent sx={{ flexGrow: 1 }}>
-                  <Stack gap={0.5}>
-                    <Typography variant="h6" sx={{ fontWeight: 900 }}>
-                      {displayName(a)}
+          {!loading && items?.map((a) => {
+            const name = displayName(a);
+            const img = mediaUrl(a);
+            const goDetail = () => navigate(`/zvirata/${a.id}`);
+            return (
+              <Grid item xs={12} md={4} key={a.id}>
+                <Card variant="outlined" sx={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'visible' }}>
+                  {/* Image with overlaid Name button */}
+                  <Box sx={{ position: 'relative', height: 220, overflow: 'hidden', cursor: 'pointer' }} onClick={goDetail}>
+                    <CardMedia component="img" height="220" image={img} alt={name} sx={{ objectFit: 'cover' }} />
+                    <Button
+                      onClick={goDetail}
+                      variant="contained"
+                      sx={{
+                        position: 'absolute',
+                        left: '50%',
+                        bottom: 0,
+                        transform: 'translate(-50%, 50%)',
+                        borderRadius: 1.5,
+                        fontWeight: 900,
+                        letterSpacing: 1,
+                        px: 3,
+                        py: 1,
+                        boxShadow: 3,
+                        bgcolor: 'secondary.main',
+                        '&:hover': { bgcolor: 'secondary.dark' },
+                      }}
+                    >
+                      {name}
+                    </Button>
+                  </Box>
+
+                  {/* Text area */}
+                  <CardContent sx={{ flexGrow: 1, pt: 5 }}>
+                    {/* charakteristik (accent colored short line) */}
+                    <Typography
+                      sx={{
+                        color: 'secondary.main',
+                        fontWeight: 700,
+                        fontSize: 14,
+                        textTransform: 'uppercase',
+                        mb: 1,
+                      }}
+                    >
+                      {shortLine(a)}
                     </Typography>
-                    <Typography sx={{ color: 'secondary.main', fontWeight: 700, fontSize: 14 }}>
-                      {/* optional short line from description */}
-                      {(displayText(a) || '').slice(0, 70)}{(displayText(a) || '').length > 70 ? '…' : ''}
+
+                    {/* 8-line clamp of description */}
+                    <Typography
+                      color="text.secondary"
+                      sx={{
+                        display: '-webkit-box',
+                        WebkitLineClamp: 8,
+                        WebkitBoxOrient: 'vertical',
+                        overflow: 'hidden',
+                        mb: 1.5,
+                        lineHeight: 1.6,
+                      }}
+                    >
+                      {longText(a)}
                     </Typography>
-                    <Typography color="text.secondary">{displayText(a)}</Typography>
-                  </Stack>
-                </CardContent>
-                <CardActions sx={{ px: 2, pb: 2 }}>
-                  <Button component={RouterLink} to={`/zvirata/${a.id}`} variant="contained" fullWidth>
-                    Mám zájem
-                  </Button>
-                </CardActions>
-              </Card>
-            </Grid>
-          ))}
+
+                    {/* Read further button */}
+                    <Button
+                      onClick={goDetail}
+                      size="small"
+                      variant="outlined"
+                      sx={{ mt: 0.5, alignSelf: 'flex-start' }}
+                    >
+                      Chci číst dál
+                    </Button>
+                  </CardContent>
+
+                  {/* Adoption CTA */}
+                  <CardActions sx={{ px: 2, pb: 2 }}>
+                    <Button component={RouterLink} to={`/zvirata/${a.id}`} variant="contained" fullWidth>
+                      Mám zájem
+                    </Button>
+                  </CardActions>
+                </Card>
+              </Grid>
+            );
+          })}
 
           {!loading && items?.length === 0 && (
             <Grid item xs={12}>
