@@ -89,16 +89,17 @@ router.post('/', requireAuth, async (req: Request, res: Response): Promise<void>
   try {
     const result = await prisma.$transaction(async (tx) => {
       const created = await tx.animal.create({
-        data: {
-          name: body.name ?? null,
-          jmeno: body.jmeno ?? body.name ?? 'Bez jména',
-          description: body.description ?? null,
-          popis: body.popis ?? null,
-          active: body.active === undefined ? true : Boolean(body.active),
-          main: requestedMain,
-          // vek: body.vek ?? null,
-          // druh: body.druh ?? null,
-        },
+       data: {
+  name: body.name ?? null,
+  jmeno: body.jmeno ?? body.name ?? 'Bez jména',
+  description: body.description ?? null,
+  popis: body.popis ?? null,
+  charakteristik: body.charakteristik ?? null,                      // NEW
+  birthDate: body.birthDate ? new Date(body.birthDate) : null,      // NEW (ISO or yyyy-mm-dd)
+  bornYear: body.bornYear ?? null,                                   // NEW
+  active: body.active === undefined ? true : Boolean(body.active),
+  main: requestedMain,
+},
       })
 
       if (media.length) {
@@ -156,16 +157,21 @@ router.patch('/:id', requireAuth, async (req: Request, res: Response): Promise<v
         ? { main: body.main ?? null }
         : (willReplaceGallery && media.length ? { main: media[0].url } : {})
 
-    const baseUpdate: any = {
-      name: body.name ?? undefined,
-      jmeno: body.jmeno ?? undefined,
-      description: body.description ?? undefined,
-      popis: body.popis ?? undefined,
-      active: body.active ?? undefined,
-      // vek: body.vek ?? undefined,
-      // druh: body.druh ?? undefined,
-      ...mainUpdate,
-    }
+  const baseUpdate: any = {
+  name: body.name ?? undefined,
+  jmeno: body.jmeno ?? undefined,
+  description: body.description ?? undefined,
+  popis: body.popis ?? undefined,
+  charakteristik: body.charakteristik ?? undefined,                           // NEW
+  birthDate: Object.prototype.hasOwnProperty.call(body, 'birthDate')          // NEW
+    ? (body.birthDate ? new Date(body.birthDate) : null)
+    : undefined,
+  bornYear: Object.prototype.hasOwnProperty.call(body, 'bornYear')            // NEW
+    ? (body.bornYear ?? null)
+    : undefined,
+  active: body.active ?? undefined,
+  ...mainUpdate,
+}}
 
     if (willReplaceGallery) {
       const updated = await prisma.$transaction(async (tx) => {

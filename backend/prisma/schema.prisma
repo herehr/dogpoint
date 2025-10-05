@@ -60,7 +60,7 @@ model User {
   id           String   @id @default(cuid())
   email        String   @unique
   passwordHash String?
-  role         Role     @default(USER)     // safer default than MODERATOR
+  role         Role     @default(USER)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -75,6 +75,9 @@ model Animal {
   jmeno            String?
   description      String?
   popis            String?
+  charakteristik   String?           // NEW: short teaser line for cards
+  birthDate        DateTime?         // NEW: exact birth date (optional)
+  bornYear         Int?              // NEW: estimated birth year (optional)
   active           Boolean           @default(true)
   main             String?
   galerie          GalerieMedia[]
@@ -187,7 +190,7 @@ model Subscription {
 
   // Prevent multiple ACTIVE adoptions by the same user for the same animal
   @@unique([userId, animalId, status])
-  
+
   @@index([userId])
   @@index([animalId])
   @@index([status])
@@ -247,9 +250,6 @@ model Pledge {
   updatedAt  DateTime        @updatedAt
 
   payments PledgePayment[]
-
-  // Optional: prevent the same email pledging the same animal twice
-  // @@unique([email, animalId])
 
   @@index([email, animalId])
   @@index([status, method])
