@@ -90,7 +90,7 @@ export default function AnimalTeasers() {
               <Grid item xs={12} md={4} key={a.id}>
                 <Card variant="outlined" sx={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'visible' }}>
                   {/* Image with overlaid Name button */}
-                  <Box sx={{ position: 'relative', height: 220, overflow: 'hidden', cursor: 'pointer' }} onClick={goDetail}>
+                  <Box sx={{ position: 'relative', height: 220, overflow: 'visible', cursor: 'pointer' }} onClick={goDetail}>
                     <CardMedia component="img" height="220" image={img} alt={name} sx={{ objectFit: 'cover' }} />
                     <Button
                       onClick={goDetail}
