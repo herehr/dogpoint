@@ -144,15 +144,7 @@ export default function AnimalTeasers() {
                       {longText(a)}
                     </Typography>
 
-                    {/* Read further button */}
-                    <Button
-                      onClick={goDetail}
-                      size="small"
-                      variant="outlined"
-                      sx={{ mt: 0.5, alignSelf: 'flex-start' }}
-                    >
-                      Chci číst dál
-                    </Button>
+                
                   </CardContent>
 
                   {/* Adoption CTA */}
