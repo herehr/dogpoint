@@ -12,6 +12,7 @@ COPY package-lock.json ./
 RUN (npm ci --no-audit --no-fund || npm install --no-audit --no-fund) \
  && echo "[deps] deps installed."
 
+# ✅ Prisma lives under src/prisma in this repo
 COPY src/prisma ./prisma
 RUN echo "[deps] prisma generate..." \
  && npx prisma generate --schema=./prisma/schema.prisma \
@@ -35,9 +36,9 @@ COPY package.json ./
 COPY package-lock.json ./
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
+
+# ✅ Copy the same prisma dir (with migrations) into the image
 COPY src/prisma ./prisma
-# COPY prisma.config.ts ./prisma.config.ts  # only if you have a valid one
 
 EXPOSE 8080
-# If you want to bake the run command in, uncomment:
 # CMD ["npm", "run", "start:with-migrate"]
