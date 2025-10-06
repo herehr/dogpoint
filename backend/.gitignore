@@ -52,4 +52,6 @@ frontend/.cache/
 
 # Test / local folders
 curl/
-fotos/
+fotos/!backend/prisma/migrations/**
+!prisma/migrations/**
+!prisma/migrations/**
