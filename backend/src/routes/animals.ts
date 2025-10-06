@@ -73,10 +73,7 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
   }
 })
 
-/* =========================
-   CREATE (robust: create animal first, then gallery)
-   ========================= */
-
+/// CREATE
 router.post('/', requireAuth, async (req: Request, res: Response): Promise<void> => {
   const body = (req.body || {}) as any
   const media = parseGalerie(body)
@@ -86,20 +83,29 @@ router.post('/', requireAuth, async (req: Request, res: Response): Promise<void>
     res.status(400).json({ error: 'Missing name/jmeno' }); return
   }
 
+  // Safe coercions
+  const parsedBornYear =
+    body.bornYear === null || body.bornYear === undefined || body.bornYear === ''
+      ? null
+      : Number.isFinite(Number(body.bornYear)) ? Number(body.bornYear) : null
+
+  const parsedBirthDate =
+    body.birthDate ? new Date(body.birthDate) : null
+
   try {
     const result = await prisma.$transaction(async (tx) => {
       const created = await tx.animal.create({
-       data: {
-  name: body.name ?? null,
-  jmeno: body.jmeno ?? body.name ?? 'Bez jména',
-  description: body.description ?? null,
-  popis: body.popis ?? null,
-  charakteristik: body.charakteristik ?? null,                      // NEW
-  birthDate: body.birthDate ? new Date(body.birthDate) : null,      // NEW (ISO or yyyy-mm-dd)
-  bornYear: body.bornYear ?? null,                                   // NEW
-  active: body.active === undefined ? true : Boolean(body.active),
-  main: requestedMain,
-},
+        data: {
+          name: body.name ?? null,
+          jmeno: body.jmeno ?? body.name ?? 'Bez jména',
+          description: body.description ?? null,
+          popis: body.popis ?? null,
+          charakteristik: body.charakteristik ?? null,
+          birthDate: parsedBirthDate,
+          bornYear: parsedBornYear,
+          active: body.active === undefined ? true : Boolean(body.active),
+          main: requestedMain,
+        },
       })
 
       if (media.length) {
@@ -131,23 +137,30 @@ router.post('/', requireAuth, async (req: Request, res: Response): Promise<void>
     res.status(201).json(result)
   } catch (e: any) {
     console.error('POST /api/animals error:', {
-      message: e?.message,
-      code: e?.code,
-      meta: e?.meta,
-      stack: e?.stack,
+      message: e?.message, code: e?.code, meta: e?.meta, stack: e?.stack,
     })
     res.status(500).json({ error: 'Internal error creating animal' })
   }
 })
 
-/* =========================
-   UPDATE (replace gallery only if provided)
-   ========================= */
 
+// UPDATE
 router.patch('/:id', requireAuth, async (req: Request, res: Response): Promise<void> => {
   const id = String(req.params.id)
   const body = (req.body || {}) as any
   const media = parseGalerie(body)
+
+  const parsedBornYear =
+    Object.prototype.hasOwnProperty.call(body, 'bornYear')
+      ? (body.bornYear === null || body.bornYear === '' || body.bornYear === undefined
+          ? null
+          : Number.isFinite(Number(body.bornYear)) ? Number(body.bornYear) : null)
+      : undefined
+
+  const parsedBirthDate =
+    Object.prototype.hasOwnProperty.call(body, 'birthDate')
+      ? (body.birthDate ? new Date(body.birthDate) : null)
+      : undefined
 
   try {
     const hasOwnMain = Object.prototype.hasOwnProperty.call(body, 'main')
@@ -157,40 +170,28 @@ router.patch('/:id', requireAuth, async (req: Request, res: Response): Promise<v
         ? { main: body.main ?? null }
         : (willReplaceGallery && media.length ? { main: media[0].url } : {})
 
-  const baseUpdate: any = {
-  name: body.name ?? undefined,
-  jmeno: body.jmeno ?? undefined,
-  description: body.description ?? undefined,
-  popis: body.popis ?? undefined,
-  charakteristik: body.charakteristik ?? undefined,                           // NEW
-  birthDate: Object.prototype.hasOwnProperty.call(body, 'birthDate')          // NEW
-    ? (body.birthDate ? new Date(body.birthDate) : null)
-    : undefined,
-  bornYear: Object.prototype.hasOwnProperty.call(body, 'bornYear')            // NEW
-    ? (body.bornYear ?? null)
-    : undefined,
-  active: body.active ?? undefined,
-  ...mainUpdate,
-}}
+    const baseUpdate: any = {
+      name: body.name ?? undefined,
+      jmeno: body.jmeno ?? undefined,
+      description: body.description ?? undefined,
+      popis: body.popis ?? undefined,
+      charakteristik: body.charakteristik ?? undefined,
+      birthDate: parsedBirthDate,
+      bornYear: parsedBornYear,
+      active: body.active ?? undefined,
+      ...mainUpdate,
+    }
 
     if (willReplaceGallery) {
       const updated = await prisma.$transaction(async (tx) => {
-        await tx.animal.update({
-          where: { id },
-          data: baseUpdate,
-        })
-
+        await tx.animal.update({ where: { id }, data: baseUpdate })
         await tx.galerieMedia.deleteMany({ where: { animalId: id } })
         if (media.length) {
           await tx.galerieMedia.createMany({
             data: media.map((g) => ({ animalId: id, url: g.url, typ: g.typ ?? 'image' })),
           })
         }
-
-        const fresh = await tx.animal.findUnique({
-          where: { id },
-          include: { galerie: true },
-        })
+        const fresh = await tx.animal.findUnique({ where: { id }, include: { galerie: true } })
         if (!fresh) return null
         return { ...fresh, main: fresh.main ?? fresh.galerie[0]?.url ?? null }
       })
@@ -207,10 +208,7 @@ router.patch('/:id', requireAuth, async (req: Request, res: Response): Promise<v
     res.json({ ...updated, main: updated.main ?? updated.galerie[0]?.url ?? null })
   } catch (e: any) {
     console.error('PATCH /api/animals/:id error:', {
-      message: e?.message,
-      code: e?.code,
-      meta: e?.meta,
-      stack: e?.stack,
+      message: e?.message, code: e?.code, meta: e?.meta, stack: e?.stack,
     })
     res.status(500).json({ error: 'Internal error updating animal' })
   }
