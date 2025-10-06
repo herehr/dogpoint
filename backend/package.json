@@ -13,12 +13,12 @@
     "build": "npm run clean && tsc",
     "start": "node dist/index.js",
     "start:with-migrate": "npm run migrate:deploy && node dist/index.js",
-    "migrate:deploy": "prisma migrate deploy",
+    "migrate:deploy":  "prisma migrate deploy --schema=./prisma/schema.prisma",
     "migrate:dev": "prisma migrate dev",
     "db:push": "prisma db push",
     "reset-admin": "node scripts/resetAdmin.mjs",
     "db:seed": "prisma db seed",
-    "prisma:generate": "prisma generate --schema=./prisma/schema.prisma"
+    "prisma:generate": "prisma generate --schema=./prisma/schema.prisma",
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.882.0",

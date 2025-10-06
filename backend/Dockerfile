@@ -12,7 +12,7 @@ COPY package-lock.json ./
 RUN (npm ci --no-audit --no-fund || npm install --no-audit --no-fund) \
  && echo "[deps] deps installed."
 
-COPY prisma ./prisma
+COPY src/prisma ./prisma
 RUN echo "[deps] prisma generate..." \
  && npx prisma generate --schema=./prisma/schema.prisma \
  && echo "[deps] prisma generate done."
@@ -35,7 +35,7 @@ COPY package.json ./
 COPY package-lock.json ./
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
-COPY prisma ./prisma
+COPY src/prisma ./prisma
 # COPY prisma.config.ts ./prisma.config.ts  # only if you have a valid one
 
 EXPOSE 8080
