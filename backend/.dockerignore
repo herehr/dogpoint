@@ -9,5 +9,7 @@
 dist\
 .env\
 .env.*\
-npm-debug.log\
-.DS_Store}
+npm-debug.log*\
+.DS_Store\
+.git\
+.gitignore}
