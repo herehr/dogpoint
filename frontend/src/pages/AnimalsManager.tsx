@@ -30,12 +30,12 @@ type FormAnimal = {
   active?: boolean
   main?: string | null
   galerie?: { url: string }[]
-  // NEW
+
+  // NEW fields
   charakteristik?: string
   birthDate?: string   // yyyy-mm-dd (HTML date input)
   bornYear?: string    // keep as string in UI, coerce on submit
 }
-
 
 type PostMedia = { url: string; type?: 'image' | 'video' }
 
@@ -50,7 +50,8 @@ export default function AnimalsManager() {
   // Dialog: animal create/edit
   const [open, setOpen] = useState(false)
   const [form, setForm] = useState<FormAnimal>({
-    jmeno: '', popis: '', active: true, galerie: [], main: null
+    jmeno: '', popis: '', active: true, galerie: [], main: null,
+    charakteristik: '', birthDate: '', bornYear: ''
   })
   const isEdit = useMemo(() => !!form.id, [form.id])
 
@@ -93,37 +94,36 @@ export default function AnimalsManager() {
     navigate('/', { replace: true })
   }
 
- function newAnimal() {
-  setForm({
-    jmeno: '',
-    popis: '',
-    active: true,
-    galerie: [],
-    main: null,
-    charakteristik: '',
-    birthDate: '',
-    bornYear: ''
-  })
-  setOpen(true)
-}
+  function newAnimal() {
+    setForm({
+      jmeno: '',
+      popis: '',
+      active: true,
+      galerie: [],
+      main: null,
+      charakteristik: '',
+      birthDate: '',
+      bornYear: ''
+    })
+    setOpen(true)
+  }
 
-function editAnimal(a: Animal) {
-  const gallery = (a.galerie || []).map(g => ({ url: g.url }))
-  const main = (a as any).main || gallery[0]?.url || null
-  setForm({
-    id: a.id,
-    jmeno: a.jmeno || a.name || '',
-    popis: a.popis || a.description || '',
-    active: a.active ?? true,
-    galerie: gallery,
-    main,
-    // NEW (guards for undefined)
-    charakteristik: (a as any).charakteristik || '',
-    birthDate: (a as any).birthDate ? new Date((a as any).birthDate).toISOString().slice(0,10) : '',
-    bornYear: (a as any).bornYear != null ? String((a as any).bornYear) : ''
-  })
-  setOpen(true)
-}
+  function editAnimal(a: Animal) {
+    const gallery = (a.galerie || []).map(g => ({ url: g.url }))
+    const main = (a as any).main || gallery[0]?.url || null
+    setForm({
+      id: a.id,
+      jmeno: a.jmeno || a.name || '',
+      popis: a.popis || a.description || '',
+      active: a.active ?? true,
+      galerie: gallery,
+      main,
+      charakteristik: (a as any).charakteristik || '',
+      birthDate: (a as any).birthDate ? new Date((a as any).birthDate).toISOString().slice(0, 10) : '',
+      bornYear: (a as any).bornYear != null ? String((a as any).bornYear) : ''
+    })
+    setOpen(true)
+  }
 
   async function removeAnimal(id: string) {
     if (!confirm('Opravdu smazat toto zvíře?')) return
@@ -145,19 +145,19 @@ function editAnimal(a: Animal) {
       let main = form.main || null
       if (!main && cleanGallery.length) main = cleanGallery[0].url
 
-     const payload: any = {
-      jmeno: form.jmeno?.trim(),
-      popis: form.popis?.trim(),
-      active: !!form.active,
-      main,
-      galerie: cleanGallery,
+      const payload: any = {
+        jmeno: form.jmeno?.trim(),
+        popis: form.popis?.trim(),
+        active: !!form.active,
+        main,
+        galerie: cleanGallery,
 
-      // NEW
-      charakteristik: form.charakteristik?.trim() || undefined,
-      // Prefer exact date if provided; otherwise year
-      birthDate: form.birthDate ? new Date(form.birthDate).toISOString() : undefined,
-      bornYear: !form.birthDate && form.bornYear ? Number(form.bornYear) : undefined,
-    }
+        // NEW
+        charakteristik: form.charakteristik?.trim() || undefined,
+        // Prefer exact date if provided; otherwise year
+        birthDate: form.birthDate ? new Date(form.birthDate).toISOString() : undefined,
+        bornYear: !form.birthDate && form.bornYear ? Number(form.bornYear) : undefined,
+      }
 
       if (isEdit && form.id) {
         await updateAnimal(form.id, payload)
@@ -237,7 +237,7 @@ function editAnimal(a: Animal) {
     const url = v.trim()
     if (!url) return
     setForm(f => {
-      const next = [ ...(f.galerie || []), { url: url } ]
+      const next = [ ...(f.galerie || []), { url } ]
       const newMain = f.main || url
       return { ...f, galerie: next, main: newMain }
     })
@@ -318,20 +318,24 @@ function editAnimal(a: Animal) {
     if (e.target.files) postHandleFiles(e.target.files)
     e.target.value = ''
   }
+
   function postPickCamera(e: React.ChangeEvent<HTMLInputElement>) {
     if (e.target.files) postHandleFiles(e.target.files)
     e.target.value = ''
   }
+
   function postDrop(e: React.DragEvent<HTMLDivElement>) {
     e.preventDefault()
     e.stopPropagation()
     const files = e.dataTransfer?.files
     if (files && files.length) postHandleFiles(files)
   }
+
   function postDragOver(e: React.DragEvent<HTMLDivElement>) {
     e.preventDefault()
     e.stopPropagation()
   }
+
   function removePostMedia(i: number) {
     setPostMedia(list => list.filter((_, idx) => idx !== i))
   }
@@ -454,34 +458,32 @@ function editAnimal(a: Animal) {
                   value={form.charakteristik || ''}
                   onChange={(e) => setForm(f => ({ ...f, charakteristik: e.target.value }))}
                   fullWidth
-                  />
+                />
 
-                  // Birth info row
+                {/* Birth info row */}
                 <Grid container spacing={2}>
-                <Grid item xs={12} sm={6}>
-                <TextField
-                  label="Datum narození (přesné)"
-                  type="date"
-                  value={form.birthDate || ''}
-                  onChange={(e) => setForm(f => ({ ...f, birthDate: e.target.value }))}
-                  InputLabelProps={{ shrink: true }}
-                  fullWidth
-                />
+                  <Grid item xs={12} sm={6}>
+                    <TextField
+                      label="Datum narození (přesné)"
+                      type="date"
+                      value={form.birthDate || ''}
+                      onChange={(e) => setForm(f => ({ ...f, birthDate: e.target.value }))}
+                      InputLabelProps={{ shrink: true }}
+                      fullWidth
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <TextField
+                      label="Rok narození (odhad)"
+                      type="number"
+                      value={form.bornYear || ''}
+                      onChange={(e) => setForm(f => ({ ...f, bornYear: e.target.value }))}
+                      helperText="Vyplňte jen pokud není známé přesné datum."
+                      inputProps={{ min: 1990, max: new Date().getFullYear() }}
+                      fullWidth
+                    />
+                  </Grid>
                 </Grid>
-                <Grid item xs={12} sm={6}>
-                <TextField
-                 label="Rok narození (odhad)"
-                 type="number"
-                 value={form.bornYear || ''}
-                onChange={(e) => setForm(f => ({ ...f, bornYear: e.target.value }))}
-                helperText="Vyplňte jen pokud není známé přesné datum."
-                inputProps={{ min: 1990, max: new Date().getFullYear() }}
-                fullWidth
-                />
-              </Grid>
-              </Grid>
-
-
 
                 <FormControlLabel
                   control={
@@ -518,24 +520,12 @@ function editAnimal(a: Animal) {
                     ref={cameraInputRef}
                     type="file"
                     hidden
-                    accept="image/*"
+                    accept="image/*,video/*"
                     capture="environment"
                     onChange={onPickCamera}
                   />
 
-                  <TextField
-                    label="Přidat URL (Enter)"
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault()
-                        const input = e.currentTarget as HTMLInputElement
-                        addUrl(input.value)
-                        input.value = ''
-                      }
-                    }}
-                    placeholder="https://…/obrazek.jpg"
-                    fullWidth
-                  />
+                 
                 </Stack>
 
                 <Box

@@ -10,8 +10,9 @@ import PostsSection from '../components/PostsSection'
 import BlurBox from '../components/BlurBox'
 import AdoptionDialog from '../components/AdoptionDialog'
 import { useAuth } from '../context/AuthContext'
+import SafeMarkdown from '../components/SafeMarkdown'
 
-type Media = { url: string; type?: 'image'|'video' }
+type Media = { url: string; type?: 'image' | 'video' }
 type LocalAnimal = {
   id: string
   jmeno?: string
@@ -38,13 +39,13 @@ function formatAge(a: LocalAnimal): string {
   if (bd && !Number.isNaN(bd.getTime())) {
     const now = new Date()
     let years = now.getFullYear() - bd.getFullYear()
-    let months = now.getMonth() - bd.getMonth()
-    if (months < 0 || (months === 0 && now.getDate() < bd.getDate())) {
+    if (
+      now.getMonth() < bd.getMonth() ||
+      (now.getMonth() === bd.getMonth() && now.getDate() < bd.getDate())
+    ) {
       years -= 1
-      months += 12
     }
-    if (years > 0) return months > 0 ? `${years} r ${months} m` : `${years} r`
-    return `${Math.max(months, 0)} m`
+    return `${years} r`
   }
   if (a.bornYear && a.bornYear > 1900) {
     const y = new Date().getFullYear() - a.bornYear
@@ -64,8 +65,6 @@ export default function AnimalDetail() {
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
   const [adoptOpen, setAdoptOpen] = useState(false)
-
-  // Local force-lock toggle after cancel
   const [forceLocked, setForceLocked] = useState(false)
 
   const isUnlocked = useMemo(() => {
@@ -90,26 +89,33 @@ export default function AnimalDetail() {
   useEffect(() => {
     let alive = true
     if (!id) return
-    setLoading(true); setErr(null)
+    setLoading(true)
+    setErr(null)
     fetchAnimal(id)
-      .then(a => { if (alive) setAnimal(a as any) })
+      .then(a => {
+        if (alive) setAnimal(a as any)
+      })
       .catch(e => alive && setErr(e?.message || 'Chyba načítání detailu'))
       .finally(() => alive && setLoading(false))
-    return () => { alive = false }
+    return () => {
+      alive = false
+    }
   }, [id])
 
   const onCancelAdoption = useCallback(async () => {
     if (!animal) return
     try {
-      // If you add a backend route to cancel, call it here.
-
       try {
         localStorage.removeItem(`adopt:${animal.id}`)
         sessionStorage.removeItem(`adopt:${animal.id}`)
       } catch {}
 
-      document.querySelectorAll('video').forEach((v) => {
-        try { v.pause(); v.removeAttribute('src'); v.load() } catch {}
+      document.querySelectorAll('video').forEach(v => {
+        try {
+          v.pause()
+          v.removeAttribute('src')
+          v.load()
+        } catch {}
       })
 
       setForceLocked(true)
@@ -140,10 +146,12 @@ export default function AnimalDetail() {
   const age = formatAge(animal)
   const desc = animal.popis || animal.description || 'Bez popisu.'
 
-  const urls = Array.from(new Set([
-    asUrl(animal.main) || undefined,
-    ...((animal.galerie || []).map(g => asUrl(g) || undefined))
-  ].filter(Boolean))) as string[]
+  const urls = Array.from(
+    new Set([
+      asUrl(animal.main) || undefined,
+      ...((animal.galerie || []).map(g => asUrl(g) || undefined)),
+    ].filter(Boolean))
+  ) as string[]
 
   const mainUrl = urls[0] || '/no-image.jpg'
   const extraUrls = urls.slice(1)
@@ -159,31 +167,28 @@ export default function AnimalDetail() {
           {title}
         </Typography>
 
-        {/* Teaser line in turquoise */}
+        {/* Charakteristik with Markdown + turquoise pill */}
         {animal.charakteristik && (
-          <Typography
-            variant="subtitle1"
-            sx={{
+          <div
+            style={{
               fontWeight: 700,
-              px: 1.4,
-              py: 0.6,
-              borderRadius: 1.5,
+              padding: '6px 10px',
+              borderRadius: 12,
               display: 'inline-block',
-              bgcolor: '#00bcd4',
+              background: '#00bcd4',
               color: 'white',
               boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
               maxWidth: '100%',
               wordBreak: 'break-word',
             }}
           >
-            {animal.charakteristik}
-          </Typography>
+            <SafeMarkdown>{animal.charakteristik}</SafeMarkdown>
+          </div>
         )}
 
         <Stack direction="row" spacing={1} alignItems="center">
-          {/* no kind chip anymore */}
           <Chip label={age} />
-          {(!!token && !isStaff && isUnlocked) && (
+          {!!token && !isStaff && isUnlocked && (
             <Button
               variant="outlined"
               color="error"
@@ -206,7 +211,13 @@ export default function AnimalDetail() {
               href={mainUrl}
               target="_blank"
               rel="noreferrer"
-              sx={{ display: 'block', borderRadius: 2, overflow: 'hidden', border: '1px solid', borderColor: 'divider' }}
+              sx={{
+                display: 'block',
+                borderRadius: 2,
+                overflow: 'hidden',
+                border: '1px solid',
+                borderColor: 'divider',
+              }}
             >
               <img
                 src={withBust(mainUrl)}
@@ -219,9 +230,9 @@ export default function AnimalDetail() {
             <Typography variant="h6" sx={{ fontWeight: 800, mb: 1 }}>
               Popis
             </Typography>
-            <Typography variant="body1" sx={{ whiteSpace: 'pre-line' }}>
-              {desc}
-            </Typography>
+            <div style={{ lineHeight: 1.6 }}>
+              <SafeMarkdown>{desc}</SafeMarkdown>
+            </div>
 
             <Divider sx={{ my: 2 }} />
 
@@ -265,13 +276,13 @@ export default function AnimalDetail() {
                         borderRadius: 2,
                         overflow: 'hidden',
                         border: '1px solid',
-                        borderColor: 'divider'
+                        borderColor: 'divider',
                       }}
                       className={!isUnlocked ? 'lockedMedia' : undefined}
                     >
                       <img
                         src={src}
-                        alt={`media-${i+1}`}
+                        alt={`media-${i + 1}`}
                         style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                       />
                     </Box>
