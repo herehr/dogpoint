@@ -34,8 +34,6 @@ COPY package.json ./
 COPY package-lock.json ./
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
-
-# ✅ Copy the same prisma dir (with migrations) into the image
 COPY src/prisma ./prisma
 
 EXPOSE 8080
