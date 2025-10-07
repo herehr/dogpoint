@@ -130,23 +130,27 @@ model AdoptionRequest {
  * =========================
  */
 model Post {
-  id     String  @id @default(cuid())
-  title  String
-  body   String?
-  active Boolean @default(true)
+  id          String   @id @default(cuid())
+  title       String
+  body        String?
+  active      Boolean  @default(true)
+
+  // NEW: when the post becomes visible to non-staff
+  publishedAt DateTime @default(now())
 
   // relations
-  animal   Animal @relation(fields: [animalId], references: [id], onDelete: Cascade)
+  animal   Animal  @relation(fields: [animalId], references: [id], onDelete: Cascade)
   animalId String
 
   author   User?   @relation(fields: [authorId], references: [id])
   authorId String?
 
   media     PostMedia[]
-  createdAt DateTime    @default(now())
+  createdAt DateTime  @default(now())
 
   @@index([animalId])
   @@index([authorId])
+  @@index([publishedAt]) // helpful for filtering
 }
 
 model PostMedia {
