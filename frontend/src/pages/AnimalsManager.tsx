@@ -30,7 +30,12 @@ type FormAnimal = {
   active?: boolean
   main?: string | null
   galerie?: { url: string }[]
+  // NEW
+  charakteristik?: string
+  birthDate?: string   // yyyy-mm-dd (HTML date input)
+  bornYear?: string    // keep as string in UI, coerce on submit
 }
+
 
 type PostMedia = { url: string; type?: 'image' | 'video' }
 
@@ -88,24 +93,37 @@ export default function AnimalsManager() {
     navigate('/', { replace: true })
   }
 
-  function newAnimal() {
-    setForm({ jmeno: '', popis: '', active: true, galerie: [], main: null })
-    setOpen(true)
-  }
+ function newAnimal() {
+  setForm({
+    jmeno: '',
+    popis: '',
+    active: true,
+    galerie: [],
+    main: null,
+    charakteristik: '',
+    birthDate: '',
+    bornYear: ''
+  })
+  setOpen(true)
+}
 
-  function editAnimal(a: Animal) {
-    const gallery = (a.galerie || []).map(g => ({ url: g.url }))
-    const main = (a as any).main || gallery[0]?.url || null
-    setForm({
-      id: a.id,
-      jmeno: a.jmeno || a.name || '',
-      popis: a.popis || a.description || '',
-      active: a.active ?? true,
-      galerie: gallery,
-      main
-    })
-    setOpen(true)
-  }
+function editAnimal(a: Animal) {
+  const gallery = (a.galerie || []).map(g => ({ url: g.url }))
+  const main = (a as any).main || gallery[0]?.url || null
+  setForm({
+    id: a.id,
+    jmeno: a.jmeno || a.name || '',
+    popis: a.popis || a.description || '',
+    active: a.active ?? true,
+    galerie: gallery,
+    main,
+    // NEW (guards for undefined)
+    charakteristik: (a as any).charakteristik || '',
+    birthDate: (a as any).birthDate ? new Date((a as any).birthDate).toISOString().slice(0,10) : '',
+    bornYear: (a as any).bornYear != null ? String((a as any).bornYear) : ''
+  })
+  setOpen(true)
+}
 
   async function removeAnimal(id: string) {
     if (!confirm('Opravdu smazat toto zvíře?')) return
@@ -127,13 +145,19 @@ export default function AnimalsManager() {
       let main = form.main || null
       if (!main && cleanGallery.length) main = cleanGallery[0].url
 
-      const payload: any = {
-        jmeno: form.jmeno?.trim(),
-        popis: form.popis?.trim(),
-        active: !!form.active,
-        main,
-        galerie: cleanGallery
-      }
+     const payload: any = {
+      jmeno: form.jmeno?.trim(),
+      popis: form.popis?.trim(),
+      active: !!form.active,
+      main,
+      galerie: cleanGallery,
+
+      // NEW
+      charakteristik: form.charakteristik?.trim() || undefined,
+      // Prefer exact date if provided; otherwise year
+      birthDate: form.birthDate ? new Date(form.birthDate).toISOString() : undefined,
+      bornYear: !form.birthDate && form.bornYear ? Number(form.bornYear) : undefined,
+    }
 
       if (isEdit && form.id) {
         await updateAnimal(form.id, payload)
@@ -425,6 +449,40 @@ export default function AnimalsManager() {
                   multiline minRows={3}
                   fullWidth
                 />
+                <TextField
+                  label="Charakteristika (krátká věta na kartě)"
+                  value={form.charakteristik || ''}
+                  onChange={(e) => setForm(f => ({ ...f, charakteristik: e.target.value }))}
+                  fullWidth
+                  />
+
+                  // Birth info row
+                <Grid container spacing={2}>
+                <Grid item xs={12} sm={6}>
+                <TextField
+                  label="Datum narození (přesné)"
+                  type="date"
+                  value={form.birthDate || ''}
+                  onChange={(e) => setForm(f => ({ ...f, birthDate: e.target.value }))}
+                  InputLabelProps={{ shrink: true }}
+                  fullWidth
+                />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                <TextField
+                 label="Rok narození (odhad)"
+                 type="number"
+                 value={form.bornYear || ''}
+                onChange={(e) => setForm(f => ({ ...f, bornYear: e.target.value }))}
+                helperText="Vyplňte jen pokud není známé přesné datum."
+                inputProps={{ min: 1990, max: new Date().getFullYear() }}
+                fullWidth
+                />
+              </Grid>
+              </Grid>
+
+
+
                 <FormControlLabel
                   control={
                     <Checkbox
