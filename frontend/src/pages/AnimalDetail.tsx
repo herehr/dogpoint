@@ -16,7 +16,6 @@ type LocalAnimal = {
   id: string
   jmeno?: string
   name?: string
-  druh?: 'pes'|'kočka'|'jiné'
   vek?: string
   popis?: string
   description?: string
@@ -321,4 +320,3 @@ export default function AnimalDetail() {
       />
     </Container>
   )
-}
