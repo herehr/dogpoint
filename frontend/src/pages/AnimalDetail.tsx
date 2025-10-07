@@ -4,7 +4,7 @@ import { useParams } from 'react-router-dom'
 import {
   Container, Typography, Box, Stack, Chip, Alert, Skeleton, Grid, Button, Divider
 } from '@mui/material'
-import { fetchAnimal, endAdoption } from '../api'   // ← add endAdoption
+import { fetchAnimal, endAdoption } from '../api'
 import { useAccess } from '../context/AccessContext'
 import PostsSection from '../components/PostsSection'
 import BlurBox from '../components/BlurBox'
@@ -14,19 +14,47 @@ import { useAuth } from '../context/AuthContext'
 type Media = { url: string; type?: 'image'|'video' }
 type LocalAnimal = {
   id: string
-  jmeno: string
+  jmeno?: string
+  name?: string
   druh?: 'pes'|'kočka'|'jiné'
   vek?: string
   popis?: string
+  description?: string
   main?: string
   galerie?: Media[]
   active?: boolean
+  // NEW
+  charakteristik?: string
+  birthDate?: string | Date | null
+  bornYear?: number | null
 }
 
 function asUrl(x: string | Media | undefined | null): string | null {
   if (!x) return null
   if (typeof x === 'string') return x
   return x.url || null
+}
+
+function formatAge(a: LocalAnimal): string {
+  // Prefer explicit birthDate → compute years/months; else bornYear; else provided vek; else “neuvedeno”
+  const bd = a.birthDate ? new Date(a.birthDate) : null
+  if (bd && !Number.isNaN(bd.getTime())) {
+    const now = new Date()
+    let years = now.getFullYear() - bd.getFullYear()
+    let months = now.getMonth() - bd.getMonth()
+    if (months < 0 || (months === 0 && now.getDate() < bd.getDate())) {
+      years -= 1
+      months += 12
+    }
+    if (years > 0) return months > 0 ? `${years} r ${months} m` : `${years} r`
+    return `${Math.max(months, 0)} m`
+  }
+  if (a.bornYear && a.bornYear > 1900) {
+    const y = new Date().getFullYear() - a.bornYear
+    return `${y} r`
+  }
+  if (a.vek) return a.vek
+  return 'neuvedeno'
 }
 
 export default function AnimalDetail() {
@@ -78,34 +106,21 @@ export default function AnimalDetail() {
   const onCancelAdoption = useCallback(async () => {
     if (!animal) return
     try {
-      // 1) Call backend to cancel
-      // NOTE: replace with your real API if it differs
-      // e.g., await api.cancelAdoption(animal.id)
-      // If you already have such a function, import and call it here:
-      // await api.cancelAdoption(animal.id)
+      // If you have a backend route to end adoption, call it here:
+      // await endAdoption(animal.id)
 
-      // 2) Remove any local persisted "access" flags
       try {
         localStorage.removeItem(`adopt:${animal.id}`)
         sessionStorage.removeItem(`adopt:${animal.id}`)
       } catch {}
 
-      // 3) Stop and unload any playing videos to drop decoded buffers (iOS/Android)
       document.querySelectorAll('video').forEach((v) => {
-        try {
-          v.pause()
-          v.removeAttribute('src')
-          v.load()
-        } catch {}
+        try { v.pause(); v.removeAttribute('src'); v.load() } catch {}
       })
 
-      // 4) Force lock locally -> flips isUnlocked to false
       setForceLocked(true)
-
-      // 5) Refetch data (ensures UI reflects server state)
       await loadAnimal()
     } catch (e) {
-      // Optional: show error toast
       console.error('Cancel adoption failed', e)
     }
   }, [animal, loadAnimal])
@@ -127,8 +142,10 @@ export default function AnimalDetail() {
   }
   if (!animal || !id) return null
 
+  const title = animal.jmeno || animal.name || '—'
   const kind = animal.druh === 'pes' ? 'Pes' : animal.druh === 'kočka' ? 'Kočka' : 'Jiné'
-  const age = animal.vek || 'neuvedeno'
+  const age = formatAge(animal)
+  const desc = animal.popis || animal.description || 'Bez popisu.'
 
   // Build a unique list of URLs from `main` + `galerie`
   const urls = Array.from(new Set([
@@ -146,23 +163,42 @@ export default function AnimalDetail() {
   return (
     <Container sx={{ py: 4 }}>
       {/* Header */}
-      <Stack spacing={1.5}>
-        <Typography variant="h4" sx={{ fontWeight: 900 }}>{animal.jmeno}</Typography>
+      <Stack spacing={1.25}>
+        <Typography variant="h4" sx={{ fontWeight: 900 }}>
+          {title}
+        </Typography>
+
+        {/* NEW: charakteristik teaser line (if present) */}
+        {animal.charakteristik && (
+          <Typography
+            variant="subtitle1"
+            sx={{
+              fontWeight: 700,
+              px: 1.2,
+              py: 0.4,
+              borderRadius: 1,
+              display: 'inline-block',
+              bgcolor: 'warning.light',
+            }}
+          >
+            {animal.charakteristik}
+          </Typography>
+        )}
+
         <Stack direction="row" spacing={1} alignItems="center">
           <Chip label={kind} />
           <Chip label={age} />
-          {/* Show "Cancel adoption" only when unlocked by user */}
           {(!!token && !isStaff && isUnlocked) && (
-  <Button
-    variant="outlined"
-    color="error"
-    size="small"
-    onClick={onCancelAdoption}
-    sx={{ ml: 1 }}
-  >
-    Zrušit adopci
-  </Button>
-)}
+            <Button
+              variant="outlined"
+              color="error"
+              size="small"
+              onClick={onCancelAdoption}
+              sx={{ ml: 1 }}
+            >
+              Zrušit adopci
+            </Button>
+          )}
         </Stack>
       </Stack>
 
@@ -189,7 +225,7 @@ export default function AnimalDetail() {
               Popis
             </Typography>
             <Typography variant="body1" sx={{ whiteSpace: 'pre-line' }}>
-              {animal.popis || 'Bez popisu.'}
+              {desc}
             </Typography>
 
             <Divider sx={{ my: 2 }} />
@@ -218,7 +254,6 @@ export default function AnimalDetail() {
             Další fotografie a videa
           </Typography>
 
-          {/* key forces a clean re-mount when isUnlocked flips */}
           <BlurBox blurred={!isUnlocked} key={isUnlocked ? 'unlocked-extras' : 'locked-extras'}>
             <Grid container spacing={1.5}>
               {extraUrls.map((u, i) => {
@@ -226,7 +261,6 @@ export default function AnimalDetail() {
                 return (
                   <Grid item xs={6} sm={4} md={3} key={`${i}-${lockTag}`}>
                     <Box
-                      // prevent opening originals while locked
                       component={isUnlocked ? 'a' : 'div'}
                       {...(isUnlocked ? { href: u, target: '_blank', rel: 'noreferrer' } : {})}
                       sx={{
@@ -281,7 +315,6 @@ export default function AnimalDetail() {
         onClose={() => setAdoptOpen(false)}
         animalId={id}
         onGranted={() => {
-          // adoption successful → clear force lock and let AccessContext rule
           setForceLocked(false)
           grantAccess(id!)
         }}
