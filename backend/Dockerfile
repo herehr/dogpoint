@@ -6,6 +6,7 @@ ENV CI=true \
     NODE_ENV=development \
     PRISMA_SKIP_POSTINSTALL_GENERATE=true
 WORKDIR /app
+RUN apk add --no-cache libc6-compat
 
 COPY package.json ./
 COPY package-lock.json ./
