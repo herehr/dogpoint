@@ -12,9 +12,10 @@ COPY package-lock.json ./
 RUN (npm ci --no-audit --no-fund || npm install --no-audit --no-fund) \
  && echo "[deps] deps installed."
 
-# Prisma under src/prisma
-COPY src/prisma ./src/prisma
-RUN npx prisma generate --schema=./src/prisma/schema.prisma
+# 👇 copy prisma to /app/prisma (not src/prisma)
+COPY src/prisma ./prisma
+# 👇 generate with the same path
+RUN npx prisma generate --schema=./prisma/schema.prisma
 
 # ---------- builder ----------
 FROM node:${NODE_VERSION}-alpine AS builder
@@ -34,8 +35,9 @@ COPY package.json ./
 COPY package-lock.json ./
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
-# keep prisma at src/prisma so scripts can find it
-COPY src/prisma ./src/prisma
+
+# 👇 have prisma in /app/prisma at runtime too
+COPY src/prisma ./prisma
 
 EXPOSE 8080
 # CMD ["npm", "run", "start:with-migrate"]
