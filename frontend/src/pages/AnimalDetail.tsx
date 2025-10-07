@@ -142,7 +142,6 @@ export default function AnimalDetail() {
   if (!animal || !id) return null
 
   const title = animal.jmeno || animal.name || '—'
-  const kind = animal.druh === 'pes' ? 'Pes' : animal.druh === 'kočka' ? 'Kočka' : 'Jiné'
   const age = formatAge(animal)
   const desc = animal.popis || animal.description || 'Bez popisu.'
 
@@ -169,20 +168,24 @@ export default function AnimalDetail() {
 
         {/* NEW: charakteristik teaser line (if present) */}
         {animal.charakteristik && (
-          <Typography
-            variant="subtitle1"
-            sx={{
-              fontWeight: 700,
-              px: 1.2,
-              py: 0.4,
-              borderRadius: 1,
-              display: 'inline-block',
-              bgcolor: 'warning.light',
-            }}
-          >
-            {animal.charakteristik}
-          </Typography>
-        )}
+  <Typography
+    variant="subtitle1"
+    sx={{
+      fontWeight: 700,
+      px: 1.4,
+      py: 0.6,
+      borderRadius: 1.5,
+      display: 'inline-block',
+      bgcolor: '#00bcd4',     // turquoise background
+      color: 'white',         // white text for contrast
+      boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
+      maxWidth: '100%',
+      wordBreak: 'break-word',
+    }}
+  >
+    {animal.charakteristik}
+  </Typography>
+)}
 
         <Stack direction="row" spacing={1} alignItems="center">
           <Chip label={kind} />
@@ -319,4 +322,4 @@ export default function AnimalDetail() {
         }}
       />
     </Container>
-  )
+ )} 
