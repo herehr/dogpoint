@@ -4,7 +4,7 @@ import { useParams } from 'react-router-dom'
 import {
   Container, Typography, Box, Stack, Chip, Alert, Skeleton, Grid, Button, Divider
 } from '@mui/material'
-import { fetchAnimal, endAdoption } from '../api'
+import { fetchAnimal } from '../api'
 import { useAccess } from '../context/AccessContext'
 import PostsSection from '../components/PostsSection'
 import BlurBox from '../components/BlurBox'
@@ -22,7 +22,6 @@ type LocalAnimal = {
   main?: string
   galerie?: Media[]
   active?: boolean
-  // NEW
   charakteristik?: string
   birthDate?: string | Date | null
   bornYear?: number | null
@@ -35,7 +34,6 @@ function asUrl(x: string | Media | undefined | null): string | null {
 }
 
 function formatAge(a: LocalAnimal): string {
-  // Prefer explicit birthDate → compute years/months; else bornYear; else provided vek; else “neuvedeno”
   const bd = a.birthDate ? new Date(a.birthDate) : null
   if (bd && !Number.isNaN(bd.getTime())) {
     const now = new Date()
@@ -67,10 +65,9 @@ export default function AnimalDetail() {
   const [err, setErr] = useState<string | null>(null)
   const [adoptOpen, setAdoptOpen] = useState(false)
 
-  // Local "lock" flag to force re-blur after cancel (independent of AccessContext)
+  // Local force-lock toggle after cancel
   const [forceLocked, setForceLocked] = useState(false)
 
-  // Derived unlocked status: admin/mod always unlocked; otherwise depend on access AND not forceLocked
   const isUnlocked = useMemo(() => {
     if (role === 'ADMIN' || role === 'MODERATOR') return true
     return !!(id && hasAccess(id)) && !forceLocked
@@ -101,12 +98,10 @@ export default function AnimalDetail() {
     return () => { alive = false }
   }, [id])
 
-  // Cancel adoption: re-lock immediately (desktop + mobile safe)
   const onCancelAdoption = useCallback(async () => {
     if (!animal) return
     try {
-      // If you have a backend route to end adoption, call it here:
-      // await endAdoption(animal.id)
+      // If you add a backend route to cancel, call it here.
 
       try {
         localStorage.removeItem(`adopt:${animal.id}`)
@@ -145,7 +140,6 @@ export default function AnimalDetail() {
   const age = formatAge(animal)
   const desc = animal.popis || animal.description || 'Bez popisu.'
 
-  // Build a unique list of URLs from `main` + `galerie`
   const urls = Array.from(new Set([
     asUrl(animal.main) || undefined,
     ...((animal.galerie || []).map(g => asUrl(g) || undefined))
@@ -154,7 +148,6 @@ export default function AnimalDetail() {
   const mainUrl = urls[0] || '/no-image.jpg'
   const extraUrls = urls.slice(1)
 
-  // Small helper to add a cache-busting param tied to lock state (prevents stale visible frames on phones)
   const lockTag = isUnlocked ? 'u1' : 'l1'
   const withBust = (u: string) => `${u}${u.includes('?') ? '&' : '?'}v=${lockTag}`
 
@@ -166,29 +159,29 @@ export default function AnimalDetail() {
           {title}
         </Typography>
 
-        {/* NEW: charakteristik teaser line (if present) */}
+        {/* Teaser line in turquoise */}
         {animal.charakteristik && (
-  <Typography
-    variant="subtitle1"
-    sx={{
-      fontWeight: 700,
-      px: 1.4,
-      py: 0.6,
-      borderRadius: 1.5,
-      display: 'inline-block',
-      bgcolor: '#00bcd4',     // turquoise background
-      color: 'white',         // white text for contrast
-      boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
-      maxWidth: '100%',
-      wordBreak: 'break-word',
-    }}
-  >
-    {animal.charakteristik}
-  </Typography>
-)}
+          <Typography
+            variant="subtitle1"
+            sx={{
+              fontWeight: 700,
+              px: 1.4,
+              py: 0.6,
+              borderRadius: 1.5,
+              display: 'inline-block',
+              bgcolor: '#00bcd4',
+              color: 'white',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
+              maxWidth: '100%',
+              wordBreak: 'break-word',
+            }}
+          >
+            {animal.charakteristik}
+          </Typography>
+        )}
 
         <Stack direction="row" spacing={1} alignItems="center">
-          <Chip label={kind} />
+          {/* no kind chip anymore */}
           <Chip label={age} />
           {(!!token && !isStaff && isUnlocked) && (
             <Button
@@ -204,7 +197,7 @@ export default function AnimalDetail() {
         </Stack>
       </Stack>
 
-      {/* Main photo & description (always visible) */}
+      {/* Main photo & description */}
       <Box sx={{ mt: 3 }}>
         <Grid container spacing={2}>
           <Grid item xs={12} md={6}>
@@ -249,7 +242,7 @@ export default function AnimalDetail() {
         </Grid>
       </Box>
 
-      {/* Additional gallery (blurred until unlock) */}
+      {/* Additional gallery */}
       {extraUrls.length > 0 && (
         <Box sx={{ mt: 4 }}>
           <Typography variant="h6" sx={{ fontWeight: 800, mb: 1 }}>
@@ -296,7 +289,7 @@ export default function AnimalDetail() {
         </Box>
       )}
 
-      {/* Posts (blurred until unlock) */}
+      {/* Posts */}
       <Box id="posts" sx={{ mt: 4 }}>
         <Typography variant="h6" sx={{ fontWeight: 800, mb: 1 }}>
           Příspěvky
@@ -322,4 +315,5 @@ export default function AnimalDetail() {
         }}
       />
     </Container>
- )} 
+  )
+}
