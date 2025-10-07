@@ -182,7 +182,8 @@ export default function AdoptionDialog({ open, onClose, animalId, onGranted }: P
                   label="Částka (Kč) * — měsíčně"
                   type="number"
                   inputMode="numeric"
-                  inputProps={{ min: 300, step: 50 }}
+                  inputProps={{ min: 50 }}
+                  helperText="Minimální měsíční částka je 50 Kč"
                   value={monthlyDisplay}
                   onChange={(e) => {
                     const v = e.target.value
@@ -272,7 +273,7 @@ export default function AdoptionDialog({ open, onClose, animalId, onGranted }: P
                 disabled={
                   saving ||
                   Number.isNaN(monthly) ||
-                  monthly < 300 ||
+                  monthly < 50 ||
                   (!knownEmail && !email.trim())
                 }
               >
