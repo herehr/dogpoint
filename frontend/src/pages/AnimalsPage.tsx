@@ -1,199 +1,188 @@
-import React, { useEffect, useState, useMemo } from 'react'
+import React from 'react'
 import {
-  Container, Typography, Grid, Card, CardActionArea, CardMedia,
-  CardContent, Chip, Skeleton, Alert, Stack, Box
+  Box, Button, Card, CardActions, CardContent, CardMedia,
+  Container, Grid, Skeleton, Stack, Typography
 } from '@mui/material'
-import { Link as RouterLink } from 'react-router-dom'
-import SafeMarkdown from '../components/SafeMarkdown'
-import { getAnimals } from '../api'
+import { Link as RouterLink, useNavigate } from 'react-router-dom'
+import { getAnimals } from '../api' // your existing helper
 
-type Media = { url: string; type?: 'image' | 'video' }
+type Media = { url?: string; key?: string; type?: 'image' | 'video'; typ?: 'image' | 'video' }
 type Animal = {
   id: string
   jmeno?: string
   name?: string
   popis?: string
   description?: string
-  main?: string | Media
   galerie?: Media[]
   charakteristik?: string
-  vek?: string
-  birthDate?: string | Date | null
-  bornYear?: number | null
+  charakteristika?: string
   active?: boolean
 }
 
-function asUrl(x?: string | Media | null): string | null {
-  if (!x) return null
-  if (typeof x === 'string') return x
-  return x.url || null
+const FALLBACK_IMG = '/no-image.jpg'
+const SPACE_CDN = 'https://dogpoint.fra1.digitaloceanspaces.com' // used if server sends only "key"
+
+// Prefer first non-video; else first media; then fallback
+function mediaUrl(a: Animal): string {
+  const first = a.galerie?.find(g => (g.type ?? g.typ) !== 'video') || a.galerie?.[0]
+  if (!first) return FALLBACK_IMG
+  if (first.url) return first.url
+  if (first.key) {
+    return `${SPACE_CDN.replace(/\/$/, '')}/${String(first.key).replace(/^\//, '')}`
+  }
+  return FALLBACK_IMG
 }
 
-function pickMain(a: Animal): string {
-  const u = asUrl(a.main) || asUrl(a.galerie?.[0]) || '/no-image.jpg'
-  return u || '/no-image.jpg'
+function displayName(a: Animal): string {
+  return (a.jmeno || a.name || 'Zvíře').toUpperCase()
 }
 
-/** Match AnimalDetail: prefer birthDate → years; else bornYear; else vek; else neuvedeno */
-function formatAge(a: Animal): string {
-  const bd = a.birthDate ? new Date(a.birthDate) : null
-  if (bd && !Number.isNaN(bd.getTime())) {
-    const now = new Date()
-    let years = now.getFullYear() - bd.getFullYear()
-    if (
-      now.getMonth() < bd.getMonth() ||
-      (now.getMonth() === bd.getMonth() && now.getDate() < bd.getDate())
-    ) {
-      years -= 1
-    }
-    return `${Math.max(0, years)} r`
-  }
-  if (a.bornYear && a.bornYear > 1900) {
-    const y = new Date().getFullYear() - a.bornYear
-    return `${y} r`
-  }
-  if (a.vek) return a.vek
-  return 'neuvedeno'
+function shortLine(a: Animal): string {
+  // Prefer charakteristik(a); fallback to 70 chars of description
+  const ch = a.charakteristik || a.charakteristika
+  if (ch) return String(ch)
+  const base = a.popis || a.description || ''
+  const s = base.slice(0, 70)
+  return base.length > 70 ? `${s}…` : s
+}
+
+function longText(a: Animal): string {
+  return a.popis || a.description || 'Zobrazit detail zvířete a podat adopci.'
 }
 
 export default function AnimalsPage() {
-  const [animals, setAnimals] = useState<Animal[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [items, setItems] = React.useState<Animal[] | null>(null)
+  const [error, setError] = React.useState<string | null>(null)
+  const navigate = useNavigate()
 
-  useEffect(() => {
+  React.useEffect(() => {
     let alive = true
-    setLoading(true)
-    setError(null)
     getAnimals()
-      .then(list => {
-        if (alive) setAnimals(list as any)
+      .then(list => { if (alive) setItems(list as any) })
+      .catch(e => {
+        console.error(e)
+        if (alive) { setError('Nepodařilo se načíst zvířata.'); setItems([]) }
       })
-      .catch(e => alive && setError(e?.message || 'Chyba načítání'))
-      .finally(() => alive && setLoading(false))
-    return () => {
-      alive = false
-    }
+    return () => { alive = false }
   }, [])
 
-  const visible = useMemo(
-    () => animals.filter(a => a.active !== false),
-    [animals]
-  )
+  const loading = items === null
 
-  if (loading) {
-    return (
-      <Container sx={{ py: 4 }}>
-        <Typography variant="h4" gutterBottom>Naši psi</Typography>
+  return (
+    <Box sx={{ py: { xs: 6, md: 8 }, background: 'linear-gradient(180deg, #fff 0%, #F4FEFE 100%)' }}>
+      <Container>
+        <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
+          <Typography variant="h4" sx={{ fontWeight: 900 }}>Naši psi</Typography>
+          {/* If you want a filter/search later, add controls here */}
+        </Stack>
+
+        {error && !loading && (
+          <Typography sx={{ mb: 2 }} color="error">{error}</Typography>
+        )}
+
         <Grid container spacing={2}>
-          {Array.from({ length: 6 }).map((_, i) => (
-            <Grid item xs={12} sm={6} md={4} key={i}>
-              <Card sx={{ borderRadius: 3 }}>
-                <Skeleton variant="rectangular" height={180} />
+          {/* Loading skeletons */}
+          {loading && Array.from({ length: 6 }).map((_, i) => (
+            <Grid item xs={12} sm={6} md={4} key={`s-${i}`}>
+              <Card variant="outlined">
+                <Skeleton variant="rectangular" height={220} />
                 <CardContent>
-                  <Skeleton width="70%" />
-                  <Skeleton width="50%" />
-                  <Skeleton height={32} />
+                  <Skeleton width="60%" />
+                  <Skeleton width="80%" />
+                  <Skeleton />
                 </CardContent>
+                <CardActions sx={{ px: 2, pb: 2 }}>
+                  <Skeleton variant="rectangular" width="100%" height={36} />
+                </CardActions>
               </Card>
             </Grid>
           ))}
+
+          {/* Real items */}
+          {!loading && items?.map((a) => {
+            const name = displayName(a)
+            const img = mediaUrl(a)
+            const goDetail = () => navigate(`/zvire/${a.id}`) // <- keep in sync with your AnimalDetail route
+            return (
+              <Grid item xs={12} sm={6} md={4} key={a.id}>
+                <Card
+                  variant="outlined"
+                  sx={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'visible' }}
+                >
+                  {/* Image with overlaid Name button */}
+                  <Box sx={{ position: 'relative', height: 220, overflow: 'visible', cursor: 'pointer' }} onClick={goDetail}>
+                    <CardMedia component="img" height="220" image={img} alt={name} sx={{ objectFit: 'cover' }} />
+                    <Button
+                      onClick={goDetail}
+                      variant="contained"
+                      sx={{
+                        position: 'absolute',
+                        left: '50%',
+                        bottom: 0,
+                        transform: 'translate(-50%, 50%)',
+                        borderRadius: 1.5,
+                        fontWeight: 900,
+                        letterSpacing: 1,
+                        px: 3,
+                        py: 1,
+                        boxShadow: 3,
+                        bgcolor: 'secondary.main',
+                        '&:hover': { bgcolor: 'secondary.dark' },
+                      }}
+                    >
+                      {name}
+                    </Button>
+                  </Box>
+
+                  {/* Text area */}
+                  <CardContent sx={{ flexGrow: 1, pt: 5 }}>
+                    {/* charakteristik (accent colored short line) */}
+                    <Typography
+                      sx={{
+                        color: 'secondary.main',
+                        fontWeight: 700,
+                        fontSize: 14,
+                        textTransform: 'uppercase',
+                        mb: 1,
+                      }}
+                    >
+                      {shortLine(a)}
+                    </Typography>
+
+                    {/* Description clamp */}
+                    <Typography
+                      color="text.secondary"
+                      sx={{
+                        display: '-webkit-box',
+                        WebkitLineClamp: 8,
+                        WebkitBoxOrient: 'vertical',
+                        overflow: 'hidden',
+                        mb: 1.5,
+                        lineHeight: 1.6,
+                      }}
+                    >
+                      {longText(a)}
+                    </Typography>
+                  </CardContent>
+
+                  {/* Adoption CTA */}
+                  <CardActions sx={{ px: 2, pb: 2 }}>
+                    <Button component={RouterLink} to={`/zvire/${a.id}`} variant="contained" fullWidth>
+                      Mám zájem
+                    </Button>
+                  </CardActions>
+                </Card>
+              </Grid>
+            )
+          })}
+
+          {!loading && items?.length === 0 && (
+            <Grid item xs={12}>
+              <Typography color="text.secondary">Žádná zvířata k zobrazení.</Typography>
+            </Grid>
+          )}
         </Grid>
       </Container>
-    )
-  }
-
-  return (
-    <Container sx={{ py: 4 }}>
-      <Typography variant="h4" gutterBottom>Naši psi</Typography>
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-
-      <Grid container spacing={2}>
-        {visible.map(a => {
-          const title = a.jmeno || a.name || '—'
-          const main = pickMain(a)
-          const age = formatAge(a)
-
-          return (
-            <Grid item xs={12} sm={6} md={4} key={a.id}>
-              <Card
-                variant="outlined"
-                sx={{
-                  borderRadius: 3,
-                  height: '100%',
-                  display: 'flex',
-                  flexDirection: 'column'
-                }}
-              >
-                <CardActionArea
-                  component={RouterLink}
-                  to={`/zvire/${a.id}`}  // ✅ Link directly to AnimalDetail
-                  sx={{ alignItems: 'stretch' }}
-                >
-                  <CardMedia
-                    component="img"
-                    image={main}
-                    alt={title}
-                    sx={{ height: 180, objectFit: 'cover' }}
-                    onError={(ev: any) => {
-                      ev.currentTarget.src = '/no-image.jpg'
-                    }}
-                  />
-                  <CardContent sx={{ flexGrow: 1 }}>
-                    <Stack spacing={1}>
-                      <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>
-                        {title}
-                      </Typography>
-
-                      {a.charakteristik && (
-                        <Box
-                          sx={{
-                            fontWeight: 700,
-                            px: 1.2,
-                            py: 0.5,
-                            borderRadius: 1.5,
-                            display: 'inline-block',
-                            bgcolor: '#00bcd4',
-                            color: 'white',
-                            boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
-                            maxWidth: '100%',
-                            wordBreak: 'break-word'
-                          }}
-                        >
-                          <SafeMarkdown>{a.charakteristik}</SafeMarkdown>
-                        </Box>
-                      )}
-
-                      {(a.popis || a.description) && (
-                        <Typography
-                          variant="body2"
-                          color="text.secondary"
-                          sx={{
-                            display: '-webkit-box',
-                            WebkitLineClamp: 3,
-                            WebkitBoxOrient: 'vertical',
-                            overflow: 'hidden'
-                          }}
-                        >
-                          {a.popis || a.description}
-                        </Typography>
-                      )}
-
-                      <Chip label={age} size="small" />
-                    </Stack>
-                  </CardContent>
-                </CardActionArea>
-              </Card>
-            </Grid>
-          )
-        })}
-
-        {visible.length === 0 && (
-          <Grid item xs={12}>
-            <Alert severity="info">Momentálně tu nejsou žádní aktivní psi.</Alert>
-          </Grid>
-        )}
-      </Grid>
-    </Container>
+    </Box>
   )
 }
