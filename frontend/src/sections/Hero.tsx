@@ -1,14 +1,20 @@
-// frontend/src/sections/Hero.tsx
 import React from 'react'
 import { Box, Container, Grid, Typography, Button, Paper } from '@mui/material'
-import { Link as RouterLink } from 'react-router-dom'
 
 export default function Hero() {
+  // Smooth scroll to AnimalTeasers section
+  const scrollToAnimals = () => {
+    const el = document.getElementById('animals-section')
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }
+
   return (
     <Box
       sx={{
-        background: '#ECFBFB',      // <<< solid light color right under the wave
-        mt: { xs: -2, md: -3 },     // tuck slightly under the wave line
+        background: '#ECFBFB',      // solid light color under the wave
+        mt: { xs: -2, md: -3 },
         pt: { xs: 3.5, md: 5.5 },
         pb: { xs: 5, md: 8 },
       }}
@@ -36,22 +42,37 @@ export default function Hero() {
             </Typography>
 
             <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
-              <Button component={RouterLink} to="/login" variant="contained">
+              <Button href="/login" variant="contained">
                 Přihlásit se
               </Button>
-              <Button component={RouterLink} to="/zvirata" variant="outlined">
+              <Button onClick={scrollToAnimals} variant="outlined">
                 Vybrat zvíře
               </Button>
             </Box>
           </Grid>
 
           <Grid item xs={12} md={6}>
-            <Paper elevation={6} sx={{ borderRadius: 6, p: { xs: 1.5, sm: 2.5 }, mx: { xs: 'auto', md: 0 }, maxWidth: 520 }}>
+            <Paper
+              elevation={6}
+              sx={{
+                borderRadius: 6,
+                p: { xs: 1.5, sm: 2.5 },
+                mx: { xs: 'auto', md: 0 },
+                maxWidth: 520,
+              }}
+            >
               <img
                 src="hero.jpg"
                 alt="Pes čekající na nový domov"
-                onError={(e) => { (e.currentTarget as HTMLImageElement).src = '/hero-dog.jpg' }}
-                style={{ width: '100%', height: 'auto', display: 'block', borderRadius: 16 }}
+                onError={(e) => {
+                  (e.currentTarget as HTMLImageElement).src = '/hero-dog.jpg'
+                }}
+                style={{
+                  width: '100%',
+                  height: 'auto',
+                  display: 'block',
+                  borderRadius: 16,
+                }}
               />
             </Paper>
           </Grid>
