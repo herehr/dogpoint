@@ -3,7 +3,7 @@ import React, { useState } from 'react'
 import { Link as RouterLink } from 'react-router-dom'
 import { Box, Container, Stack, Button } from '@mui/material'
 import { useAuth } from '../context/AuthContext'
-import AnimalTeaser from '../section/AnimalTeaser'
+import AnimalTeaser from '../section/AnimalTeasers'
 
 type Props = {
   logoSrc?: string
