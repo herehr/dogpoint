@@ -85,7 +85,7 @@ export default function AdoptionDialog({ open, onClose, animalId, onGranted }: P
 
     const m = monthly
     if (!knownEmail && !email.trim()) { setErr('Vyplňte e-mail.'); return }
-    if (Number.isNaN(m) || m < 300) { setErr('Minimální částka je 300 Kč.'); return }
+    if (Number.isNaN(m) || m < 50) { setErr('Minimální částka je 50 Kč.'); return }
 
     setSaving(true)
     try {
