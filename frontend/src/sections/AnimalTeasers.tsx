@@ -1,68 +1,76 @@
 // frontend/src/sections/AnimalTeasers.tsx
-import React from 'react';
+import React from 'react'
 import {
   Box, Button, Card, CardActions, CardContent, CardMedia,
-  Container, Grid, Skeleton, Stack, Typography
-} from '@mui/material';
-import { Link as RouterLink, useNavigate } from 'react-router-dom';
-import { getJSON } from '../services/api'; // unified API helper
-import type { Animal } from '../types/animal';
+  Container, Grid, Skeleton, Typography
+} from '@mui/material'
+import { Link as RouterLink, useNavigate } from 'react-router-dom'
+import { getJSON } from '../services/api' // unified API helper
+import type { Animal } from '../types/animal'
 
-const FALLBACK_IMG = '/no-image.jpg';
-const SPACE_CDN = 'https://dogpoint.fra1.digitaloceanspaces.com'; // used only if server sends S3 key without full URL
+const FALLBACK_IMG = '/no-image.jpg'
+const SPACE_CDN = 'https://dogpoint.fra1.digitaloceanspaces.com' // only if server returns S3 key w/o full URL
 
 function mediaUrl(a: Animal): string {
-  const first = a.galerie?.find((g: any) => (g.type ?? g.typ) !== 'video') || a.galerie?.[0];
-  if (!first) return FALLBACK_IMG;
-  if (first.url) return first.url;
+  const first = a.galerie?.find((g: any) => (g.type ?? g.typ) !== 'video') || a.galerie?.[0]
+  if (!first) return FALLBACK_IMG
+  if ((first as any).url) return (first as any).url
   if ((first as any).key) {
-    return `${SPACE_CDN.replace(/\/$/, '')}/${String((first as any).key).replace(/^\//, '')}`;
+    return `${SPACE_CDN.replace(/\/$/, '')}/${String((first as any).key).replace(/^\//, '')}`
   }
-  return FALLBACK_IMG;
+  return FALLBACK_IMG
 }
 
 function displayName(a: Animal): string {
-  return (a.jmeno || a.name || 'Zvíře').toUpperCase();
+  return (a.jmeno || a.name || 'Zvíře').toUpperCase()
 }
+
 function shortLine(a: Animal): string {
-  // charakteristik (preferred) → otherwise first 70 chars of description
-  const ch = (a as any).charakteristik || (a as any).charakteristika;
-  if (ch) return String(ch);
-  const base = a.popis || a.description || '';
-  const s = base.slice(0, 70);
-  return base.length > 70 ? `${s}…` : s;
+  // prefer charakteristik → else 70 chars of description
+  const ch = (a as any).charakteristik || (a as any).charakteristika
+  if (ch) return String(ch)
+  const base = a.popis || a.description || ''
+  const s = base.slice(0, 70)
+  return base.length > 70 ? `${s}…` : s
 }
+
 function longText(a: Animal): string {
-  return a.popis || a.description || 'Zobrazit detail zvířete a podat adopci.';
+  return a.popis || a.description || 'Zobrazit detail zvířete a podat adopci.'
 }
 
 export default function AnimalTeasers() {
-  const [items, setItems] = React.useState<Animal[] | null>(null);
-  const [error, setError] = React.useState<string | null>(null);
-  const navigate = useNavigate();
+  const [items, setItems] = React.useState<Animal[] | null>(null)
+  const [error, setError] = React.useState<string | null>(null)
+  const navigate = useNavigate()
 
   React.useEffect(() => {
-    let alive = true;
+    let alive = true
     getJSON<Animal[]>('/api/animals?limit=3&active=true')
       .then((data) => {
-        if (alive) setItems(data);
+        if (alive) setItems(data)
       })
       .catch((e) => {
-        console.error(e);
+        console.error(e)
         if (alive) {
-          setError('Nepodařilo se načíst zvířata.');
-          setItems([]); // render nothing instead of static placeholders
+          setError('Nepodařilo se načíst zvířata.')
+          setItems([]) // render “no items” state
         }
-      });
-    return () => {
-      alive = false;
-    };
-  }, []);
+      })
+    return () => { alive = false }
+  }, [])
 
-  const loading = items === null;
+  const loading = items === null
 
   return (
-    <Box sx={{ py: { xs: 6, md: 8 }, background: 'linear-gradient(180deg, #fff 0%, #F4FEFE 100%)' }}>
+    <Box
+      id="animals-section"
+      sx={{
+        py: { xs: 6, md: 8 },
+        background: 'linear-gradient(180deg, #fff 0%, #F4FEFE 100%)',
+        // if you have a sticky header, this prevents it from covering the anchor
+        scrollMarginTop: { xs: 72, md: 96 },
+      }}
+    >
       <Container>
         <Grid container spacing={2}>
           {loading &&
@@ -83,9 +91,10 @@ export default function AnimalTeasers() {
             ))}
 
           {!loading && items?.map((a) => {
-            const name = displayName(a);
-            const img = mediaUrl(a);
-            const goDetail = () => navigate(`/zvirata/${a.id}`);
+            const name = displayName(a)
+            const img = mediaUrl(a)
+            const goDetail = () => navigate(`/zvirata/${a.id}`)
+
             return (
               <Grid item xs={12} md={4} key={a.id}>
                 <Card variant="outlined" sx={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'visible' }}>
@@ -143,8 +152,6 @@ export default function AnimalTeasers() {
                     >
                       {longText(a)}
                     </Typography>
-
-                
                   </CardContent>
 
                   {/* Adoption CTA */}
@@ -155,7 +162,7 @@ export default function AnimalTeasers() {
                   </CardActions>
                 </Card>
               </Grid>
-            );
+            )
           })}
 
           {!loading && items?.length === 0 && (
@@ -166,5 +173,5 @@ export default function AnimalTeasers() {
         </Grid>
       </Container>
     </Box>
-  );
+  )
 }
