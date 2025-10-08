@@ -61,7 +61,7 @@ export default function Hero() {
                 },
               }}
             >
-              See the dogs
+              K psům
             </Button>
           </Grid>
 
