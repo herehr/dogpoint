@@ -34,14 +34,16 @@ function pickMain(a: Animal): string {
   return u || '/no-image.jpg'
 }
 
-/** Match AnimalDetail: prefer full birthDate → years; else bornYear; else vek; else neuvedeno */
+/** Match AnimalDetail: prefer birthDate → years; else bornYear; else vek; else neuvedeno */
 function formatAge(a: Animal): string {
   const bd = a.birthDate ? new Date(a.birthDate) : null
   if (bd && !Number.isNaN(bd.getTime())) {
     const now = new Date()
     let years = now.getFullYear() - bd.getFullYear()
-    if (now.getMonth() < bd.getMonth() ||
-        (now.getMonth() === bd.getMonth() && now.getDate() < bd.getDate())) {
+    if (
+      now.getMonth() < bd.getMonth() ||
+      (now.getMonth() === bd.getMonth() && now.getDate() < bd.getDate())
+    ) {
       years -= 1
     }
     return `${Math.max(0, years)} r`
@@ -61,12 +63,17 @@ export default function AnimalsPage() {
 
   useEffect(() => {
     let alive = true
-    setLoading(true); setError(null)
+    setLoading(true)
+    setError(null)
     getAnimals()
-      .then(list => { if (alive) setAnimals(list as any) })
-      .catch(e => alive && setError(e?.message || 'Chyba'))
+      .then(list => {
+        if (alive) setAnimals(list as any)
+      })
+      .catch(e => alive && setError(e?.message || 'Chyba načítání'))
       .finally(() => alive && setLoading(false))
-    return () => { alive = false }
+    return () => {
+      alive = false
+    }
   }, [])
 
   const visible = useMemo(
@@ -82,10 +89,10 @@ export default function AnimalsPage() {
           {Array.from({ length: 6 }).map((_, i) => (
             <Grid item xs={12} sm={6} md={4} key={i}>
               <Card sx={{ borderRadius: 3 }}>
-                <Skeleton variant="rectangular" height={160} />
+                <Skeleton variant="rectangular" height={180} />
                 <CardContent>
-                  <Skeleton width="60%" />
-                  <Skeleton width="40%" />
+                  <Skeleton width="70%" />
+                  <Skeleton width="50%" />
                   <Skeleton height={32} />
                 </CardContent>
               </Card>
@@ -99,7 +106,7 @@ export default function AnimalsPage() {
   return (
     <Container sx={{ py: 4 }}>
       <Typography variant="h4" gutterBottom>Naši psi</Typography>
-      {error && <Alert severity="error" sx={{ mb: 2 }}>Chyba: {error}</Alert>}
+      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
       <Grid container spacing={2}>
         {visible.map(a => {
@@ -109,10 +116,18 @@ export default function AnimalsPage() {
 
           return (
             <Grid item xs={12} sm={6} md={4} key={a.id}>
-              <Card variant="outlined" sx={{ borderRadius: 3, height: '100%', display: 'flex', flexDirection: 'column' }}>
+              <Card
+                variant="outlined"
+                sx={{
+                  borderRadius: 3,
+                  height: '100%',
+                  display: 'flex',
+                  flexDirection: 'column'
+                }}
+              >
                 <CardActionArea
                   component={RouterLink}
-                  to={`/animal/${a.id}`}
+                  to={`/zvire/${a.id}`}  // ✅ Link directly to AnimalDetail
                   sx={{ alignItems: 'stretch' }}
                 >
                   <CardMedia
@@ -120,7 +135,9 @@ export default function AnimalsPage() {
                     image={main}
                     alt={title}
                     sx={{ height: 180, objectFit: 'cover' }}
-                    onError={(ev: any) => { ev.currentTarget.src = '/no-image.jpg' }}
+                    onError={(ev: any) => {
+                      ev.currentTarget.src = '/no-image.jpg'
+                    }}
                   />
                   <CardContent sx={{ flexGrow: 1 }}>
                     <Stack spacing={1}>
@@ -128,12 +145,12 @@ export default function AnimalsPage() {
                         {title}
                       </Typography>
 
-                      {/* turquoise teaser like in detail page */}
                       {a.charakteristik && (
                         <Box
                           sx={{
                             fontWeight: 700,
-                            px: 1.2, py: 0.5,
+                            px: 1.2,
+                            py: 0.5,
                             borderRadius: 1.5,
                             display: 'inline-block',
                             bgcolor: '#00bcd4',
@@ -147,7 +164,6 @@ export default function AnimalsPage() {
                         </Box>
                       )}
 
-                      {/* short description (first lines only) */}
                       {(a.popis || a.description) && (
                         <Typography
                           variant="body2"
