@@ -3,7 +3,7 @@ import React, { useState } from 'react'
 import { Link as RouterLink } from 'react-router-dom'
 import { Box, Container, Stack, Button } from '@mui/material'
 import { useAuth } from '../context/AuthContext'
-import AnimalTeaser from '../section/AnimalTeasers'
+import AnimalTeasers from '../sections/AnimalTeasers' // ✅ default import from sections
 
 type Props = {
   logoSrc?: string
@@ -26,7 +26,7 @@ export default function Header({
   const accountLabel = !token
     ? 'Přihlášení'
     : role === 'ADMIN' ? 'Admin'
-    : role === 'MODERÁTOR' ? 'Moderátor' // keep label consistent if you localize role names elsewhere
+    : role === 'MODERATOR' ? 'Moderátor' // keep consistent with role keys
     : 'Můj účet'
 
   return (
@@ -93,7 +93,7 @@ export default function Header({
         {/* Inline teaser area */}
         {showTeaser && (
           <Box sx={{ mt: 2 }}>
-            <AnimalTeaser />
+            <AnimalTeasers />
           </Box>
         )}
       </Container>
