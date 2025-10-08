@@ -1,9 +1,7 @@
-// frontend/src/components/Header.tsx
-import React, { useState } from 'react'
+import React from 'react'
 import { Link as RouterLink } from 'react-router-dom'
 import { Box, Container, Stack, Button } from '@mui/material'
 import { useAuth } from '../context/AuthContext'
-import AnimalTeasers from '../sections/AnimalTeasers' // ✅ default import from sections
 
 type Props = {
   logoSrc?: string
@@ -15,7 +13,6 @@ export default function Header({
   subtitle = 'Adopce na dálku',
 }: Props) {
   const { token, role, logout } = useAuth()
-  const [showTeaser, setShowTeaser] = useState(false)
 
   const dashboardHref =
     role === 'ADMIN' ? '/admin'
@@ -26,7 +23,7 @@ export default function Header({
   const accountLabel = !token
     ? 'Přihlášení'
     : role === 'ADMIN' ? 'Admin'
-    : role === 'MODERATOR' ? 'Moderátor' // keep consistent with role keys
+    : role === 'MODERATOR' ? 'Moderátor'
     : 'Můj účet'
 
   return (
@@ -39,34 +36,45 @@ export default function Header({
         overflow: 'hidden',
       }}
     >
-      {/* Thicker turquoise band */}
       <Container
         maxWidth="lg"
         sx={{
           pt: { xs: 1, md: 1.5 },
-          pb: { xs: 6, md: 8 },      // visually ~2× thicker
+          pb: { xs: 6, md: 8 },
           position: 'relative',
-          zIndex: 2,                  // above SVG
+          zIndex: 2,
         }}
       >
         <Stack direction="row" alignItems="center" justifyContent="space-between" gap={2}>
-          {/* Logo + subtitle (click toggles teaser inline) */}
+          {/* Logo + subtitle (no more teaser toggle) */}
           <Button
-            onClick={() => setShowTeaser(v => !v)}
+            component={RouterLink}
+            to="/"
             color="inherit"
             sx={{ px: 0, minWidth: 'auto', '&:hover': { bgcolor: 'transparent' } }}
-            aria-label="Zobrazit zvířata"
+            aria-label="Domů"
           >
             <Stack direction="column" spacing={0} alignItems="flex-start">
               <Box
                 component="img"
                 src={logoSrc}
                 alt="DOGPOINT"
-                sx={{ height: { xs: 24, sm: 32, md: 40 }, display: 'block', objectFit: 'contain' }}
+                sx={{
+                  height: { xs: 24, sm: 32, md: 40 },
+                  display: 'block',
+                  objectFit: 'contain',
+                }}
               />
               <Box
                 component="span"
-                sx={{ mt: 0.5, fontSize: 13, fontWeight: 700, color: '#fff', lineHeight: 1.1, whiteSpace: 'nowrap' }}
+                sx={{
+                  mt: 0.5,
+                  fontSize: 13,
+                  fontWeight: 700,
+                  color: '#fff',
+                  lineHeight: 1.1,
+                  whiteSpace: 'nowrap',
+                }}
               >
                 {subtitle}
               </Box>
@@ -89,16 +97,9 @@ export default function Header({
             </Stack>
           )}
         </Stack>
-
-        {/* Inline teaser area */}
-        {showTeaser && (
-          <Box sx={{ mt: 2 }}>
-            <AnimalTeasers />
-          </Box>
-        )}
       </Container>
 
-      {/* Wave: fill the area BELOW the curve with #ECFBFB + draw a 10px white line */}
+      {/* Decorative wave */}
       <Box
         sx={{
           position: 'absolute',
@@ -107,7 +108,7 @@ export default function Header({
           bottom: -1,
           lineHeight: 0,
           zIndex: 1,
-          pointerEvents: 'none', // buttons remain clickable
+          pointerEvents: 'none',
         }}
       >
         <svg
@@ -117,12 +118,10 @@ export default function Header({
           aria-hidden="true"
           focusable="false"
         >
-          {/* 1) Fill under the curve so it blends into hero */}
           <path
             d="M0,66 C260,116 520,30 780,40 C1040,50 1300,94 1440,82 L1440,120 L0,120 Z"
             fill="#ECFBFB"
           />
-          {/* 2) White crest line */}
           <path
             d="M0,66 C260,116 520,30 780,40 C1040,50 1300,94 1440,82"
             fill="none"
