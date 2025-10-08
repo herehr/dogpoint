@@ -1,8 +1,9 @@
 // frontend/src/components/Header.tsx
-import React from 'react'
+import React, { useState } from 'react'
 import { Link as RouterLink } from 'react-router-dom'
 import { Box, Container, Stack, Button } from '@mui/material'
 import { useAuth } from '../context/AuthContext'
+import AnimalTeaser from '../components/AnimalTeaser'
 
 type Props = {
   logoSrc?: string
@@ -14,6 +15,7 @@ export default function Header({
   subtitle = 'Adopce na dálku',
 }: Props) {
   const { token, role, logout } = useAuth()
+  const [showTeaser, setShowTeaser] = useState(false)
 
   const dashboardHref =
     role === 'ADMIN' ? '/admin'
@@ -24,7 +26,7 @@ export default function Header({
   const accountLabel = !token
     ? 'Přihlášení'
     : role === 'ADMIN' ? 'Admin'
-    : role === 'MODERATOR' ? 'Moderátor'
+    : role === 'MODERÁTOR' ? 'Moderátor' // keep label consistent if you localize role names elsewhere
     : 'Můj účet'
 
   return (
@@ -48,13 +50,12 @@ export default function Header({
         }}
       >
         <Stack direction="row" alignItems="center" justifyContent="space-between" gap={2}>
-          {/* Logo + subtitle */}
+          {/* Logo + subtitle (click toggles teaser inline) */}
           <Button
-            component={RouterLink}
-            to="/"
+            onClick={() => setShowTeaser(v => !v)}
             color="inherit"
             sx={{ px: 0, minWidth: 'auto', '&:hover': { bgcolor: 'transparent' } }}
-            aria-label="Domů"
+            aria-label="Zobrazit zvířata"
           >
             <Stack direction="column" spacing={0} alignItems="flex-start">
               <Box
@@ -88,6 +89,13 @@ export default function Header({
             </Stack>
           )}
         </Stack>
+
+        {/* Inline teaser area */}
+        {showTeaser && (
+          <Box sx={{ mt: 2 }}>
+            <AnimalTeaser />
+          </Box>
+        )}
       </Container>
 
       {/* Wave: fill the area BELOW the curve with #ECFBFB + draw a 10px white line */}
