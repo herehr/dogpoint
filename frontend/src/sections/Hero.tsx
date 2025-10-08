@@ -21,6 +21,7 @@ export default function Hero() {
     >
       <Container maxWidth="lg">
         <Grid container spacing={3} alignItems="center">
+          {/* Left column: text + button */}
           <Grid item xs={12} md={6}>
             <Typography
               component="h1"
@@ -37,13 +38,34 @@ export default function Hero() {
               mazlíčků.
             </Typography>
 
-            <Typography color="text.secondary" sx={{ mb: 2 }}>
+            <Typography color="text.secondary" sx={{ mb: 3 }}>
               Dálková adopce, blízké pouto.
             </Typography>
 
-           
+            {/* New button — scrolls to AnimalTeasers */}
+            <Button
+              variant="contained"
+              onClick={scrollToAnimals}
+              sx={{
+                backgroundColor: '#23D3DF',
+                color: '#fff',
+                fontWeight: 700,
+                fontSize: 16,
+                borderRadius: 6,
+                px: 3.5,
+                py: 1.2,
+                textTransform: 'none',
+                boxShadow: '0 3px 8px rgba(0,0,0,0.15)',
+                '&:hover': {
+                  backgroundColor: '#1BB8C2',
+                },
+              }}
+            >
+              See the dogs
+            </Button>
           </Grid>
 
+          {/* Right column: image */}
           <Grid item xs={12} md={6}>
             <Paper
               elevation={6}
