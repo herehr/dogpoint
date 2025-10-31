@@ -17,6 +17,7 @@ import AnimalsManager from './pages/AnimalsManager'
 import UXPrototype from './prototypes/UXPrototype'
 import Login from './pages/Login'
 import UserDashboard from './pages/UserDashboard'
+import OchranaOsobnichUdaju from "./pages/OchranaOsobnichUdaju";
 
 // Guards
 import RequireRole from './routes/RequireRole'
@@ -111,6 +112,8 @@ export default function App() {
             </RequireRole>
           }
         />
+
+        <Route path="/ochrana-osobnich-udaju" element={<OchranaOsobnichUdaju />} />
 
         {/* Prototype (optional) */}
         <Route path="/proto/*" element={<UXPrototype />} />

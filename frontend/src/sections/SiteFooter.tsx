@@ -1,6 +1,7 @@
 // frontend/src/sections/SiteFooter.tsx
 import React from 'react';
 import { Box, Container, Link, Stack, Typography } from '@mui/material';
+import { Link as RouterLink } from 'react-router-dom';
 
 export default function SiteFooter() {
   return (
@@ -15,9 +16,14 @@ export default function SiteFooter() {
           </Typography>
           <Typography variant="caption" sx={{ opacity: 0.7 }}>
             © {new Date().getFullYear()} Dogpoint o. p. s. •{' '}
-            <Link href="/ochrana-osobnich-udaju" color="inherit" sx={{ textDecoration: 'underline' }}>
-              Ochrana osobních údajů
-            </Link>
+            <Link
+            component={RouterLink}
+            to="/ochrana-osobnich-udaju"
+           color="inherit"
+  sx={{ textDecoration: 'underline' }}
+>
+  Ochrana osobních údajů
+</Link>
           </Typography>
         </Stack>
       </Container>
