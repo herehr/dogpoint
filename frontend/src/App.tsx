@@ -51,7 +51,7 @@ export default function App() {
   const navigate = useNavigate()
   const location = useLocation()
 
-  // ✅ Handle Stripe redirect from backend (/?paid=1&animal=xyz)
+  // Handle Stripe return from backend root: /?paid=1&animal=XYZ or ?canceled=1&animal=XYZ
   useEffect(() => {
     const params = new URLSearchParams(location.search)
     const paid = params.get('paid')
@@ -61,12 +61,9 @@ export default function App() {
     if ((paid === '1' || canceled === '1') && animal) {
       try {
         if (paid === '1') localStorage.setItem('dp:justPaid', '1')
-      } catch {
-        /* ignore */
-      }
-
-      // Navigate client-side to avoid 404 on static host
-      const to = `/zvire/${encodeURIComponent(animal)}${
+      } catch {}
+      // Navigate client-side to avoid static-host 404 on deep links
+      const to = `/zvirata/${encodeURIComponent(animal)}${
         paid === '1' ? '?paid=1' : '?canceled=1'
       }`
       navigate(to, { replace: true })
@@ -75,18 +72,21 @@ export default function App() {
 
   return (
     <Routes>
-      <Route element={<AppLayout />}>
+      {/* Parent layout is bound to "/" */}
+      <Route path="/" element={<AppLayout />}>
+        {/* Index (home) */}
+        <Route index element={<LandingPage />} />
+
         {/* Public */}
-        <Route path="/" element={<LandingPage />} />
-        <Route path="/zvirata" element={<AnimalsPage />} />
-        <Route path="/zvire/:id" element={<AnimalDetail />} />
+        <Route path="zvirata" element={<AnimalsPage />} />
+        <Route path="zvirata/:id" element={<AnimalDetail />} />
 
         {/* Single login page for all roles */}
-        <Route path="/login" element={<Login />} />
+        <Route path="login" element={<Login />} />
 
         {/* Admin */}
         <Route
-          path="/admin"
+          path="admin"
           element={
             <RequireRole roles={['ADMIN']}>
               <AdminDashboard />
@@ -94,7 +94,7 @@ export default function App() {
           }
         />
         <Route
-          path="/admin/moderators"
+          path="admin/moderators"
           element={
             <RequireRole roles={['ADMIN']}>
               <AdminModerators />
@@ -102,7 +102,7 @@ export default function App() {
           }
         />
         <Route
-          path="/admin/animals"
+          path="admin/animals"
           element={
             <RequireRole roles={['ADMIN']}>
               <AnimalsManager />
@@ -112,7 +112,7 @@ export default function App() {
 
         {/* Moderator */}
         <Route
-          path="/moderator"
+          path="moderator"
           element={
             <RequireRole roles={['MODERATOR', 'ADMIN']}>
               <ModeratorDashboard />
@@ -120,7 +120,7 @@ export default function App() {
           }
         />
         <Route
-          path="/moderator/animals"
+          path="moderator/animals"
           element={
             <RequireRole roles={['MODERATOR', 'ADMIN']}>
               <AnimalsManager />
@@ -130,7 +130,7 @@ export default function App() {
 
         {/* User */}
         <Route
-          path="/user"
+          path="user"
           element={
             <RequireRole roles={['USER', 'MODERATOR', 'ADMIN']}>
               <UserDashboard />
@@ -138,10 +138,10 @@ export default function App() {
           }
         />
 
-        <Route path="/ochrana-osobnich-udaju" element={<OchranaOsobnichUdaju />} />
+        <Route path="ochrana-osobnich-udaju" element={<OchranaOsobnichUdaju />} />
 
         {/* Prototype (optional) */}
-        <Route path="/proto/*" element={<UXPrototype />} />
+        <Route path="proto/*" element={<UXPrototype />} />
 
         {/* Fallback */}
         <Route path="*" element={<NotFound />} />
