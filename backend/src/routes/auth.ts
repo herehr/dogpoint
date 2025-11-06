@@ -44,10 +44,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
   }
 })
 
-/**
- * First-time password setup — allowed ONLY if the user exists and has no password yet.
- * POST /api/auth/set-password-first-time { email, password }
- */
+/** First-time password setup (if user exists without password) */
 router.post('/set-password-first-time', async (req: Request, res: Response): Promise<void> => {
   try {
     const { email, password } = (req.body || {}) as { email?: string; password?: string }
@@ -76,10 +73,7 @@ router.post('/set-password-first-time', async (req: Request, res: Response): Pro
   }
 })
 
-/**
- * Register or complete user AFTER successful payment.
- * POST /api/auth/register-after-payment { email, password, name? }
- */
-router.post('/register-after-payment', registerAfterPayment) // ← ADD THIS LINE
+/** Register/complete user AFTER successful payment */
+router.post('/register-after-payment', registerAfterPayment) // ← this is the endpoint you’re calling
 
 export default router

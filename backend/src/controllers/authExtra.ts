@@ -9,7 +9,10 @@ const JWT_SECRET = process.env.JWT_SECRET || 'changeme'
 
 export async function registerAfterPayment(req: Request, res: Response) {
   try {
-    const { email, password, name } = req.body || {}
+    const { email, password, name } = (req.body || {}) as {
+      email?: string; password?: string; name?: string
+    }
+
     if (!email || typeof email !== 'string') {
       res.status(400).send('Email required')
       return
@@ -21,16 +24,16 @@ export async function registerAfterPayment(req: Request, res: Response) {
 
     const hash = await bcrypt.hash(password, 10)
 
-    // Upsert: if user exists without passwordHash, set it; otherwise keep existing
+    // If the user exists, set password if missing; otherwise create a new USER
     let user = await prisma.user.findUnique({ where: { email } })
     if (!user) {
       user = await prisma.user.create({
-        data: { email, passwordHash: hash, role: Role.USER },
+        data: { email, passwordHash: hash, role: Role.USER, posts: {}, subscriptions: {} } as any,
       })
     } else if (!user.passwordHash) {
       user = await prisma.user.update({
         where: { id: user.id },
-        data: { passwordHash: hash },
+        data: { passwordHash: hash, ...(name ? { /* place to store name if you add it to schema */ } : {}) },
       })
     }
 
