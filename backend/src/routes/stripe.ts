@@ -3,16 +3,16 @@ import { Router, Request, Response } from 'express'
 import express from 'express'
 import Stripe from 'stripe'
 import { prisma } from '../prisma'
+import { linkPaidPledgesToUser } from '../controllers/authExtra'
 
 const stripeSecret = process.env.STRIPE_SECRET_KEY || process.env.STRIPE_SECRET
 if (!stripeSecret) {
   console.warn('[stripe] Missing STRIPE_SECRET_KEY in environment.')
 }
 
-const stripe = new Stripe(stripeSecret || 'sk_test_dummy', {
-  // Match the version your @stripe/stripe-node package was generated against
-  apiVersion: '2025-08-27.basil',
-})
+// Let the SDK use its bundled API version (recommended)
+// If you want to pin, use a real date string like '2024-06-20'
+const stripe = new Stripe(stripeSecret || 'sk_test_dummy')
 
 // -------- Raw router (webhooks need raw body) --------
 export const rawRouter = Router()
@@ -26,30 +26,73 @@ rawRouter.post(
       const sig = req.headers['stripe-signature'] as string | undefined
       const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
 
+      let event: Stripe.Event
+
       if (!webhookSecret || !sig) {
         console.warn('[stripe] STRIPE_WEBHOOK_SECRET or signature missing; accepting event unverified (dev only).')
         // Best-effort parse for dev
-        const event = JSON.parse(req.body.toString() || '{}')
+        event = JSON.parse(req.body.toString() || '{}') as Stripe.Event
+      } else {
+        try {
+          event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret)
+        } catch (err: any) {
+          console.error('[stripe webhook] signature verification failed:', err?.message)
+          res.status(400).send(`Webhook Error: ${err?.message}`)
+          return
+        }
+      }
+
+      // Record the event for audit
+      try {
         await prisma.webhookEvent.create({
           data: { provider: 'STRIPE', rawPayload: event as any, processed: false },
         })
-        res.json({ received: true, unverified: true })
-        return
+      } catch (e) {
+        // non-fatal
+        console.warn('[stripe webhook] failed to persist webhookEvent:', (e as any)?.message)
       }
 
-      let event: Stripe.Event
+      // --- Business logic: convert pledge -> paid & link to user ---
+      if (event.type === 'checkout.session.completed') {
+        const session = event.data.object as Stripe.Checkout.Session
+
+        // 1) find pledge (prefer metadata.pledgeId; fallback by providerId === session.id)
+        const pledgeId = (session.metadata && (session.metadata as any).pledgeId) || null
+        let pledge = null
+
+        if (pledgeId) {
+          pledge = await prisma.pledge.update({
+            where: { id: pledgeId },
+            data: { status: 'PAID', providerId: session.id },
+          })
+        } else {
+          pledge = await prisma.pledge.findFirst({ where: { providerId: session.id } })
+          if (pledge && pledge.status !== 'PAID') {
+            pledge = await prisma.pledge.update({
+              where: { id: pledge.id },
+              data: { status: 'PAID' },
+            })
+          }
+        }
+
+        // 2) ensure a user exists for the email and link pledges -> subscriptions
+        const email = session.customer_email || pledge?.email || null
+        if (email) {
+          let user = await prisma.user.findUnique({ where: { email } })
+          if (!user) user = await prisma.user.create({ data: { email, role: 'USER' } })
+          await linkPaidPledgesToUser(user.id, email)
+        }
+      }
+
+      // Mark webhookEvent as processed (best-effort)
       try {
-        event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret)
-      } catch (err: any) {
-        console.error('[stripe webhook] signature verification failed:', err?.message)
-        res.status(400).send(`Webhook Error: ${err?.message}`)
-        return
+        await prisma.webhookEvent.updateMany({
+          data: { processed: true },
+          where: { processed: false }, // naive, but fine for now
+        })
+      } catch {
+        /* ignore */
       }
-
-      // Example: record the event; your business logic is in controllers/stripe.ts as well
-      await prisma.webhookEvent.create({
-        data: { provider: 'STRIPE', rawPayload: event as any, processed: true },
-      })
 
       res.json({ received: true })
     } catch (e: any) {
