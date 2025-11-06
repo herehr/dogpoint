@@ -24,6 +24,7 @@ enum PaymentProvider {
   PAYPAL
   MOCK
   FIO
+  GPWEBPAY
 }
 
 enum SubscriptionStatus {
@@ -264,12 +265,21 @@ model PledgePayment {
   pledge   Pledge @relation(fields: [pledgeId], references: [id], onDelete: Cascade)
   pledgeId String
 
-  status     PaymentStatus
-  amount     Int
-  provider   String? // 'stripe' | 'fio'
-  providerId String? // charge id / transaction id
-  raw        Json?
-  createdAt  DateTime @default(now())
+  status        PaymentStatus
+  amount        Int
+  currency      String          @default("CZK")
+  provider      String?                          // 'stripe' | 'gpwebpay' | 'fio' | ...
+  providerId    String?                          // Stripe charge/session id OR GP ORDERNUMBER
+  orderNumber   String?  @unique                 // GP: short ref we generate
+  md            String?                          // GP: our internal ID echoed back
+  redirectUrl   String?                          // GP: gateway URL (audit)
+  resultCode    String?                          // GP: "PRCODE/SRCODE"
+  resultMessage String?                          // GP: RESULTTEXT
+  paidAt        DateTime?
+  raw           Json?
+  createdAt     DateTime @default(now())
 
   @@index([pledgeId])
+  @@index([status])
+  @@index([orderNumber])
 }

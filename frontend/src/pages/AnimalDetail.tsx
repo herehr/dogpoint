@@ -11,9 +11,10 @@ import BlurBox from '../components/BlurBox'
 import AdoptionDialog from '../components/AdoptionDialog'
 import { useAuth } from '../context/AuthContext'
 import SafeMarkdown from '../components/SafeMarkdown'
+import PaymentButtons from '../components/payments/PaymentButtons'
 
 type Media = { url: string; type?: 'image' | 'video' }
-type LocalAnimal = {
+type LocalAnimal = {  
   id: string
   jmeno?: string
   name?: string
@@ -236,19 +237,35 @@ export default function AnimalDetail() {
 
             <Divider sx={{ my: 2 }} />
 
-            {!isUnlocked && (
-              <Box id="adopce">
-                <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>
-                  Chci adoptovat
-                </Typography>
-                <Typography color="text.secondary" sx={{ mb: 2 }}>
-                  Po adopci uvidíte další fotografie, videa a příspěvky.
-                </Typography>
-                <Button variant="contained" onClick={() => setAdoptOpen(true)}>
-                  Pokračovat k adopci
-                </Button>
-              </Box>
-            )}
+            {/* Adoption or payment section */}
+<Box id="adopce">
+  <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>
+    {isUnlocked ? 'Podpořit zvíře' : 'Chci adoptovat'}
+  </Typography>
+
+  {!isUnlocked ? (
+    <>
+      <Typography color="text.secondary" sx={{ mb: 2 }}>
+        Po adopci uvidíte další fotografie, videa a příspěvky.
+      </Typography>
+      <Button variant="contained" onClick={() => setAdoptOpen(true)}>
+        Pokračovat k adopci
+      </Button>
+    </>
+  ) : (
+    <Box sx={{ mt: 2 }}>
+      <Typography color="text.secondary" sx={{ mb: 2 }}>
+        Vyberte způsob platby:
+      </Typography>
+      <PaymentButtons
+        animalId={animal.id}
+        amountCZK={200}
+        email={undefined} // you can pass current user email if available
+        name={animal.jmeno || animal.name}
+      />
+    </Box>
+  )}
+</Box>
           </Grid>
         </Grid>
       </Box>

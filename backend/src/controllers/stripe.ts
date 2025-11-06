@@ -2,15 +2,25 @@
 import { Request, Response } from 'express'
 import Stripe from 'stripe'
 
-const stripeSecret = process.env.STRIPE_SECRET_KEY || process.env.STRIPE_SECRET || ''
-// Omit apiVersion to avoid type clashes across Stripe SDK versions
-export const stripe = new Stripe(stripeSecret)
-
 type CheckoutBody = {
   animalId: string
   amountCZK: number
   email?: string
   name?: string
+}
+
+// Lazy initializer to avoid crashing at import time
+let _stripe: Stripe | null = null
+function getStripe(): Stripe {
+  const key = process.env.STRIPE_SECRET_KEY || process.env.STRIPE_SECRET
+  if (!key) {
+    throw new Error('Stripe is not configured (missing STRIPE_SECRET_KEY).')
+  }
+  if (!_stripe) {
+    // Omit apiVersion to avoid type clashes across Stripe SDK versions (as you had)
+    _stripe = new Stripe(key)
+  }
+  return _stripe
 }
 
 export async function createCheckoutSession(
@@ -31,8 +41,9 @@ export async function createCheckoutSession(
 
     const amountHaler = Math.round(amountCZK * 100)
 
+    const stripe = getStripe()
     const session = await stripe.checkout.sessions.create({
-      mode: 'payment', // switch to 'subscription' with a price ID if needed
+      mode: 'payment',
       payment_method_types: ['card'],
       customer_email: email,
       line_items: [
@@ -62,6 +73,10 @@ export async function createCheckoutSession(
     }
     res.json({ url: session.url })
   } catch (err: any) {
+    if (String(err?.message).includes('Stripe is not configured')) {
+      res.status(503).send('Stripe není nakonfigurován (chybí STRIPE_SECRET_KEY).')
+      return
+    }
     res.status(500).send(String(err?.message || err))
   }
 }
