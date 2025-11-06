@@ -2,8 +2,6 @@
 import express, { Request, Response, NextFunction } from 'express'
 import dotenv from 'dotenv'
 import cors from 'cors'
-import gpwebpayRoutes from './routes/gpwebpay'
-import stripeRoutes from './routes/stripe' // ← NEW
 
 // Route modules
 import adminModeratorsRoutes from './routes/adminModerators'
@@ -14,46 +12,40 @@ import postsRoutes from './routes/posts'
 import adminStatsRoutes from './routes/adminStats'
 import subscriptionRoutes from './routes/subscriptionRoutes'
 import paymentRouter from './routes/paymentRoutes'
-// import paymentsRoutes from './routes/payments' // <- don't mount both
-
 import adoptionRouter from './routes/adoption'
+import gpwebpayRoutes from './routes/gpwebpay'
+
+// Stripe routes: export TWO routers from routes/stripe
+// - rawRouter: only /webhook with express.raw()
+// - jsonRouter: normal JSON endpoints like /checkout-session
+import stripeJsonRouter, { rawRouter as stripeRawRouter } from './routes/stripe'
+
 import { prisma } from './prisma'
 
 dotenv.config()
 
 // ----- CORS -----
-
-// Use allowlist if provided (comma-separated), else permissive fallback (no credentials)
 const allowed = (process.env.CORS_ALLOWED_ORIGINS || '')
   .split(',')
   .map(s => s.trim())
   .filter(Boolean)
 
-// Type the options using the middleware signature to avoid named type import issues
 const corsOptions: Parameters<typeof cors>[0] = allowed.length
   ? { origin: allowed, credentials: true }
   : { origin: '*', credentials: false }
 
-/// ----- App -----
+// ----- App -----
 const app = express()
 app.set('trust proxy', 1)
 app.use(cors(corsOptions))
 
-// Mount Stripe webhook BEFORE json body parser (needs raw)
-import stripeJsonRouter, { rawRouter as stripeRawRouter } from './routes/stripe'
-app.use('/api/stripe', stripeRawRouter) // only /webhook here with raw parser
+// 1) Stripe RAW route FIRST (webhook needs raw body, no JSON parser before this)
+app.use('/api/stripe', stripeRawRouter) // provides: POST /api/stripe/webhook
 
-// JSON parser for normal routes
+// 2) JSON parser for everything else
 app.use(express.json({ limit: '2mb' }))
 
-// Optional: request logger
-app.use((req, _res, next) => {
-  const role = (req as any).user?.role
-  console.log(`[REQ] ${req.method} ${req.originalUrl} ${role ? `(role=${role})` : ''}`)
-  next()
-})
-
-// Optional: request logger
+// Request logger (single)
 app.use((req, _res, next) => {
   const role = (req as any).user?.role
   console.log(`[REQ] ${req.method} ${req.originalUrl} ${role ? `(role=${role})` : ''}`)
@@ -69,11 +61,12 @@ app.use('/api/posts', postsRoutes)
 app.use('/api/admin/stats', adminStatsRoutes)
 app.use('/api/subscriptions', subscriptionRoutes)
 app.use('/api/payments', paymentRouter)
-// app.use('/api/payments', paymentsRoutes)
 app.use('/api/adoption', adoptionRouter)
+
+// 3) Stripe JSON routes AFTER JSON parser (e.g. /checkout-session)
 app.use('/api/stripe', stripeJsonRouter)
 
-// Feature-flag: mount only if envs are present
+// GP webpay (feature-flag by env presence)
 const gpEnabled =
   !!process.env.GP_MERCHANT_NUMBER &&
   !!process.env.GP_GATEWAY_BASE &&
@@ -86,9 +79,6 @@ if (gpEnabled) {
 } else {
   console.log('⚠️ GP webpay disabled (missing env)')
 }
-
-// Stripe only if configured (won’t crash dev when key is missing)
-app.use('/api/stripe', stripeRoutes)
 
 // ----- Base -----
 app.get('/', (_req: Request, res: Response) => {
@@ -114,7 +104,7 @@ app.get('/health/db', async (_req: Request, res: Response) => {
 })
 
 app.get('/health/stripe', (_req, res) => {
-  const hasStripe = !!process.env.STRIPE_SECRET_KEY || !!process.env.STRIPE_SECRET // ← fixed
+  const hasStripe = !!process.env.STRIPE_SECRET_KEY || !!process.env.STRIPE_SECRET
   res.json({ stripe: hasStripe })
 })
 
