@@ -1,4 +1,3 @@
-// backend/src/controllers/authExtra.ts
 import { Request, Response } from 'express'
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
@@ -13,68 +12,86 @@ import {
 const JWT_SECRET = process.env.JWT_SECRET || 'changeme'
 
 /**
- * Links all paid pledges belonging to a donor's email
- * to their new user account, creating subscriptions & payments.
+ * Ensure an ACTIVE subscription exists for (userId, animalId) and
+ * record a (unique-ish) initial paid payment if not already recorded.
  */
-export async function linkPaidPledgesToUser(userId: string, email: string) {
-  const paidPledges = await prisma.pledge.findMany({
-    where: { email, status: PaymentStatus.PAID },
+async function ensureActiveSubscriptionWithPayment(opts: {
+  userId: string
+  animalId: string
+  monthlyAmountCZK: number
+  provider: PaymentProvider
+  providerRef?: string | null
+}) {
+  const { userId, animalId, monthlyAmountCZK, provider, providerRef } = opts
+
+  // Composite unique exists: @@unique([userId, animalId, status])
+  const sub = await prisma.subscription.upsert({
+    where: {
+      // Prisma generates `userId_animalId_status` input even if you didn't name it,
+      // because of the @@unique([userId, animalId, status]).
+      userId_animalId_status: {
+        userId,
+        animalId,
+        status: SubscriptionStatus.ACTIVE,
+      },
+    },
+    update: {},
+    create: {
+      userId,
+      animalId,
+      monthlyAmount: monthlyAmountCZK,
+      currency: 'CZK',
+      provider,
+      providerRef: providerRef ?? null,
+      status: SubscriptionStatus.ACTIVE,
+      startedAt: new Date(),
+    },
   })
 
-  for (const pledge of paidPledges) {
-    // Upsert subscription
-    const sub = await prisma.subscription.upsert({
-      where: {
-        userId_animalId_status: {
-          userId,
-          animalId: pledge.animalId,
-          status: SubscriptionStatus.ACTIVE,
-        },
-      },
-      update: {},
-      create: {
-        userId,
-        animalId: pledge.animalId,
-        monthlyAmount: pledge.amount,
-        currency: 'CZK',
-        provider: PaymentProvider.STRIPE,
-        providerRef: pledge.providerId ?? undefined,
-        status: SubscriptionStatus.ACTIVE,
-        startedAt: new Date(),
-      },
+  // You don't have @@unique([subscriptionId, providerRef]) in Payment,
+  // so prevent duplicates with a findFirst guard:
+  if (providerRef) {
+    const existing = await prisma.payment.findFirst({
+      where: { subscriptionId: sub.id, providerRef },
+      select: { id: true },
     })
-
-    // Upsert first payment
-    await prisma.payment.upsert({
-      where: {
-        subscriptionId_providerRef: {
+    if (!existing) {
+      await prisma.payment.create({
+        data: {
           subscriptionId: sub.id,
-          providerRef: pledge.providerId ?? 'unknown',
+          provider,
+          providerRef,
+          amount: monthlyAmountCZK,
+          currency: 'CZK',
+          status: PaymentStatus.PAID,
+          paidAt: new Date(),
         },
-      },
-      update: {},
-      create: {
+      })
+    }
+  } else {
+    // No providerRef, just create one paid record (low risk of duplicates)
+    await prisma.payment.create({
+      data: {
         subscriptionId: sub.id,
-        provider: PaymentProvider.STRIPE,
-        providerRef: pledge.providerId ?? 'unknown',
-        amount: pledge.amount,
+        provider,
+        providerRef: null,
+        amount: monthlyAmountCZK,
         currency: 'CZK',
         status: PaymentStatus.PAID,
         paidAt: new Date(),
       },
-    })
-
-    // Mark pledge as linked
-    await prisma.pledge.update({
-      where: { id: pledge.id },
-      data: { userId },
     })
   }
 }
 
 /**
  * POST /api/auth/register-after-payment
- * Called when a donor creates a password after paying via Stripe.
+ * Body: { email, password, name? }
+ *
+ * - Creates user (or sets password if missing)
+ * - Finds Pledge rows with { email, status: PAID }
+ * - For each, creates/ensures ACTIVE Subscription + initial PAID Payment
+ * - Returns JWT { token, role }
  */
 export async function registerAfterPayment(req: Request, res: Response) {
   try {
@@ -85,21 +102,25 @@ export async function registerAfterPayment(req: Request, res: Response) {
     }
 
     if (!email || typeof email !== 'string') {
-      res.status(400).send('Email required')
+      res.status(400).json({ error: 'Email required' })
       return
     }
     if (!password || typeof password !== 'string' || password.length < 6) {
-      res.status(400).send('Password must be at least 6 chars')
+      res.status(400).json({ error: 'Password must be at least 6 characters' })
       return
     }
 
     const hash = await bcrypt.hash(password, 10)
 
-    // Ensure user exists
+    // Create or complete user
     let user = await prisma.user.findUnique({ where: { email } })
     if (!user) {
       user = await prisma.user.create({
-        data: { email, passwordHash: hash, name, role: Role.USER },
+        data: {
+          email,
+          passwordHash: hash,
+          role: Role.USER,
+        },
       })
     } else if (!user.passwordHash) {
       user = await prisma.user.update({
@@ -108,10 +129,23 @@ export async function registerAfterPayment(req: Request, res: Response) {
       })
     }
 
-    // Link pledges → subscriptions & payments
-    await linkPaidPledgesToUser(user.id, email)
+    // Convert PAID pledges for this email into ACTIVE subscriptions + initial payment
+    const paidPledges = await prisma.pledge.findMany({
+      where: { email, status: PaymentStatus.PAID },
+      orderBy: { createdAt: 'asc' },
+    })
 
-    // Sign JWT for auto-login
+    for (const pl of paidPledges) {
+      await ensureActiveSubscriptionWithPayment({
+        userId: user.id,
+        animalId: pl.animalId,
+        monthlyAmountCZK: pl.amount,
+        provider: PaymentProvider.STRIPE, // your Stripe flow
+        providerRef: pl.providerId ?? null, // Stripe session/intent id if you store it
+      })
+    }
+
+    // JWT
     const token = jwt.sign(
       { sub: user.id, role: user.role, email: user.email },
       JWT_SECRET,
@@ -120,7 +154,7 @@ export async function registerAfterPayment(req: Request, res: Response) {
 
     res.json({ ok: true, token, role: user.role })
   } catch (e: any) {
-    console.error('registerAfterPayment error:', e)
-    res.status(500).send(e?.message || 'Registration failed')
+    console.error('[register-after-payment] error:', e)
+    res.status(500).json({ error: e?.message ?? 'Registration failed' })
   }
 }

@@ -15,9 +15,7 @@ import paymentRouter from './routes/paymentRoutes'
 import adoptionRouter from './routes/adoption'
 import gpwebpayRoutes from './routes/gpwebpay'
 
-// Stripe routes: export TWO routers from routes/stripe
-// - rawRouter: only /webhook with express.raw()
-// - jsonRouter: normal JSON endpoints like /checkout-session
+// Stripe: export TWO routers from routes/stripe
 import stripeJsonRouter, { rawRouter as stripeRawRouter } from './routes/stripe'
 
 import { prisma } from './prisma'
@@ -40,7 +38,7 @@ app.set('trust proxy', 1)
 app.use(cors(corsOptions))
 
 // 1) Stripe RAW route FIRST (webhook needs raw body, no JSON parser before this)
-app.use('/api/stripe', stripeRawRouter) // provides: POST /api/stripe/webhook
+app.use('/api/stripe', stripeRawRouter) // POST /api/stripe/webhook
 
 // 2) JSON parser for everything else
 app.use(express.json({ limit: '2mb' }))
@@ -63,7 +61,7 @@ app.use('/api/subscriptions', subscriptionRoutes)
 app.use('/api/payments', paymentRouter)
 app.use('/api/adoption', adoptionRouter)
 
-// 3) Stripe JSON routes AFTER JSON parser (e.g. /checkout-session)
+// 3) Stripe JSON routes AFTER JSON parser
 app.use('/api/stripe', stripeJsonRouter)
 
 // GP webpay (feature-flag by env presence)
