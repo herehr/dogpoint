@@ -3,7 +3,7 @@ import { Router, type Request, type Response } from 'express'
 import bcrypt from 'bcryptjs'
 import jwt, { type Secret, type SignOptions } from 'jsonwebtoken'
 import { prisma } from '../prisma'
-import { registerAfterPayment } from '../controllers/authExtra'
+import { registerAfterPayment, linkPaidPledgesToUser } from '../controllers/authExtra'
 
 const router = Router()
 
@@ -29,12 +29,16 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
 
     const hash = user.passwordHash ?? null
     if (!hash) {
+      // user exists but has no password yet → frontend should call /set-password-first-time
       res.status(409).json({ error: 'PASSWORD_NOT_SET' })
       return
     }
 
     const ok = await bcrypt.compare(password, hash)
     if (!ok) { res.status(401).json({ error: 'Invalid credentials' }); return }
+
+    // 🔗 NEW: On every successful login, link/convert paid pledges → subscriptions
+    await linkPaidPledgesToUser(user.id, user.email)
 
     const token = signToken({ id: user.id, role: user.role as any, email: user.email })
     res.json({ token, role: user.role })
@@ -65,6 +69,9 @@ router.post('/set-password-first-time', async (req: Request, res: Response): Pro
       data: { passwordHash: hash },
     })
 
+    // Also link pledges after first-time password set (safety net)
+    await linkPaidPledgesToUser(updated.id, updated.email)
+
     const token = signToken({ id: updated.id, role: updated.role as any, email: updated.email })
     res.json({ ok: true, token, role: updated.role })
   } catch (e: any) {
@@ -74,6 +81,6 @@ router.post('/set-password-first-time', async (req: Request, res: Response): Pro
 })
 
 /** Register/complete user AFTER successful payment */
-router.post('/register-after-payment', registerAfterPayment) // ← this is the endpoint you’re calling
+router.post('/register-after-payment', registerAfterPayment)
 
 export default router
