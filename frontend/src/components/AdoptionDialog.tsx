@@ -1,301 +1,141 @@
-// frontend/src/components/AdoptionDialog.tsx
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import {
   Dialog, DialogTitle, DialogContent, DialogActions,
-  TextField, Button, Stack, Alert, Typography, Chip, Box, Divider, ToggleButtonGroup, ToggleButton, Paper
+  Box, Stack, Typography, Button, TextField, ToggleButtonGroup, ToggleButton, Alert, Divider
 } from '@mui/material'
-import { startAdoption, getAdoptionMe } from '../api'
-import SetPasswordDialog from './SetPasswordDialog'
-import { useAccess } from '../context/AccessContext'
+import PaymentButtons from './payments/PaymentButtons'
 
 type Props = {
   open: boolean
   onClose: () => void
   animalId: string
-  onGranted: () => void
+  defaultAmountCZK?: number
 }
 
-type PaymentMethod = 'CARD' | 'BANK'
+const PRESETS = [300, 500, 1000] as const
 
-export default function AdoptionDialog({ open, onClose, animalId, onGranted }: Props) {
-  const { hasAccess, grantAccess } = useAccess()
-
-  // form state
-  const [monthly, setMonthly] = useState<number>(300)
-  const amountInputRef = useRef<HTMLInputElement>(null)
-
+export default function AdoptionDialog({ open, onClose, animalId, defaultAmountCZK = 300 }: Props) {
+  const [amount, setAmount] = useState<number>(defaultAmountCZK)
+  const [tab, setTab] = useState<'card' | 'bank'>('card')
   const [email, setEmail] = useState<string>('')
   const [name, setName] = useState<string>('')
 
-  const [method, setMethod] = useState<PaymentMethod>('CARD')
+  const [custom, setCustom] = useState<string>('')
 
-  // context state
-  const [knownEmail, setKnownEmail] = useState<string | null>(null)
-  const [saving, setSaving] = useState(false)
-  const [err, setErr] = useState<string | null>(null)
-  const [ok, setOk] = useState<string | null>(null)
-  const [askPassword, setAskPassword] = useState(false)
+  const validEmail = useMemo(() => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()), [email])
+  const minOk = amount >= 50
 
-  const alreadyAdopted = hasAccess(animalId)
-
-  // Reset messages when dialog opens
-  useEffect(() => {
-    if (!open) return
-    setErr(null); setOk(null)
-  }, [open])
-
-  // Load current user email (if logged in)
-  useEffect(() => {
-    let alive = true
-    async function loadMe() {
-      try {
-        const me = await getAdoptionMe()
-        if (!alive) return
-        if (me?.user?.email) {
-          setKnownEmail(me.user.email)
-          setEmail(me.user.email)
-        }
-      } catch { /* ignore */ }
-    }
-    if (open) loadMe()
-    return () => { alive = false }
-  }, [open])
-
-  const presetAmounts = [300, 500, 1000]
-
-  function pickAmount(a?: number) {
-    if (a) {
-      setMonthly(a)
-    } else {
-      // “Vlastní částka” → focus the input
-      setMonthly(NaN)
-      setTimeout(() => amountInputRef.current?.focus(), 0)
-    }
+  function pickPreset(v?: number) {
+    if (!v) return
+    setAmount(v)
+    setCustom(String(v))
   }
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault()
-    if (saving) return
-    setErr(null); setOk(null)
-
-    if (alreadyAdopted) {
-      setOk('Toto zvíře již máte adoptované.')
-      return
-    }
-
-    const m = monthly
-    if (!knownEmail && !email.trim()) { setErr('Vyplňte e-mail.'); return }
-    if (Number.isNaN(m) || m < 50) { setErr('Minimální částka je 50 Kč.'); return }
-
-    setSaving(true)
-    try {
-      // Backend demo unlock (same call as before).
-      // Later you can split by method: e.g. create Stripe Checkout for CARD,
-      // return bank VS/instructions for BANK.
-      const data = await startAdoption(
-        animalId,
-        knownEmail ?? email.trim(),
-        name.trim() || 'Adoptující',
-        m
-      )
-
-      // If backend provides a Stripe checkout URL (future), go there immediately.
-      if (method === 'CARD' && data && (data as any).checkoutUrl) {
-        window.location.assign((data as any).checkoutUrl as string)
-        return
-      }
-
-      // Local unlock & close (demo path)
-      grantAccess(animalId)
-      setOk('Adopce potvrzena (DEMO). Obsah byl odemčen.')
-      onGranted()
-
-      // For BANK we keep the dialog open briefly to show instructions (below).
-      if (method === 'CARD') {
-        onClose()
-      }
-
-      // if user did not have password yet, ask to set it right away
-      if (data?.userHasPassword === false && (knownEmail ?? email)) {
-        setAskPassword(true)
-      }
-    } catch (e: any) {
-      setErr(e?.message || 'Zahájení adopce selhalo')
-    } finally {
-      setSaving(false)
-    }
+  function handleCustomChange(v: string) {
+    setCustom(v)
+    const n = Number(v.replace(',', '.'))
+    if (Number.isFinite(n)) setAmount(Math.round(n))
   }
-
-  const monthlyDisplay = Number.isNaN(monthly) ? '' : String(monthly)
 
   return (
-    <>
-      <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
-        <DialogTitle>Adopce – měsíční podpora</DialogTitle>
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
+      <DialogTitle>Adopce – měsíční podpora</DialogTitle>
 
-        {alreadyAdopted ? (
-          <>
-            <DialogContent>
-              <Alert severity="info">
-                Toto zvíře jste již adoptovali. Najdete ho v sekci <b>Můj účet</b>.
-              </Alert>
-            </DialogContent>
-            <DialogActions>
-              <Button onClick={onClose} autoFocus>Zavřít</Button>
-            </DialogActions>
-          </>
-        ) : (
-          <form onSubmit={submit}>
-            <DialogContent>
-              <Stack spacing={2}>
-                {err && <Alert severity="error">{err}</Alert>}
-                {ok && <Alert severity="success">{ok}</Alert>}
-
-                <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
-                  Výše měsíční podpory (Kč)
-                </Typography>
-
-                {/* Amount chips: 300 / 500 / 1000 / Vlastní částka */}
-                <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                  {presetAmounts.map(a => (
-                    <Chip
-                      key={a}
-                      label={`${a} Kč`}
-                      clickable
-                      color={monthly === a ? 'primary' : 'default'}
-                      onClick={() => pickAmount(a)}
-                      sx={{ borderRadius: 2, fontWeight: 700 }}
-                    />
-                  ))}
-                  <Chip
-                    label="Vlastní částka"
-                    clickable
-                    color={!presetAmounts.includes(monthly) ? 'primary' : 'default'}
-                    onClick={() => pickAmount(undefined)}
-                    sx={{ borderRadius: 2 }}
-                  />
-                </Box>
-
-                {/* Amount input */}
-                <TextField
-                  inputRef={amountInputRef}
-                  label="Částka (Kč) * — měsíčně"
-                  type="number"
-                  inputMode="numeric"
-                  inputProps={{ min: 50 }}
-                  helperText="Minimální měsíční částka je 50 Kč"
-                  value={monthlyDisplay}
-                  onChange={(e) => {
-                    const v = e.target.value
-                    setMonthly(v === '' ? NaN : Number(v))
-                  }}
-                  required
-                  fullWidth
-                />
-
-                <Divider sx={{ my: 1 }} />
-
-                {/* Payment method selector */}
-                <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
-                  Jak chcete platit?
-                </Typography>
-                <ToggleButtonGroup
-                  exclusive
-                  value={method}
-                  onChange={(_, val: PaymentMethod | null) => { if (val) setMethod(val) }}
-                  fullWidth
-                  size="small"
-                >
-                  <ToggleButton value="CARD">Kreditní / debetní karta</ToggleButton>
-                  <ToggleButton value="BANK">Bankovní převod</ToggleButton>
-                </ToggleButtonGroup>
-
-                {/* Helper blocks per method (informational only for now) */}
-                {method === 'CARD' && (
-                  <Alert severity="info">
-                    Platba kartou je zpracována přes Stripe. Po potvrzení budete přesměrováni na platební stránku.
-                  </Alert>
-                )}
-                {method === 'BANK' && (
-                  <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
-                    <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 0.5 }}>
-                      Instrukce k bankovnímu převodu
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Přispívejte měsíčně trvalým příkazem:
-                    </Typography>
-                    <Box sx={{ mt: 1 }}>
-                      <Typography variant="body2"><b>Účet (Fio):</b> 1234567890 / 2010</Typography>
-                      <Typography variant="body2"><b>Variabilní symbol:</b> bude zaslán e-mailem po potvrzení</Typography>
-                      <Typography variant="body2"><b>Zpráva pro příjemce:</b> Adopce – {name || 'Podpora'}</Typography>
-                    </Box>
-                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-                      Po přijetí platby vám automaticky odemkneme obsah.
-                    </Typography>
-                  </Paper>
-                )}
-
-                {/* Email / Name */}
-                {!knownEmail ? (
-                  <>
-                    <TextField
-                      label="E-mail *"
-                      type="email"
-                      autoComplete="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      required
-                      fullWidth
-                    />
-                    <TextField
-                      label="Jméno"
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      fullWidth
-                    />
-                  </>
-                ) : (
-                  <Alert severity="info">
-                    Přihlášen jako <b>{knownEmail}</b>. E-mail není třeba znovu vyplňovat.
-                  </Alert>
-                )}
-
-                <Typography variant="body2" color="text.secondary">
-                  Jedná se o <b>měsíční</b> podporu (lze kdykoli ukončit).
-                </Typography>
-              </Stack>
-            </DialogContent>
-            <DialogActions>
-              <Button onClick={onClose}>Zavřít</Button>
-              <Button
-                type="submit"
-                variant="contained"
-                disabled={
-                  saving ||
-                  Number.isNaN(monthly) ||
-                  monthly < 50 ||
-                  (!knownEmail && !email.trim())
-                }
-              >
-                {saving
-                  ? 'Zpracovávám…'
-                  : method === 'CARD'
-                  ? 'Pokračovat na platbu kartou'
-                  : 'Potvrdit a zobrazit instrukce'
-                }
+      <DialogContent>
+        {/* 1) ČÁSTKA */}
+        <Box sx={{ mb: 2 }}>
+          <Typography variant="subtitle1" sx={{ fontWeight: 800, mb: 1 }}>
+            Výše měsíční podpory (Kč)
+          </Typography>
+          <Stack direction="row" spacing={1} sx={{ mb: 1, flexWrap: 'wrap' }}>
+            {PRESETS.map(p => (
+              <Button key={p} variant={amount === p ? 'contained' : 'outlined'} onClick={() => pickPreset(p)}>
+                {p} Kč
               </Button>
-            </DialogActions>
-          </form>
-        )}
-      </Dialog>
+            ))}
+            <Button variant={PRESETS.includes(amount as any) ? 'outlined' : 'contained'} onClick={() => {}}>
+              Vlastní částka
+            </Button>
+          </Stack>
+          <TextField
+            fullWidth
+            type="number"
+            label="Částka (Kč) – měsíčně *"
+            inputProps={{ min: 50, step: 10 }}
+            value={custom || amount}
+            onChange={e => handleCustomChange(e.target.value)}
+            helperText="Minimální měsíční částka je 50 Kč"
+          />
+        </Box>
 
-      {/* Ask for password only after successful adoption if the user didn’t have one */}
-      <SetPasswordDialog
-        open={askPassword}
-        email={knownEmail ?? email}
-        onClose={() => setAskPassword(false)}
-        onSuccess={() => { /* optional toast/redirect */ }}
-      />
-    </>
+        <Divider sx={{ my: 2 }} />
+
+        {/* 2) E-MAIL + JMÉNO — přesunuto NAHORU */}
+        <Box sx={{ mb: 2 }}>
+          <TextField
+            label="E-mail **"
+            fullWidth
+            required
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            sx={{ mb: 1.5 }}
+          />
+          <TextField
+            label="Jméno"
+            fullWidth
+            value={name}
+            onChange={e => setName(e.target.value)}
+          />
+        </Box>
+
+        <Divider sx={{ my: 2 }} />
+
+        {/* 3) VOLBA ZPŮSOBU PLATBY */}
+        <Typography variant="subtitle1" sx={{ fontWeight: 800, mb: 1 }}>
+          Jak chcete platit?
+        </Typography>
+        <ToggleButtonGroup
+          exclusive
+          value={tab}
+          onChange={(_, v) => v && setTab(v)}
+          sx={{ mb: 2 }}
+        >
+          <ToggleButton value="card">Kreditní / debetní karta</ToggleButton>
+          <ToggleButton value="bank">Bankovní převod</ToggleButton>
+        </ToggleButtonGroup>
+
+        {tab === 'card' && (
+          <Alert severity="info" sx={{ mb: 2 }}>
+            Platba kartou je zpracována přes Stripe. Po potvrzení budete přesměrováni na platební stránku.
+          </Alert>
+        )}
+
+        {tab === 'bank' && (
+          <Alert severity="warning">
+            Bankovní převod bude brzy dostupný. Zatím prosíme využijte platbu kartou.
+          </Alert>
+        )}
+
+        {/* 4) TLAČÍTKA PLATEB */}
+        {tab === 'card' && (
+          <PaymentButtons
+            animalId={animalId}
+            amountCZK={amount}
+            email={email || undefined}    // ← 2) přenášíme e-mail do Stripe
+            name={name || undefined}
+            disabled={!minOk || !validEmail}
+          />
+        )}
+
+        <Typography variant="caption" color="text.secondary" sx={{ mt: 2, display: 'block' }}>
+          Jedná se o <b>měsíční</b> podporu (lze kdykoliv ukončit).
+        </Typography>
+      </DialogContent>
+
+      <DialogActions>
+        <Button onClick={onClose}>Zavřít</Button>
+        {/* Primární tlačítko je uvnitř PaymentButtons (pro kartu) */}
+      </DialogActions>
+    </Dialog>
   )
 }

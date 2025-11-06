@@ -6,11 +6,13 @@ type Props = {
   amountCZK: number
   email?: string
   name?: string
+  /** disable both buttons (e.g., until email is valid or amount >= 50) */
+  disabled?: boolean
 }
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000'
 
-export default function PaymentButtons({ animalId, amountCZK, email, name }: Props) {
+export default function PaymentButtons({ animalId, amountCZK, email, name, disabled }: Props) {
   const [loading, setLoading] = useState<'stripe' | 'gp' | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -54,34 +56,41 @@ export default function PaymentButtons({ animalId, amountCZK, email, name }: Pro
     }
   }
 
+  const isBusy = loading !== null
+  const isDisabled = isBusy || !!disabled
+
   return (
     <div style={{ display: 'grid', gap: 8 }}>
       <button
         onClick={payStripe}
-        disabled={loading !== null}
+        disabled={isDisabled}
         style={{
           padding: '12px 16px',
           borderRadius: 12,
           border: '1px solid #e0e0e0',
-          background: loading === 'stripe' ? '#eee' : '#111',
+          background: isDisabled ? '#9e9e9e' : '#111',
           color: '#fff',
           fontWeight: 600,
+          cursor: isDisabled ? 'not-allowed' : 'pointer',
         }}
+        aria-disabled={isDisabled}
       >
-        {loading === 'stripe' ? 'Přesměrování…' : 'Zaplatit kartou (Stripe)'}
+        {loading === 'stripe' ? 'Přesměrování…' : 'Pokračovat na platbu kartou'}
       </button>
 
       <button
         onClick={payGP}
-        disabled={loading !== null}
+        disabled={isDisabled}
         style={{
           padding: '12px 16px',
           borderRadius: 12,
           border: '1px solid #e0e0e0',
-          background: loading === 'gp' ? '#eee' : '#f7f7f7',
+          background: isDisabled ? '#eee' : '#f7f7f7',
           color: '#111',
           fontWeight: 600,
+          cursor: isDisabled ? 'not-allowed' : 'pointer',
         }}
+        aria-disabled={isDisabled}
       >
         {loading === 'gp' ? 'Přesměrování…' : 'Zaplatit kartou (GP webpay)'}
       </button>
