@@ -60,13 +60,40 @@ export async function createCheckoutSession(
           quantity: 1,
         },
       ],
-      success_url: `${process.env.PUBLIC_WEB_BASE_URL || 'https://example.com'}/zvirata/${encodeURIComponent(
-        animalId
-      )}?paid=1`,
-      cancel_url: `${process.env.PUBLIC_WEB_BASE_URL || 'https://example.com'}/zvirata/${encodeURIComponent(
-        animalId
-      )}?canceled=1`,
-    })
+     // Determine the base URL dynamically from environment
+const FRONTEND_BASE =
+  process.env.FRONTEND_BASE_URL ||
+  process.env.PUBLIC_WEB_BASE_URL ||
+  'http://localhost:5173'
+
+// Encode animalId safely for URL usage
+const successUrl = `${FRONTEND_BASE.replace(/\/$/, '')}/zvire/${encodeURIComponent(
+  animalId
+)}?paid=1`
+const cancelUrl = `${FRONTEND_BASE.replace(/\/$/, '')}/zvire/${encodeURIComponent(
+  animalId
+)}?canceled=1`
+
+const session = await stripe.checkout.sessions.create({
+  mode: 'payment',
+  payment_method_types: ['card'],
+  locale: 'cs', // force Czech UI
+  customer_email: email,
+  line_items: [
+    {
+      price_data: {
+        currency: 'czk',
+        product_data: {
+          name: `Měsíční adopce – ${animalId}`,
+        },
+        unit_amount: Math.round(amountCZK * 100),
+      },
+      quantity: 1,
+    },
+  ],
+  success_url: successUrl,
+  cancel_url: cancelUrl,
+})
 
     if (!session.url) {
       res.status(500).send('Stripe session missing URL')
