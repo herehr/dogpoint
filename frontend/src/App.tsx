@@ -1,6 +1,6 @@
 // frontend/src/App.tsx
-import React from 'react'
-import { Routes, Route, Link, Outlet } from 'react-router-dom'
+import React, { useEffect } from 'react'
+import { Routes, Route, Link, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { Container, Typography, Button } from '@mui/material'
 
 // Components
@@ -17,7 +17,7 @@ import AnimalsManager from './pages/AnimalsManager'
 import UXPrototype from './prototypes/UXPrototype'
 import Login from './pages/Login'
 import UserDashboard from './pages/UserDashboard'
-import OchranaOsobnichUdaju from "./pages/OchranaOsobnichUdaju";
+import OchranaOsobnichUdaju from './pages/OchranaOsobnichUdaju'
 
 // Guards
 import RequireRole from './routes/RequireRole'
@@ -48,13 +48,38 @@ function NotFound() {
 }
 
 export default function App() {
+  const navigate = useNavigate()
+  const location = useLocation()
+
+  // ✅ Handle Stripe redirect from backend (/?paid=1&animal=xyz)
+  useEffect(() => {
+    const params = new URLSearchParams(location.search)
+    const paid = params.get('paid')
+    const canceled = params.get('canceled')
+    const animal = params.get('animal')
+
+    if ((paid === '1' || canceled === '1') && animal) {
+      try {
+        if (paid === '1') localStorage.setItem('dp:justPaid', '1')
+      } catch {
+        /* ignore */
+      }
+
+      // Navigate client-side to avoid 404 on static host
+      const to = `/zvire/${encodeURIComponent(animal)}${
+        paid === '1' ? '?paid=1' : '?canceled=1'
+      }`
+      navigate(to, { replace: true })
+    }
+  }, [location.search, navigate])
+
   return (
     <Routes>
       <Route element={<AppLayout />}>
         {/* Public */}
         <Route path="/" element={<LandingPage />} />
         <Route path="/zvirata" element={<AnimalsPage />} />
-        <Route path="/zvirata/:id" element={<AnimalDetail />} />
+        <Route path="/zvire/:id" element={<AnimalDetail />} />
 
         {/* Single login page for all roles */}
         <Route path="/login" element={<Login />} />

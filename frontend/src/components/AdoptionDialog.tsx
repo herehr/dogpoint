@@ -1,7 +1,8 @@
+// frontend/src/components/AdoptionDialog.tsx
 import React, { useMemo, useState } from 'react'
 import {
   Dialog, DialogTitle, DialogContent, DialogActions,
-  Box, Stack, Typography, Button, TextField, ToggleButtonGroup, ToggleButton, Alert, Divider
+  Box, Stack, Typography, Button, TextField, Alert, Divider
 } from '@mui/material'
 import PaymentButtons from './payments/PaymentButtons'
 
@@ -16,14 +17,15 @@ const PRESETS = [300, 500, 1000] as const
 
 export default function AdoptionDialog({ open, onClose, animalId, defaultAmountCZK = 300 }: Props) {
   const [amount, setAmount] = useState<number>(defaultAmountCZK)
-  const [tab, setTab] = useState<'card' | 'bank'>('card')
   const [email, setEmail] = useState<string>('')
   const [name, setName] = useState<string>('')
+  const [password, setPassword] = useState<string>('')
 
   const [custom, setCustom] = useState<string>('')
 
   const validEmail = useMemo(() => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()), [email])
   const minOk = amount >= 50
+  const passOk = password.trim().length >= 6
 
   function pickPreset(v?: number) {
     if (!v) return
@@ -37,12 +39,21 @@ export default function AdoptionDialog({ open, onClose, animalId, defaultAmountC
     if (Number.isFinite(n)) setAmount(Math.round(n))
   }
 
+  // persist the password locally (for a later signup flow)
+  function persistPasswordHint() {
+    try {
+      if (validEmail && passOk) {
+        localStorage.setItem(`dp:pendingUser:${email}`, JSON.stringify({ email, name, password }))
+      }
+    } catch {}
+  }
+
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
       <DialogTitle>Adopce – měsíční podpora</DialogTitle>
 
       <DialogContent>
-        {/* 1) ČÁSTKA */}
+        {/* ČÁSTKA */}
         <Box sx={{ mb: 2 }}>
           <Typography variant="subtitle1" sx={{ fontWeight: 800, mb: 1 }}>
             Výše měsíční podpory (Kč)
@@ -70,7 +81,7 @@ export default function AdoptionDialog({ open, onClose, animalId, defaultAmountC
 
         <Divider sx={{ my: 2 }} />
 
-        {/* 2) E-MAIL + JMÉNO — přesunuto NAHORU */}
+        {/* E-MAIL + JMÉNO */}
         <Box sx={{ mb: 2 }}>
           <TextField
             label="E-mail **"
@@ -88,53 +99,51 @@ export default function AdoptionDialog({ open, onClose, animalId, defaultAmountC
           />
         </Box>
 
+        {/* HESLO – požádáme před platbou */}
+        <Box sx={{ mb: 2 }}>
+          <Typography variant="subtitle1" sx={{ fontWeight: 800, mb: 1 }}>
+            Heslo pro váš účet
+          </Typography>
+          <TextField
+            type="password"
+            label="Heslo (min. 6 znaků) *"
+            fullWidth
+            required
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            helperText="Heslo využijete pro správu adopce a přístup k obsahu."
+          />
+        </Box>
+
         <Divider sx={{ my: 2 }} />
 
-        {/* 3) VOLBA ZPŮSOBU PLATBY */}
-        <Typography variant="subtitle1" sx={{ fontWeight: 800, mb: 1 }}>
-          Jak chcete platit?
-        </Typography>
-        <ToggleButtonGroup
-          exclusive
-          value={tab}
-          onChange={(_, v) => v && setTab(v)}
-          sx={{ mb: 2 }}
-        >
-          <ToggleButton value="card">Kreditní / debetní karta</ToggleButton>
-          <ToggleButton value="bank">Bankovní převod</ToggleButton>
-        </ToggleButtonGroup>
+        {/* Stripe only */}
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Platba kartou je zpracována přes Stripe. Po potvrzení budete přesměrováni na platební stránku.
+        </Alert>
 
-        {tab === 'card' && (
-          <Alert severity="info" sx={{ mb: 2 }}>
-            Platba kartou je zpracována přes Stripe. Po potvrzení budete přesměrováni na platební stránku.
-          </Alert>
-        )}
-
-        {tab === 'bank' && (
-          <Alert severity="warning">
-            Bankovní převod bude brzy dostupný. Zatím prosíme využijte platbu kartou.
-          </Alert>
-        )}
-
-        {/* 4) TLAČÍTKA PLATEB */}
-        {tab === 'card' && (
-          <PaymentButtons
-            animalId={animalId}
-            amountCZK={amount}
-            email={email || undefined}    // ← 2) přenášíme e-mail do Stripe
-            name={name || undefined}
-            disabled={!minOk || !validEmail}
-          />
-        )}
-
+        {/* TLAČÍTKO PLATBY (Stripe) */}
+        <PaymentButtons
+          animalId={animalId}
+          amountCZK={amount}
+          email={email || undefined}
+          name={name || undefined}
+          disabled={!minOk || !validEmail || !passOk}
+        />
         <Typography variant="caption" color="text.secondary" sx={{ mt: 2, display: 'block' }}>
           Jedná se o <b>měsíční</b> podporu (lze kdykoliv ukončit).
         </Typography>
       </DialogContent>
 
       <DialogActions>
-        <Button onClick={onClose}>Zavřít</Button>
-        {/* Primární tlačítko je uvnitř PaymentButtons (pro kartu) */}
+        <Button onClick={() => { persistPasswordHint(); onClose() }}>Zavřít</Button>
+        <Button
+          onClick={persistPasswordHint}
+          disabled={!minOk || !validEmail || !passOk}
+          variant="outlined"
+        >
+          Uložit heslo
+        </Button>
       </DialogActions>
     </Dialog>
   )

@@ -5,14 +5,12 @@ dotenv.config()
 import { Request, Response } from 'express'
 import Stripe from 'stripe'
 
-// -------- lazy Stripe init (no crash if env missing at import time) --------
+// Lazy init to avoid crashing when env is missing at import time
 let stripeClient: Stripe | null = null
 function getStripe(): Stripe {
   if (stripeClient) return stripeClient
   const key = process.env.STRIPE_SECRET_KEY || process.env.STRIPE_SECRET
-  if (!key) {
-    throw new Error('STRIPE_SECRET_KEY is missing – set it in backend .env')
-  }
+  if (!key) throw new Error('STRIPE_SECRET_KEY is missing – set it in backend .env')
   stripeClient = new Stripe(key as string)
   return stripeClient
 }
@@ -31,12 +29,14 @@ export async function createCheckoutSession(req: Request, res: Response): Promis
     const amt = Number(amountCZK)
     if (!Number.isFinite(amt) || amt <= 0) { res.status(400).send('amountCZK must be a positive number'); return }
 
-    const stripe = getStripe() // ← init here, not at module load
+    const stripe = getStripe()
     const amountHaler = Math.round(amt * 100)
 
     const FRONTEND_BASE = (process.env.FRONTEND_BASE_URL || process.env.PUBLIC_WEB_BASE_URL || 'http://localhost:5173').replace(/\/$/, '')
-    const successUrl = `${FRONTEND_BASE}/zvire/${encodeURIComponent(animalId)}?paid=1`
-    const cancelUrl  = `${FRONTEND_BASE}/zvire/${encodeURIComponent(animalId)}?canceled=1`
+
+    // ✅ Redirect to ROOT (/) with query params to avoid server 404 on deep links
+    const successUrl = `${FRONTEND_BASE}/?paid=1&animal=${encodeURIComponent(animalId)}`
+    const cancelUrl  = `${FRONTEND_BASE}/?canceled=1&animal=${encodeURIComponent(animalId)}`
 
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
@@ -56,7 +56,7 @@ export async function createCheckoutSession(req: Request, res: Response): Promis
           quantity: 1,
         },
       ],
-      currency: 'czk', // session-level currency
+      currency: 'czk',
       allow_promotion_codes: false,
       payment_method_options: { card: { request_three_d_secure: 'automatic' } },
       success_url: successUrl,
