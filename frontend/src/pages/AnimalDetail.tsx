@@ -12,6 +12,7 @@ import AdoptionDialog from '../components/AdoptionDialog'
 import { useAuth } from '../context/AuthContext'
 import SafeMarkdown from '../components/SafeMarkdown'
 import PaymentButtons from '../components/payments/PaymentButtons'
+import AfterPaymentPasswordDialog from '../components/AfterPaymentPasswordDialog'
 
 type Media = { url: string; type?: 'image' | 'video' }
 type LocalAnimal = {  
@@ -67,6 +68,7 @@ export default function AnimalDetail() {
   const [err, setErr] = useState<string | null>(null)
   const [adoptOpen, setAdoptOpen] = useState(false)
   const [forceLocked, setForceLocked] = useState(false)
+  const [showAfterPay, setShowAfterPay] = useState(false)
 
   const isUnlocked = useMemo(() => {
     if (role === 'ADMIN' || role === 'MODERATOR') return true
@@ -102,6 +104,31 @@ export default function AnimalDetail() {
       alive = false
     }
   }, [id])
+
+useEffect(() => {
+  if (!id) return
+  const params = new URLSearchParams(window.location.search)
+  const paid = params.get('paid')
+  if (paid === '1') {
+    try {
+      grantAccess(id)
+      setForceLocked(false)
+
+      // If user is not logged in, show password dialog
+      if (!token) {
+        setShowAfterPay(true)
+      }
+
+      // clean URL
+      params.delete('paid')
+      const url = `${window.location.pathname}?${params.toString()}`
+      window.history.replaceState({}, '', url.endsWith('?') ? url.slice(0, -1) : url)
+    } catch {}
+  }
+}, [id, grantAccess, token])
+
+
+
 
   const onCancelAdoption = useCallback(async () => {
     if (!animal) return
@@ -331,6 +358,17 @@ export default function AnimalDetail() {
           </Typography>
         )}
       </Box>
+      
+      <AfterPaymentPasswordDialog
+        open={showAfterPay}
+        onClose={() => setShowAfterPay(false)}
+        animalId={id}
+       onLoggedIn={() => {
+    // try to refresh page data or just ensure unlocked
+    setForceLocked(false)
+  }}
+/>
+
 
       {/* Adoption dialog */}
       <AdoptionDialog

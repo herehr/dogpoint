@@ -3,6 +3,7 @@ import { Router, type Request, type Response } from 'express'
 import bcrypt from 'bcryptjs'
 import jwt, { type Secret, type SignOptions } from 'jsonwebtoken'
 import { prisma } from '../prisma'
+import { registerAfterPayment } from '../controllers/authExtra'
 
 const router = Router()
 
@@ -28,7 +29,6 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
 
     const hash = user.passwordHash ?? null
     if (!hash) {
-      // Tell the client to use the first-time password setup
       res.status(409).json({ error: 'PASSWORD_NOT_SET' })
       return
     }
@@ -75,5 +75,11 @@ router.post('/set-password-first-time', async (req: Request, res: Response): Pro
     res.status(500).json({ error: 'Internal error' })
   }
 })
+
+/**
+ * Register or complete user AFTER successful payment.
+ * POST /api/auth/register-after-payment { email, password, name? }
+ */
+router.post('/register-after-payment', registerAfterPayment) // ← ADD THIS LINE
 
 export default router

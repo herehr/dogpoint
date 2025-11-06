@@ -20,6 +20,15 @@ export default function PaymentButtons({ animalId, amountCZK, email, name, disab
     try {
       setError(null)
       setLoading(true)
+
+      // Stash info so we can create a user after payment
+      try {
+        if (email) {
+          const payload = { email, name: name || '', animalId, ts: Date.now() }
+          localStorage.setItem('dp:pendingUser', JSON.stringify(payload))
+        }
+      } catch {}
+
       const res = await fetch(`${API_BASE}/api/stripe/checkout-session`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
