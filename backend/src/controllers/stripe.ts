@@ -5,7 +5,6 @@ dotenv.config()
 import { Request, Response } from 'express'
 import Stripe from 'stripe'
 
-// Lazy init to avoid crashing when env is missing at import time
 let stripeClient: Stripe | null = null
 function getStripe(): Stripe {
   if (stripeClient) return stripeClient
@@ -33,20 +32,26 @@ export async function createCheckoutSession(req: Request, res: Response): Promis
     const amountHaler = Math.round(amt * 100)
 
     const FRONTEND_BASE = (process.env.FRONTEND_BASE_URL || process.env.PUBLIC_WEB_BASE_URL || 'http://localhost:5173').replace(/\/$/, '')
-
-    // ✅ Redirect to ROOT (/) with query params to avoid server 404 on deep links
+    // route via root so DO static hosting won’t 404 deep links
     const successUrl = `${FRONTEND_BASE}/?paid=1&animal=${encodeURIComponent(animalId)}`
     const cancelUrl  = `${FRONTEND_BASE}/?canceled=1&animal=${encodeURIComponent(animalId)}`
 
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
-      locale: 'cs', // Czech UI
+      locale: 'cs',
       payment_method_types: ['card'],
       customer_email: email,
+      client_reference_id: animalId,
+      metadata: {
+        animalId,
+        email: email || '',
+        amountCZK: String(amt),
+        name: name || '',
+      },
       line_items: [
         {
           price_data: {
-            currency: 'czk', // lock to CZK
+            currency: 'czk',
             product_data: {
               name: `Měsíční adopce – ${animalId}`,
               description: name ? `Dárce: ${name}` : undefined,

@@ -1,18 +1,17 @@
 // backend/src/routes/stripe.ts
-import { Router } from 'express'
+import express, { Router } from 'express'
 import { createCheckoutSession } from '../controllers/stripe'
+import { stripeWebhook } from '../controllers/stripeWebhook'
 
-const router = Router()
+/**
+ * Export two routers:
+ * - rawRouter: only for /webhook (needs express.raw)
+ * - jsonRouter: normal JSON routes
+ */
+export const rawRouter = Router()
+rawRouter.post('/webhook', express.raw({ type: 'application/json' }), stripeWebhook)
 
-// Create a Stripe Checkout session
-router.post('/checkout-session', createCheckoutSession)
+const jsonRouter = Router()
+jsonRouter.post('/checkout-session', createCheckoutSession)
 
-// Optional: simple health check for debugging
-router.get('/health', (req, res) => {
-  if (process.env.STRIPE_SECRET_KEY || process.env.STRIPE_SECRET) {
-    return res.json({ ok: true })
-  }
-  return res.status(503).json({ ok: false, error: 'Stripe není nakonfigurován.' })
-})
-
-export default router
+export default jsonRouter

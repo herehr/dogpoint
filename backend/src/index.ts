@@ -34,11 +34,24 @@ const corsOptions: Parameters<typeof cors>[0] = allowed.length
   ? { origin: allowed, credentials: true }
   : { origin: '*', credentials: false }
 
-// ----- App -----
+/// ----- App -----
 const app = express()
 app.set('trust proxy', 1)
 app.use(cors(corsOptions))
+
+// Mount Stripe webhook BEFORE json body parser (needs raw)
+import stripeJsonRouter, { rawRouter as stripeRawRouter } from './routes/stripe'
+app.use('/api/stripe', stripeRawRouter) // only /webhook here with raw parser
+
+// JSON parser for normal routes
 app.use(express.json({ limit: '2mb' }))
+
+// Optional: request logger
+app.use((req, _res, next) => {
+  const role = (req as any).user?.role
+  console.log(`[REQ] ${req.method} ${req.originalUrl} ${role ? `(role=${role})` : ''}`)
+  next()
+})
 
 // Optional: request logger
 app.use((req, _res, next) => {
@@ -58,6 +71,7 @@ app.use('/api/subscriptions', subscriptionRoutes)
 app.use('/api/payments', paymentRouter)
 // app.use('/api/payments', paymentsRoutes)
 app.use('/api/adoption', adoptionRouter)
+app.use('/api/stripe', stripeJsonRouter)
 
 // Feature-flag: mount only if envs are present
 const gpEnabled =
