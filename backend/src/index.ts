@@ -2,6 +2,8 @@
 import express, { Request, Response, NextFunction } from 'express'
 import dotenv from 'dotenv'
 import cors from 'cors'
+import gpwebpayRoutes from './routes/gpwebpay'
+import stripeRoutes from './routes/stripe' // ← NEW
 
 // Route modules
 import adminModeratorsRoutes from './routes/adminModerators'
@@ -20,6 +22,7 @@ import { prisma } from './prisma'
 dotenv.config()
 
 // ----- CORS -----
+
 // Use allowlist if provided (comma-separated), else permissive fallback (no credentials)
 const allowed = (process.env.CORS_ALLOWED_ORIGINS || '')
   .split(',')
@@ -56,6 +59,23 @@ app.use('/api/payments', paymentRouter)
 // app.use('/api/payments', paymentsRoutes)
 app.use('/api/adoption', adoptionRouter)
 
+// Feature-flag: mount only if envs are present
+const gpEnabled =
+  !!process.env.GP_MERCHANT_NUMBER &&
+  !!process.env.GP_GATEWAY_BASE &&
+  !!process.env.GP_PRIVATE_KEY_PEM &&
+  !!process.env.GP_PUBLIC_KEY_PEM
+
+if (gpEnabled) {
+  app.use('/api/gpwebpay', gpwebpayRoutes)
+  console.log('✅ GP webpay routes mounted')
+} else {
+  console.log('⚠️ GP webpay disabled (missing env)')
+}
+
+// Stripe only if configured (won’t crash dev when key is missing)
+app.use('/api/stripe', stripeRoutes)
+
 // ----- Base -----
 app.get('/', (_req: Request, res: Response) => {
   res.json({ ok: true, component: 'backend', root: '/' })
@@ -80,7 +100,7 @@ app.get('/health/db', async (_req: Request, res: Response) => {
 })
 
 app.get('/health/stripe', (_req, res) => {
-  const hasStripe = !!process.env.STRIPE_SECRET_KEY || !!process.env.STRIPE_API_KEY
+  const hasStripe = !!process.env.STRIPE_SECRET_KEY || !!process.env.STRIPE_SECRET // ← fixed
   res.json({ stripe: hasStripe })
 })
 
