@@ -3,11 +3,12 @@ import { Router, type Request, type Response } from 'express'
 import bcrypt from 'bcryptjs'
 import jwt, { type Secret, type SignOptions } from 'jsonwebtoken'
 import { prisma } from '../prisma'
-import { linkPaidPledgesToUser } from '../controllers/authExtra'
 import { Role } from '@prisma/client'
+import { linkPaidOrRecentPledgesToUser } from '../controllers/authExtra'
 
 const router = Router()
 
+// ---------- helpers ----------
 function signToken(user: { id: string; role: Role; email: string }) {
   const rawSecret = process.env.JWT_SECRET
   if (!rawSecret) throw new Error('Server misconfigured: JWT_SECRET missing')
@@ -16,15 +17,55 @@ function signToken(user: { id: string; role: Role; email: string }) {
   return jwt.sign({ sub: user.id, role: user.role, email: user.email }, secret, options)
 }
 
+function verifyBearer(req: Request) {
+  try {
+    const hdr = req.headers.authorization || ''
+    const m = hdr.match(/^Bearer\s+(.+)$/i)
+    if (!m) return null
+    const token = m[1]
+    const rawSecret = process.env.JWT_SECRET
+    if (!rawSecret) return null
+    const payload = jwt.verify(token, rawSecret) as any
+    return payload ?? null
+  } catch {
+    return null
+  }
+}
+
+// ---------- routes ----------
+
 router.get('/ping', (_req: Request, res: Response) => {
   res.json({ ok: true, route: '/api/auth/*' })
+})
+
+/**
+ * GET /api/auth/me
+ * header: Authorization: Bearer <token>
+ */
+router.get('/me', async (req: Request, res: Response) => {
+  const payload = verifyBearer(req)
+  if (!payload?.sub) return res.status(401).json({ error: 'Unauthorized' })
+
+  const user = await prisma.user.findUnique({
+    where: { id: String(payload.sub) },
+    select: { id: true, email: true, role: true },
+  })
+  if (!user) return res.status(401).json({ error: 'Unauthorized' })
+
+  // (optional) include quick snapshot of active adoptions
+  const subs = await prisma.subscription.findMany({
+    where: { userId: user.id, status: 'ACTIVE' },
+    select: { animalId: true },
+  })
+
+  res.json({ ...user, animals: subs.map(s => s.animalId) })
 })
 
 /**
  * POST /api/auth/login
  * body: { email, password }
  * - If user has no password yet -> 409 PASSWORD_NOT_SET
- * - On success, also links any PAID pledges (by email) into subscriptions + initial payment
+ * - On success, also links PAID or recent PENDING pledges (provisional access)
  */
 router.post('/login', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -36,7 +77,6 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
 
     const hash = user.passwordHash ?? null
     if (!hash) {
-      // user exists but has no password yet → frontend should call /set-password-first-time
       res.status(409).json({ error: 'PASSWORD_NOT_SET' })
       return
     }
@@ -44,8 +84,8 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
     const ok = await bcrypt.compare(password, hash)
     if (!ok) { res.status(401).json({ error: 'Invalid credentials' }); return }
 
-    // Convert/link paid pledges for this email on every successful login
-    await linkPaidPledgesToUser(user.id, user.email)
+    // Grant access immediately (PAID or recent PENDING within grace window)
+    await linkPaidOrRecentPledgesToUser(user.id, user.email)
 
     const token = signToken({ id: user.id, role: user.role, email: user.email })
     res.json({ token, role: user.role })
@@ -59,7 +99,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
  * POST /api/auth/set-password-first-time
  * body: { email, password }
  * - Allowed only when user exists and has NO password yet
- * - Also links paid pledges afterwards
+ * - Also links pledges afterwards (provisional access)
  */
 router.post('/set-password-first-time', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -69,11 +109,7 @@ router.post('/set-password-first-time', async (req: Request, res: Response): Pro
 
     const user = await prisma.user.findUnique({ where: { email } })
     if (!user) { res.status(404).json({ error: 'User not found' }); return }
-
-    if (user.passwordHash) {
-      res.status(409).json({ error: 'PASSWORD_ALREADY_SET' })
-      return
-    }
+    if (user.passwordHash) { res.status(409).json({ error: 'PASSWORD_ALREADY_SET' }); return }
 
     const hash = await bcrypt.hash(password, 10)
     const updated = await prisma.user.update({
@@ -81,8 +117,7 @@ router.post('/set-password-first-time', async (req: Request, res: Response): Pro
       data: { passwordHash: hash },
     })
 
-    // Link pledges after initial password set
-    await linkPaidPledgesToUser(updated.id, updated.email)
+    await linkPaidOrRecentPledgesToUser(updated.id, updated.email)
 
     const token = signToken({ id: updated.id, role: updated.role, email: updated.email })
     res.json({ ok: true, token, role: updated.role })
@@ -97,7 +132,7 @@ router.post('/set-password-first-time', async (req: Request, res: Response): Pro
  * body: { email, password, name? }
  * - Used after Stripe success redirect if the donor didn’t have an account.
  * - Creates the user or sets first password.
- * - Links paid pledges (email) → subscriptions + initial payment.
+ * - Links pledges (PAID or recent PENDING) → active subscription.
  * - Returns JWT token.
  */
 router.post('/register-after-payment', async (req: Request, res: Response): Promise<void> => {
@@ -119,9 +154,8 @@ router.post('/register-after-payment', async (req: Request, res: Response): Prom
         data: { passwordHash: hash },
       })
     }
-    // If user already had a password, we just proceed to link pledges
 
-    await linkPaidPledgesToUser(user.id, user.email)
+    await linkPaidOrRecentPledgesToUser(user.id, user.email)
 
     const token = signToken({ id: user.id, role: user.role, email: user.email })
     res.json({ ok: true, token, role: user.role })

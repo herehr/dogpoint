@@ -3,7 +3,7 @@ import express, { Request, Response, NextFunction } from 'express'
 import dotenv from 'dotenv'
 import cors from 'cors'
 
-// Route modules
+// Routes
 import adminModeratorsRoutes from './routes/adminModerators'
 import animalRoutes from './routes/animals'
 import authRoutes from './routes/auth'
@@ -15,7 +15,7 @@ import paymentRouter from './routes/paymentRoutes'
 import adoptionRouter from './routes/adoption'
 import gpwebpayRoutes from './routes/gpwebpay'
 
-// Stripe: export TWO routers from routes/stripe
+// Stripe routers (two exports from routes/stripe)
 import stripeJsonRouter, { rawRouter as stripeRawRouter } from './routes/stripe'
 
 import { prisma } from './prisma'
@@ -35,15 +35,18 @@ const corsOptions: Parameters<typeof cors>[0] = allowed.length
 // ----- App -----
 const app = express()
 app.set('trust proxy', 1)
-app.use(cors(corsOptions))
 
-// 1) Stripe RAW route FIRST (webhook needs raw body, no JSON parser before this)
+// Enable CORS (and preflight)
+app.use(cors(corsOptions))
+app.options('*', cors(corsOptions))
+
+// Stripe RAW route FIRST (webhook needs raw body, no JSON parser before this)
 app.use('/api/stripe', stripeRawRouter) // POST /api/stripe/webhook
 
-// 2) JSON parser for everything else
+// JSON parser for everything else
 app.use(express.json({ limit: '2mb' }))
 
-// Request logger (single)
+// Request logger
 app.use((req, _res, next) => {
   const role = (req as any).user?.role
   console.log(`[REQ] ${req.method} ${req.originalUrl} ${role ? `(role=${role})` : ''}`)
@@ -61,10 +64,10 @@ app.use('/api/subscriptions', subscriptionRoutes)
 app.use('/api/payments', paymentRouter)
 app.use('/api/adoption', adoptionRouter)
 
-// 3) Stripe JSON routes AFTER JSON parser
+// Stripe JSON routes AFTER JSON parser
 app.use('/api/stripe', stripeJsonRouter)
 
-// GP webpay (feature-flag by env presence)
+// GP webpay (feature flag)
 const gpEnabled =
   !!process.env.GP_MERCHANT_NUMBER &&
   !!process.env.GP_GATEWAY_BASE &&
@@ -125,7 +128,7 @@ app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
 })
 
 // ----- Server -----
-const PORT = Number(process.env.PORT) || 8080
+const PORT = Number(process.env.PORT) || 3000
 const HOST = '0.0.0.0'
 
 const server = app.listen(PORT, HOST, () => {
@@ -145,3 +148,16 @@ const shutdown = async (signal: string) => {
 }
 process.on('SIGTERM', () => shutdown('SIGTERM'))
 process.on('SIGINT', () => shutdown('SIGINT'))
+
+// ----- DB Probe (NO re-import of prisma here) -----
+;(async () => {
+  try {
+    const info = await prisma.$queryRawUnsafe<{ current_database: string; server: string }[]>(
+      `SELECT current_database() AS current_database, inet_server_addr()::text || ':' || inet_server_port()::text AS server`
+    )
+    const animals = await prisma.animal.count()
+    console.log('[DB] connected to:', info?.[0], 'animals:', animals)
+  } catch (e: any) {
+    console.error('[DB probe error]', e?.message)
+  }
+})()

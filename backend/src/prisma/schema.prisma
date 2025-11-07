@@ -215,9 +215,10 @@ model Payment {
   failureReason String?
 
   createdAt DateTime @default(now())
-
+  
   @@index([subscriptionId])
   @@index([status])
+  @@unique([subscriptionId, providerRef])
 }
 
 model WebhookEvent {

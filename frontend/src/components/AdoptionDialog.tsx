@@ -19,13 +19,11 @@ export default function AdoptionDialog({ open, onClose, animalId, defaultAmountC
   const [amount, setAmount] = useState<number>(defaultAmountCZK)
   const [email, setEmail] = useState<string>('')
   const [name, setName] = useState<string>('')
-  const [password, setPassword] = useState<string>('')
 
   const [custom, setCustom] = useState<string>('')
 
   const validEmail = useMemo(() => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()), [email])
   const minOk = amount >= 50
-  const passOk = password.trim().length >= 6
 
   function pickPreset(v?: number) {
     if (!v) return
@@ -39,14 +37,17 @@ export default function AdoptionDialog({ open, onClose, animalId, defaultAmountC
     if (Number.isFinite(n)) setAmount(Math.round(n))
   }
 
-  // persist the password locally (for a later signup flow)
-  function persistPasswordHint() {
+  // (Optional) also stash lightweight context here (email/name/animalId) – harmless
+  function persistPendingUserLite() {
     try {
-      if (validEmail && passOk) {
-        localStorage.setItem(`dp:pendingUser:${email}`, JSON.stringify({ email, name, password }))
+      if (validEmail) {
+        const payload = { email: email.trim(), name: name.trim(), animalId, ts: Date.now() }
+        localStorage.setItem('dp:pendingUser', JSON.stringify(payload))
       }
     } catch {}
   }
+
+  const disablePay = !minOk || !validEmail
 
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
@@ -99,25 +100,9 @@ export default function AdoptionDialog({ open, onClose, animalId, defaultAmountC
           />
         </Box>
 
-        {/* HESLO – požádáme před platbou */}
-        <Box sx={{ mb: 2 }}>
-          <Typography variant="subtitle1" sx={{ fontWeight: 800, mb: 1 }}>
-            Heslo pro váš účet
-          </Typography>
-          <TextField
-            type="password"
-            label="Heslo (min. 6 znaků) *"
-            fullWidth
-            required
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-            helperText="Heslo využijete pro správu adopce a přístup k obsahu."
-          />
-        </Box>
-
         <Divider sx={{ my: 2 }} />
 
-        {/* Stripe only */}
+        {/* Info */}
         <Alert severity="info" sx={{ mb: 2 }}>
           Platba kartou je zpracována přes Stripe. Po potvrzení budete přesměrováni na platební stránku.
         </Alert>
@@ -128,7 +113,7 @@ export default function AdoptionDialog({ open, onClose, animalId, defaultAmountC
           amountCZK={amount}
           email={email || undefined}
           name={name || undefined}
-          disabled={!minOk || !validEmail || !passOk}
+          disabled={disablePay}
         />
         <Typography variant="caption" color="text.secondary" sx={{ mt: 2, display: 'block' }}>
           Jedná se o <b>měsíční</b> podporu (lze kdykoliv ukončit).
@@ -136,14 +121,7 @@ export default function AdoptionDialog({ open, onClose, animalId, defaultAmountC
       </DialogContent>
 
       <DialogActions>
-        <Button onClick={() => { persistPasswordHint(); onClose() }}>Zavřít</Button>
-        <Button
-          onClick={persistPasswordHint}
-          disabled={!minOk || !validEmail || !passOk}
-          variant="outlined"
-        >
-          Uložit heslo
-        </Button>
+        <Button onClick={() => { persistPendingUserLite(); onClose() }}>Zavřít</Button>
       </DialogActions>
     </Dialog>
   )
