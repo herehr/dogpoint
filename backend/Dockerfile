@@ -13,10 +13,10 @@ RUN apk add --no-cache ffmpeg libc6-compat
 # install deps
 COPY package.json package-lock.json ./
 RUN (npm ci --no-audit --no-fund || npm install --no-audit --no-fund) \
- && echo "[deps] deps installed."
+  && echo "[deps] deps installed."
 
-# prisma: your schema lives in src/prisma
-COPY src/prisma ./prisma
+# prisma: schema lives in prisma/
+COPY prisma ./prisma
 RUN npx prisma generate --schema=./prisma/schema.prisma
 
 # ---------- builder ----------
@@ -27,9 +27,10 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY tsconfig.json ./tsconfig.json
 COPY src ./src
+COPY prisma ./prisma
 
 # sanity: schema must exist
-RUN test -f ./src/prisma/schema.prisma
+RUN test -f ./prisma/schema.prisma
 
 # compile TS → dist
 RUN echo "[builder] tsc..." && npx tsc && echo "[builder] build done."
@@ -43,12 +44,9 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
-
-# keep prisma folder available at runtime (for migrate or schema ref)
-COPY src/prisma ./prisma
+COPY prisma ./prisma
 
 EXPOSE 8080
-# If DO App Platform is configured with a Run Command, keep CMD commented.
-# Otherwise, uncomment one of these:
-# CMD ["node", "dist/index.js"]
+# If DO App Platform Run Command is set, keep CMD commented.
+# Otherwise:
 # CMD ["npm", "run", "start:with-migrate"]
