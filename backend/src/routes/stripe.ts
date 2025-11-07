@@ -149,8 +149,8 @@ jsonRouter.post('/checkout-session', async (req: Request, res: Response) => {
       process.env.FRONTEND_BASE_URL ||
       'https://example.com'
 
-    const successUrl = `${FRONTEND_BASE}/zvirata/${encodeURIComponent(animalId)}?paid=1&session_id={CHECKOUT_SESSION_ID}`;
-    const cancelUrl  = `${FRONTEND_BASE}/zvirata/${encodeURIComponent(animalId)}?canceled=1`;
+    const successUrl = `${FRONTEND_BASE}/zvirata/${encodeURIComponent(animalId)}?paid=1&sid={CHECKOUT_SESSION_ID}`
+    const cancelUrl  = `${FRONTEND_BASE}/zvirata/${encodeURIComponent(animalId)}?canceled=1`
 
     // Create Stripe Checkout Session (CZK only)
     const session = await stripe.checkout.sessions.create({
