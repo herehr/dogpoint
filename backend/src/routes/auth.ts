@@ -3,7 +3,7 @@ import { Router, type Request, type Response } from 'express'
 import bcrypt from 'bcryptjs'
 import jwt, { type Secret, type SignOptions } from 'jsonwebtoken'
 import { prisma } from '../prisma'
-import { Role } from '@prisma/client'
+import { Role, SubscriptionStatus } from '@prisma/client'
 import { linkPaidOrRecentPledgesToUser } from '../controllers/authExtra'
 
 const router = Router()
@@ -52,7 +52,7 @@ router.get('/me', async (req: Request, res: Response) => {
   })
   if (!user) return res.status(401).json({ error: 'Unauthorized' })
 
-  // (optional) include quick snapshot of active adoptions
+  // Optional: snapshot of active adoptions
   const subs = await prisma.subscription.findMany({
     where: { userId: user.id, status: 'ACTIVE' },
     select: { animalId: true },
@@ -76,15 +76,11 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
     if (!user) { res.status(401).json({ error: 'Invalid credentials' }); return }
 
     const hash = user.passwordHash ?? null
-    if (!hash) {
-      res.status(409).json({ error: 'PASSWORD_NOT_SET' })
-      return
-    }
+    if (!hash) { res.status(409).json({ error: 'PASSWORD_NOT_SET' }); return }
 
     const ok = await bcrypt.compare(password, hash)
     if (!ok) { res.status(401).json({ error: 'Invalid credentials' }); return }
 
-    // Grant access immediately (PAID or recent PENDING within grace window)
     await linkPaidOrRecentPledgesToUser(user.id, user.email)
 
     const token = signToken({ id: user.id, role: user.role, email: user.email })
@@ -128,9 +124,46 @@ router.post('/set-password-first-time', async (req: Request, res: Response): Pro
 })
 
 /**
+ * POST /api/auth/claim-paid
+ * body: { email }
+ * - Passwordless login immediately after Stripe success redirect.
+ * - Ensures user exists, links PAID (or recent PENDING) pledges, verifies ACTIVE subscription, returns JWT.
+ */
+router.post('/claim-paid', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { email } = (req.body || {}) as { email?: string }
+    if (!email) { res.status(400).json({ error: 'Missing email' }); return }
+
+    let user = await prisma.user.findUnique({ where: { email } })
+    if (!user) {
+      user = await prisma.user.create({
+        data: { email, role: Role.USER }, // passwordHash stays null
+      })
+    }
+
+    await linkPaidOrRecentPledgesToUser(user.id, user.email)
+
+    const token = signToken({ id: user.id, role: user.role, email: user.email })
+    res.json({ ok: true, token, role: user.role })
+  } catch (e: any) {
+    console.error('claim-paid error:', e)
+    res.status(500).json({ error: 'Internal error' })
+  }
+})
+
+    // 4) mint token
+    const token = signToken({ id: user.id, role: user.role, email: user.email })
+    res.json({ ok: true, token, role: user.role })
+  } catch (e: any) {
+    console.error('[auth claim-paid] error:', e)
+    res.status(500).json({ error: 'Internal error' })
+  }
+})
+
+/**
  * POST /api/auth/register-after-payment
  * body: { email, password, name? }
- * - Used after Stripe success redirect if the donor didn’t have an account.
+ * - Optional path if you do want to let donor set a password after payment.
  * - Creates the user or sets first password.
  * - Links pledges (PAID or recent PENDING) → active subscription.
  * - Returns JWT token.

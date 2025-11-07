@@ -21,14 +21,22 @@ export default function PaymentButtons({ animalId, amountCZK, email, name, disab
       setError(null)
       setLoading(true)
 
-      // Stash info so we can create a user after payment
+      // --- Stash identifiers so we can auto-login / claim after redirect ---
       try {
-        if (email) {
-          const payload = { email, name: name || '', animalId, ts: Date.now() }
+        if (email && email.trim()) {
+          // quick lookup for post-Stripe claim
+          localStorage.setItem('dp:pendingEmail', email.trim())
+          // optional: helpful for deep-linking the animal after return
+          localStorage.setItem('dp:pendingAnimalId', animalId)
+          // keep your richer payload if you like
+          const payload = { email: email.trim(), name: name || '', animalId, ts: Date.now() }
           localStorage.setItem('dp:pendingUser', JSON.stringify(payload))
         }
-      } catch {}
+      } catch {
+        // ignore storage errors
+      }
 
+      // Create Checkout Session
       const res = await fetch(`${API_BASE}/api/stripe/checkout-session`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

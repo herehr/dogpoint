@@ -1,9 +1,10 @@
 // frontend/src/pages/AnimalDetail.tsx
 import React, { useEffect, useState, useMemo, useCallback } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useLocation } from 'react-router-dom'
 import {
   Container, Typography, Box, Stack, Chip, Alert, Skeleton, Grid, Button, Divider
 } from '@mui/material'
+
 import { fetchAnimal } from '../api'
 import { useAccess } from '../context/AccessContext'
 import PostsSection from '../components/PostsSection'
@@ -12,10 +13,14 @@ import AdoptionDialog from '../components/AdoptionDialog'
 import { useAuth } from '../context/AuthContext'
 import SafeMarkdown from '../components/SafeMarkdown'
 import PaymentButtons from '../components/payments/PaymentButtons'
-import AfterPaymentPasswordDialog from '../components/AfterPaymentPasswordDialog'
+
+// services for auto-claim + auth
+import { claimPaid, me } from '../services/api'
+import { setAuthToken } from '../services/auth'
+import { claimPaid, me } from '../services/api'
 
 type Media = { url: string; type?: 'image' | 'video' }
-type LocalAnimal = {  
+type LocalAnimal = {
   id: string
   jmeno?: string
   name?: string
@@ -58,7 +63,9 @@ function formatAge(a: LocalAnimal): string {
 }
 
 export default function AnimalDetail() {
-  const { id } = useParams()
+  const { id } = useParams<{ id: string }>()
+  const location = useLocation()
+
   const { hasAccess, grantAccess } = useAccess()
   const { token, role } = useAuth()
   const isStaff = role === 'ADMIN' || role === 'MODERATOR'
@@ -68,12 +75,11 @@ export default function AnimalDetail() {
   const [err, setErr] = useState<string | null>(null)
   const [adoptOpen, setAdoptOpen] = useState(false)
   const [forceLocked, setForceLocked] = useState(false)
-  const [showAfterPay, setShowAfterPay] = useState(false)
 
   const isUnlocked = useMemo(() => {
-    if (role === 'ADMIN' || role === 'MODERATOR') return true
+    if (isStaff) return true
     return !!(id && hasAccess(id)) && !forceLocked
-  }, [role, id, hasAccess, forceLocked])
+  }, [isStaff, id, hasAccess, forceLocked])
 
   const loadAnimal = useCallback(async () => {
     if (!id) return
@@ -89,46 +95,76 @@ export default function AnimalDetail() {
     }
   }, [id])
 
+  // initial load
   useEffect(() => {
     let alive = true
     if (!id) return
     setLoading(true)
     setErr(null)
     fetchAnimal(id)
-      .then(a => {
-        if (alive) setAnimal(a as any)
-      })
+      .then(a => { if (alive) setAnimal(a as any) })
       .catch(e => alive && setErr(e?.message || 'Chyba načítání detailu'))
       .finally(() => alive && setLoading(false))
-    return () => {
-      alive = false
-    }
+    return () => { alive = false }
   }, [id])
 
-useEffect(() => {
-  if (!id) return
-  const params = new URLSearchParams(window.location.search)
-  const paid = params.get('paid')
-  if (paid === '1') {
-    try {
-      grantAccess(id)
-      setForceLocked(false)
+  // Handle Stripe success (?paid=1): auto-claim, login, grant access, clean URL
+  useEffect(() => {
+    if (!id) return
+    const params = new URLSearchParams(location.search)
+    const paid = params.get('paid')
 
-      // If user is not logged in, show password dialog
-      if (!token) {
-        setShowAfterPay(true)
+    if (paid === '1') {
+      // attempt to restore email from local storage
+      let email: string | null = null
+      try {
+        // primary stash (object)
+        const stash = localStorage.getItem('dp:pendingUser')
+        if (stash) {
+          const parsed = JSON.parse(stash)
+          email = parsed?.email || null
+        }
+        // fallback (string)
+        if (!email) {
+          const fallbackEmail = localStorage.getItem('dp:pendingEmail')
+          if (fallbackEmail) email = fallbackEmail
+        }
+      } catch {
+        // ignore
       }
 
-      // clean URL
-      params.delete('paid')
-      const url = `${window.location.pathname}?${params.toString()}`
-      window.history.replaceState({}, '', url.endsWith('?') ? url.slice(0, -1) : url)
-    } catch {}
-  }
-}, [id, grantAccess, token])
+      (async () => {
+        try {
+          // grant immediate in-session access for UX
+          grantAccess(id)
+          setForceLocked(false)
 
+          if (email) {
+            // Ask backend to register/attach pledges and return JWT
+            const { token } = await claimPaid(email)
 
+            // save token -> AuthContext should pick it up
+            setAuthToken(token)
 
+            // refresh "me" so header updates (logged-in)
+            await me()
+          }
+
+          // cleanup local stashes & URL
+          try {
+            localStorage.removeItem('dp:pendingUser')
+            localStorage.removeItem('dp:pendingEmail')
+          } catch {}
+          params.delete('paid')
+          const clean = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}`
+          window.history.replaceState({}, '', clean)
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.error('[auto-claim] failed:', e)
+        }
+      })()
+    }
+  }, [id, location.search, grantAccess])
 
   const onCancelAdoption = useCallback(async () => {
     if (!animal) return
@@ -149,6 +185,7 @@ useEffect(() => {
       setForceLocked(true)
       await loadAnimal()
     } catch (e) {
+      // eslint-disable-next-line no-console
       console.error('Cancel adoption failed', e)
     }
   }, [animal, loadAnimal])
@@ -265,34 +302,34 @@ useEffect(() => {
             <Divider sx={{ my: 2 }} />
 
             {/* Adoption or payment section */}
-<Box id="adopce">
-  <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>
-    {isUnlocked ? 'Podpořit zvíře' : 'Chci adoptovat'}
-  </Typography>
+            <Box id="adopce">
+              <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>
+                {isUnlocked ? 'Podpořit zvíře' : 'Chci adoptovat'}
+              </Typography>
 
-  {!isUnlocked ? (
-    <>
-      <Typography color="text.secondary" sx={{ mb: 2 }}>
-        Po adopci uvidíte další fotografie, videa a příspěvky.
-      </Typography>
-      <Button variant="contained" onClick={() => setAdoptOpen(true)}>
-        Pokračovat k adopci
-      </Button>
-    </>
-  ) : (
-    <Box sx={{ mt: 2 }}>
-      <Typography color="text.secondary" sx={{ mb: 2 }}>
-        Vyberte způsob platby:
-      </Typography>
-      <PaymentButtons
-        animalId={animal.id}
-        amountCZK={200}
-        email={undefined} // you can pass current user email if available
-        name={animal.jmeno || animal.name}
-      />
-    </Box>
-  )}
-</Box>
+              {!isUnlocked ? (
+                <>
+                  <Typography color="text.secondary" sx={{ mb: 2 }}>
+                    Po adopci uvidíte další fotografie, videa a příspěvky.
+                  </Typography>
+                  <Button variant="contained" onClick={() => setAdoptOpen(true)}>
+                    Pokračovat k adopci
+                  </Button>
+                </>
+              ) : (
+                <Box sx={{ mt: 2 }}>
+                  <Typography color="text.secondary" sx={{ mb: 2 }}>
+                    Vyberte způsob platby:
+                  </Typography>
+                  <PaymentButtons
+                    animalId={animal.id}
+                    amountCZK={200}
+                    email={undefined} // pokud znáte e-mail uživatele, můžete ho sem předat
+                    name={animal.jmeno || animal.name}
+                  />
+                </Box>
+              )}
+            </Box>
           </Grid>
         </Grid>
       </Box>
@@ -358,17 +395,6 @@ useEffect(() => {
           </Typography>
         )}
       </Box>
-      
-      <AfterPaymentPasswordDialog
-        open={showAfterPay}
-        onClose={() => setShowAfterPay(false)}
-        animalId={id}
-       onLoggedIn={() => {
-    // try to refresh page data or just ensure unlocked
-    setForceLocked(false)
-  }}
-/>
-
 
       {/* Adoption dialog */}
       <AdoptionDialog
