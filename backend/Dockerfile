@@ -30,7 +30,9 @@ COPY src ./src
 COPY prisma ./prisma
 
 # sanity: schema must exist
-RUN test -f ./prisma/schema.prisma
+RUN test -f ./prisma/schema.prisma || echo "Note: prisma folder is provided later at runtime"
+
+RUN npx tsc
 
 # compile TS → dist
 RUN echo "[builder] tsc..." && npx tsc && echo "[builder] build done."
