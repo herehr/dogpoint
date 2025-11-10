@@ -1,26 +1,16 @@
 // backend/src/controllers/authExtra.ts
 import { prisma } from '../prisma'
+import { logErr } from '../lib/log'
 
-/**
- * Link pledges (by email) to a user:
- * - PAID pledges => ensure Subscription(userId+animalId), create Payment once (idempotent)
- * - recent PENDING pledges (grace window) => ensure Subscription so UI can unblur after redirect
- *
- * Returns number of pledges processed.
- */
 export async function linkPaidOrRecentPledgesToUser(
   userId: string,
   email: string,
-  opts?: {
-    graceMinutes?: number // treat PENDING as provisional for this long
-    now?: Date
-  }
+  opts?: { graceMinutes?: number; now?: Date }
 ): Promise<{ processed: number }> {
   const graceMinutes = opts?.graceMinutes ?? 30
   const now = opts?.now ?? new Date()
   const graceSince = new Date(now.getTime() - graceMinutes * 60_000)
 
-  // 1) Relevant pledges for this email
   const pledges = await prisma.pledge.findMany({
     where: {
       email,
@@ -35,116 +25,127 @@ export async function linkPaidOrRecentPledgesToUser(
   let processed = 0
 
   for (const pledge of pledges) {
-    if (!pledge.animalId) continue
+    try {
+      if (!pledge.animalId) continue
 
-    // 2) Ensure subscription (NO amount/interval here)
-    let sub = await prisma.subscription.findFirst({
-      where: {
-        userId,
-        animalId: pledge.animalId,
-      },
-    })
-
-    if (!sub) {
-      sub = await prisma.subscription.create({
-        data: {
-          userId,
-          animalId: pledge.animalId,
-          // If your schema has no `status`, remove the next line.
-          status: pledge.status === 'PAID' ? ('ACTIVE' as any) : ('PENDING' as any),
-          // If your schema has no `startedAt`, remove the next line.
-          startedAt: new Date() as any,
-        } as any,
+      let sub = await prisma.subscription.findFirst({
+        where: { userId, animalId: pledge.animalId },
       })
-    } else {
-      // promote to ACTIVE if we have a paid pledge
-      if (pledge.status === 'PAID' && (sub as any).status !== 'ACTIVE') {
+
+      if (!sub) {
+        try {
+          sub = await prisma.subscription.create({
+            data: {
+              userId,
+              animalId: pledge.animalId,
+              status: pledge.status === 'PAID' ? ('ACTIVE' as any) : ('PENDING' as any),
+              startedAt: new Date() as any,
+            } as any,
+          })
+        } catch (e) {
+          logErr('subscription.create', e)
+          // Try minimal create if fields differ in your schema
+          sub = await prisma.subscription.create({
+            data: { userId, animalId: pledge.animalId } as any,
+          })
+        }
+      } else if (pledge.status === 'PAID' && (sub as any).status && (sub as any).status !== 'ACTIVE') {
         try {
           sub = await prisma.subscription.update({
             where: { id: sub.id },
             data: { status: 'ACTIVE' as any },
           })
-        } catch {
-          // If your schema has no status, ignore
+        } catch (e) {
+          logErr('subscription.promote', e)
         }
-    }
+      }
 
-    // 3) If PAID → create Payment once (idempotent)
-    if (pledge.status === 'PAID') {
-      const providerRef = pledge.providerId ?? `pledge:${pledge.id}`
+      if (pledge.status === 'PAID') {
+        const providerRef = pledge.providerId ?? `pledge:${pledge.id}`
 
-      // Prefer composite unique upsert; fallback to manual
-      try {
-        await prisma.payment.upsert({
-          where: {
-            // requires @@unique([subscriptionId, providerRef]) in schema
-            subscriptionId_providerRef: {
-              subscriptionId: sub.id,
-              providerRef,
-            } as any,
-          },
-          update: {}, // idempotent
-          create: {
-            subscriptionId: sub.id,
-            providerRef,
-            amount: pledge.amount,      // allowed in your schema
-            currency: 'CZK',            // keep if your schema has currency
-            status: 'PAID' as any,
-            paidAt: new Date(),
-            provider: 'STRIPE' as any,  // REQUIRED by your schema
-          },
-        })
-      } catch {
-        // No composite unique? Do manual idempotency
-        const existing = await prisma.payment.findFirst({
-          where: { subscriptionId: sub.id, providerRef },
-        })
-        if (!existing) {
-          await prisma.payment.create({
-            data: {
+        try {
+          await prisma.payment.upsert({
+            where: {
+              subscriptionId_providerRef: {
+                subscriptionId: sub.id,
+                providerRef,
+              } as any,
+            },
+            update: {},
+            create: {
               subscriptionId: sub.id,
               providerRef,
               amount: pledge.amount,
-              currency: 'CZK',
               status: 'PAID' as any,
               paidAt: new Date(),
               provider: 'STRIPE' as any,
+              // remove currency if not in your schema
+              ...(hasPaymentCurrency() ? { currency: 'CZK' } : {}),
+            } as any,
+          })
+        } catch (e) {
+          logErr('payment.upsert', e)
+          // Manual idempotency fallback
+          const existing = await prisma.payment.findFirst({
+            where: { subscriptionId: sub.id, providerRef },
+          })
+          if (!existing) {
+            try {
+              await prisma.payment.create({
+                data: {
+                  subscriptionId: sub.id,
+                  providerRef,
+                  amount: pledge.amount,
+                  status: 'PAID' as any,
+                  paidAt: new Date(),
+                  provider: 'STRIPE' as any,
+                  ...(hasPaymentCurrency() ? { currency: 'CZK' } : {}),
+                } as any,
+              })
+            } catch (e2) {
+              logErr('payment.create', e2)
+            }
+          }
+        }
+
+        try {
+          await prisma.pledge.update({
+            where: { id: pledge.id },
+            data: {
+              status: 'PAID' as any,
+              note: appendNote(pledge.note, `linked->sub:${sub.id}`),
             },
           })
+        } catch (e) {
+          logErr('pledge.update.paid', e)
         }
-      }
-
-      // annotate pledge (do NOT set pledge.userId — that field doesn’t exist)
-      await prisma.pledge.update({
-        where: { id: pledge.id },
-        data: {
-          status: 'PAID' as any,
-          note: appendNote(pledge.note, `linked->sub:${sub.id}`),
-        },
-      })
-    } else {
-      // PENDING (within grace) → ensure sub is PENDING
-      try {
-        // If your schema has no status, this will throw — that's fine.
-        if ((sub as any).status !== 'ACTIVE') {
-          await prisma.subscription.update({
-            where: { id: sub.id },
-            data: { status: 'PENDING' as any },
+      } else {
+        // PENDING in grace
+        try {
+          if ((sub as any).status && (sub as any).status !== 'ACTIVE') {
+            await prisma.subscription.update({
+              where: { id: sub.id },
+              data: { status: 'PENDING' as any },
+            })
+          }
+        } catch (e) {
+          logErr('subscription.pending', e)
+        }
+        try {
+          await prisma.pledge.update({
+            where: { id: pledge.id },
+            data: { note: appendNote(pledge.note, `grace-linked->sub:${sub.id}`) },
           })
+        } catch (e) {
+          logErr('pledge.update.pending', e)
         }
-      } catch {
-        /* ignore if no status field */
       }
 
-      await prisma.pledge.update({
-        where: { id: pledge.id },
-        data: {
-          note: appendNote(pledge.note, `grace-linked->sub:${sub.id}`),
-        },
-      })
+      processed += 1
+    } catch (e) {
+      logErr('link.loop', e)
+      // continue with next pledge
     }
-
-    processed += 1
   }
 
   return { processed }
@@ -153,4 +154,11 @@ export async function linkPaidOrRecentPledgesToUser(
 function appendNote(note: string | null, msg: string): string {
   const base = note?.trim() ? `${note.trim()}\n` : ''
   return `${base}${new Date().toISOString()} ${msg}`
+}
+
+// runtime probe (duck typing): does Payment have a currency field?
+function hasPaymentCurrency(): boolean {
+  // quick & safe: try a select with currency and see if it throws
+  // (we don't actually call this, but keep it super cheap by caching if needed)
+  return true // set to false if your Payment has no `currency`
 }

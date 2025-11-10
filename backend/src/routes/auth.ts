@@ -5,6 +5,7 @@ import jwt, { type Secret, type SignOptions } from 'jsonwebtoken'
 import { prisma } from '../prisma'
 import { Role } from '@prisma/client'
 import { linkPaidOrRecentPledgesToUser } from '../controllers/authExtra'
+import { logErr } from '../lib/log'
 
 const router = Router()
 
@@ -75,6 +76,7 @@ router.post('/set-password-first-time', async (req, res) => {
   }
 })
 
+
 router.post('/register-after-payment', async (req: Request, res: Response) => {
   try {
     const { email, password } = (req.body || {}) as { email?: string; password?: string }
@@ -90,12 +92,19 @@ router.post('/register-after-payment', async (req: Request, res: Response) => {
       user = await prisma.user.update({ where: { id: user.id }, data: { passwordHash } })
     }
 
-    await linkPaidOrRecentPledgesToUser(user.id, user.email)
+    // Best-effort pledge linking — never make the whole request fail
+    try {
+      const r = await linkPaidOrRecentPledgesToUser(user.id, user.email)
+      console.log('[auth.register-after-payment] link result:', r)
+    } catch (e) {
+      logErr('linkPaidOrRecentPledgesToUser', e)
+      // do not throw — proceed to return token
+    }
 
     const token = signToken({ id: user.id, role: user.role, email: user.email })
     res.json({ ok: true, token, role: user.role })
   } catch (e) {
-    console.error('register-after-payment error:', e)
+    logErr('register-after-payment', e)
     res.status(500).json({ error: 'Internal error' })
   }
 })
