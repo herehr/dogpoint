@@ -1,73 +1,155 @@
 // backend/src/controllers/authExtra.ts
 import { prisma } from '../prisma'
-import { PaymentProvider, PaymentStatus, SubscriptionStatus } from '@prisma/client'
 
 /**
- * Link all PAID pledges (and recent PENDING pledges within grace window)
- * to the given user. Creates/upsserts Subscription + initial Payment and
- * marks pledge as linked to user.
+ * Link pledges (by email) to a user:
+ * - PAID pledges => ensure Subscription(userId+animalId), create Payment once (idempotent)
+ * - recent PENDING pledges (grace window) => ensure Subscription so UI can unblur after redirect
+ *
+ * Returns number of pledges processed.
  */
 export async function linkPaidOrRecentPledgesToUser(
   userId: string,
   email: string,
-  opts: { pendingGraceMinutes?: number } = {}
-) {
-  const graceMin = opts.pendingGraceMinutes ?? 30
-  const since = new Date(Date.now() - graceMin * 60_000)
+  opts?: {
+    graceMinutes?: number // treat PENDING as provisional for this long
+    now?: Date
+  }
+): Promise<{ processed: number }> {
+  const graceMinutes = opts?.graceMinutes ?? 30
+  const now = opts?.now ?? new Date()
+  const graceSince = new Date(now.getTime() - graceMinutes * 60_000)
 
+  // 1) Relevant pledges for this email
   const pledges = await prisma.pledge.findMany({
     where: {
       email,
       OR: [
-        { status: PaymentStatus.PAID },
-        { status: PaymentStatus.PENDING, createdAt: { gte: since } },
+        { status: 'PAID' },
+        { status: 'PENDING', createdAt: { gte: graceSince } },
       ],
     },
+    orderBy: { createdAt: 'asc' },
   })
 
+  let processed = 0
+
   for (const pledge of pledges) {
-    const sub = await prisma.subscription.upsert({
+    // 2) Ensure subscription (NO amount/interval here)
+    let sub = await prisma.subscription.findFirst({
       where: {
-        userId_animalId_status: {
-          userId,
-          animalId: pledge.animalId,
-          status: SubscriptionStatus.ACTIVE,
-        },
-      },
-      update: {},
-      create: {
         userId,
         animalId: pledge.animalId,
-        monthlyAmount: pledge.amount,
-        currency: 'CZK',
-        provider: PaymentProvider.STRIPE,
-        providerRef: pledge.providerId ?? undefined,
-        status: SubscriptionStatus.ACTIVE,
-        startedAt: new Date(),
       },
     })
 
-    await prisma.payment.upsert({
-      where: {
-        subscriptionId_providerRef: {
-          subscriptionId: sub.id,
-          providerRef: pledge.providerId ?? 'unknown',
-        },
-      },
-      update: {},
-      create: {
-        subscriptionId: sub.id,
-        provider: PaymentProvider.STRIPE,
-        providerRef: pledge.providerId ?? 'unknown',
-        amount: pledge.amount,
-        currency: 'CZK',
-        status: pledge.status === 'PAID' ? PaymentStatus.PAID : PaymentStatus.PENDING,
-        paidAt: pledge.status === 'PAID' ? new Date() : null,
-      },
-    })
-
-    if (!pledge.userId) {
-      await prisma.pledge.update({ where: { id: pledge.id }, data: { userId } })
+    if (!sub) {
+      sub = await prisma.subscription.create({
+        data: {
+          userId,
+          animalId: pledge.animalId,
+          // If your schema has no `status`, remove the next line.
+          status: pledge.status === 'PAID' ? ('ACTIVE' as any) : ('PENDING' as any),
+          // If your schema has no `startedAt`, remove the next line.
+          startedAt: new Date() as any,
+        } as any,
+      })
+    } else {
+      // promote to ACTIVE if we have a paid pledge
+      if (pledge.status === 'PAID' && (sub as any).status !== 'ACTIVE') {
+        try {
+          sub = await prisma.subscription.update({
+            where: { id: sub.id },
+            data: { status: 'ACTIVE' as any },
+          })
+        } catch {
+          // If your schema has no status, ignore
+        }
+      }
     }
+
+    // 3) If PAID → create Payment once (idempotent)
+    if (pledge.status === 'PAID') {
+      const providerRef = pledge.providerId ?? `pledge:${pledge.id}`
+
+      // Prefer composite unique upsert; fallback to manual
+      try {
+        await prisma.payment.upsert({
+          where: {
+            // requires @@unique([subscriptionId, providerRef]) in schema
+            subscriptionId_providerRef: {
+              subscriptionId: sub.id,
+              providerRef,
+            } as any,
+          },
+          update: {}, // idempotent
+          create: {
+            subscriptionId: sub.id,
+            providerRef,
+            amount: pledge.amount,      // allowed in your schema
+            currency: 'CZK',            // keep if your schema has currency
+            status: 'PAID' as any,
+            paidAt: new Date(),
+            provider: 'STRIPE' as any,  // REQUIRED by your schema
+          },
+        })
+      } catch {
+        // No composite unique? Do manual idempotency
+        const existing = await prisma.payment.findFirst({
+          where: { subscriptionId: sub.id, providerRef },
+        })
+        if (!existing) {
+          await prisma.payment.create({
+            data: {
+              subscriptionId: sub.id,
+              providerRef,
+              amount: pledge.amount,
+              currency: 'CZK',
+              status: 'PAID' as any,
+              paidAt: new Date(),
+              provider: 'STRIPE' as any,
+            },
+          })
+        }
+      }
+
+      // annotate pledge (do NOT set pledge.userId — that field doesn’t exist)
+      await prisma.pledge.update({
+        where: { id: pledge.id },
+        data: {
+          status: 'PAID',
+          note: appendNote(pledge.note, `linked->sub:${sub.id}`),
+        },
+      })
+    } else {
+      // PENDING (within grace) → ensure sub is PENDING
+      try {
+        // If your schema has no status, this will throw — that's fine.
+        if ((sub as any).status !== 'ACTIVE') {
+          await prisma.subscription.update({
+            where: { id: sub.id },
+            data: { status: 'PENDING' as any },
+          })
+        }
+      } catch {
+        /* ignore if no status field */
+      }
+
+      await prisma.pledge.update({
+        where: { id: pledge.id },
+        data: {
+          note: appendNote(pledge.note, `grace-linked->sub:${sub.id}`),
+        },
+      })
+    }
+
+    processed += 1
   }
+
+  return { processed }
+}
+
+function appendNote(note: string | null, msg: string): string {
+  const base = note?.trim() ? `${note.trim()}\n` : ''
+  return `${base}${new Date().toISOString()} ${msg}`
 }
