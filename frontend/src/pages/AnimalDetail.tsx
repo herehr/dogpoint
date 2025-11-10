@@ -13,8 +13,6 @@ import AdoptionDialog from '../components/AdoptionDialog'
 import { useAuth } from '../context/AuthContext'
 import SafeMarkdown from '../components/SafeMarkdown'
 import PaymentButtons from '../components/payments/PaymentButtons'
-import { me, registerAfterPayment } from '../services/api'
-import { setAuthToken } from '../services/auth'
 import AfterPaymentPasswordDialog from '../components/AfterPaymentPasswordDialog'
 
 type Media = { url: string; type?: 'image' | 'video' }
@@ -44,10 +42,8 @@ function formatAge(a: LocalAnimal): string {
   if (bd && !Number.isNaN(bd.getTime())) {
     const now = new Date()
     let years = now.getFullYear() - bd.getFullYear()
-    if (
-      now.getMonth() < bd.getMonth() ||
-      (now.getMonth() === bd.getMonth() && now.getDate() < bd.getDate())
-    ) {
+    if (now.getMonth() < bd.getMonth() ||
+       (now.getMonth() === bd.getMonth() && now.getDate() < bd.getDate())) {
       years -= 1
     }
     return `${years} r`
@@ -73,10 +69,7 @@ export default function AnimalDetail() {
   const [err, setErr] = useState<string | null>(null)
   const [adoptOpen, setAdoptOpen] = useState(false)
   const [forceLocked, setForceLocked] = useState(false)
-
-  // post-payment dialog state
   const [showAfterPay, setShowAfterPay] = useState(false)
-  const [prefillEmail, setPrefillEmail] = useState<string>('')
 
   const isUnlocked = useMemo(() => {
     if (isStaff) return true
@@ -110,61 +103,41 @@ export default function AnimalDetail() {
     return () => { alive = false }
   }, [id])
 
-  // On Stripe return (?paid=1): open password dialog with prefilled email,
-  // grant temporary access so the page unblurs immediately after successful login.
+  // Handle Stripe success (?paid=1): grant provisional access, show password dialog, clean URL
   useEffect(() => {
     if (!id) return
     const params = new URLSearchParams(location.search)
     const paid = params.get('paid')
-
     if (paid === '1') {
-      // restore email we stashed before redirect
-      let email = ''
       try {
-        const stash = localStorage.getItem('dp:pendingUser')
-        if (stash) {
-          const parsed = JSON.parse(stash)
-          if (parsed?.email) email = parsed.email
-        }
-        if (!email) {
-          const fallbackEmail = localStorage.getItem('dp:pendingEmail')
-          if (fallbackEmail) email = fallbackEmail
-        }
-      } catch {}
+        grantAccess(id)          // provisional unlock (grace window)
+        setForceLocked(false)
+        setShowAfterPay(true)    // open dialog to set password & log in
 
-      if (email) setPrefillEmail(email)
-
-      // show the password dialog for /register-after-payment
-      setShowAfterPay(true)
-
-      // Clean URL (remove ?paid=1) – purely cosmetic
-      params.delete('paid')
-      const clean = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}`
-      window.history.replaceState({}, '', clean)
+        // clean URL
+        params.delete('paid')
+        const q = params.toString()
+        const clean = `${window.location.pathname}${q ? `?${q}` : ''}`
+        window.history.replaceState({}, '', clean)
+      } catch {
+        // ignore
+      }
     }
-  }, [id, location.search])
+  }, [id, location.search, grantAccess])
 
-  // called by dialog after password submit success
-  const handleAfterPayComplete = useCallback(async (email: string, password: string) => {
-    // 1) call backend to create/set password and link pledges → get JWT
-    const res = await registerAfterPayment(email, password) // { ok, token, role }
-    setAuthToken(res.token)
-
-    // 2) ensure access to THIS animal right now (session-level unlock)
-    if (id) grantAccess(id)
-    setForceLocked(false)
-
-    // 3) refresh "me" so the header shows “logged in”
-    try { await me() } catch {}
-
-    // 4) cleanup email stash
+  // Prefill email from localStorage (safe, not inside JSX)
+  const prefillEmail = useMemo(() => {
     try {
-      localStorage.removeItem('dp:pendingUser')
-      localStorage.removeItem('dp:pendingEmail')
+      const stash = localStorage.getItem('dp:pendingUser')
+      if (stash) {
+        const parsed = JSON.parse(stash)
+        if (parsed?.email) return String(parsed.email)
+      }
+      const fallback = localStorage.getItem('dp:pendingEmail')
+      if (fallback) return String(fallback)
     } catch {}
-
-    setShowAfterPay(false)
-  }, [grantAccess, id])
+    return ''
+  }, [])
 
   const onCancelAdoption = useCallback(async () => {
     if (!animal) return
@@ -232,7 +205,7 @@ export default function AnimalDetail() {
           {title}
         </Typography>
 
-        {/* Charakteristik pill */}
+        {/* Charakteristik with Markdown + turquoise pill */}
         {animal.charakteristik && (
           <div
             style={{
@@ -396,6 +369,17 @@ export default function AnimalDetail() {
         )}
       </Box>
 
+      {/* After-payment dialog (prefill + unlock hook) */}
+      <AfterPaymentPasswordDialog
+        open={showAfterPay}
+        onClose={() => setShowAfterPay(false)}
+        animalId={id}
+        defaultEmail={prefillEmail}
+        onLoggedIn={() => {
+          if (id) grantAccess(id) // ensure unblur in case webhook is slow
+        }}
+      />
+
       {/* Adoption dialog */}
       <AdoptionDialog
         open={adoptOpen}
@@ -403,38 +387,9 @@ export default function AnimalDetail() {
         animalId={id}
         onGranted={() => {
           setForceLocked(false)
-          grantAccess(id!)
+          if (id) grantAccess(id)
         }}
       />
-
-      const prefillEmail = (() => {
-  try {
-    const stash = localStorage.getItem('dp:pendingUser')
-    if (stash) {
-      const parsed = JSON.parse(stash)
-      if (parsed?.email) return parsed.email as string
-    }
-    const fallback = localStorage.getItem('dp:pendingEmail')
-    if (fallback) return fallback
-  } catch {}
-  return ''
-})()
-
-function handleAfterPayComplete(_ctx: { email: string; token: string; role: any }) {
-  // optional extra actions; token is already stored and me() was called
-  if (id) grantAccess(id) // redundant safety
-}
-
-<AfterPaymentPasswordDialog
-  open={showAfterPay}
-  onClose={() => setShowAfterPay(false)}
-  animalId={id || null}
-  defaultEmail={prefillEmail}           {/* ← prefill form email */}
-  onSubmit={handleAfterPayComplete}     {/* ← extra parent hook */}
-  onLoggedIn={() => {
-    if (id) grantAccess(id)             // ensure unblur
-  }}
-/>
     </Container>
   )
 }
