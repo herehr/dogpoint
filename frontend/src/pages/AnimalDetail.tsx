@@ -1,4 +1,3 @@
-// frontend/src/pages/AnimalDetail.tsx
 import React, { useEffect, useState, useMemo, useCallback } from 'react'
 import { useParams, useLocation } from 'react-router-dom'
 import {
@@ -15,8 +14,8 @@ import SafeMarkdown from '../components/SafeMarkdown'
 import PaymentButtons from '../components/payments/PaymentButtons'
 import AfterPaymentPasswordDialog from '../components/AfterPaymentPasswordDialog'
 
-// services for auto-claim + auth
-import { claimPaid, me } from '../services/api'
+// auth + api helpers
+import { me, claimPaid } from '../services/api'
 import { setAuthToken } from '../services/auth'
 
 type Media = { url: string; type?: 'image' | 'video' }
@@ -46,8 +45,10 @@ function formatAge(a: LocalAnimal): string {
   if (bd && !Number.isNaN(bd.getTime())) {
     const now = new Date()
     let years = now.getFullYear() - bd.getFullYear()
-    if (now.getMonth() < bd.getMonth() ||
-       (now.getMonth() === bd.getMonth() && now.getDate() < bd.getDate())) {
+    if (
+      now.getMonth() < bd.getMonth() ||
+      (now.getMonth() === bd.getMonth() && now.getDate() < bd.getDate())
+    ) {
       years -= 1
     }
     return `${years} r`
@@ -65,7 +66,7 @@ export default function AnimalDetail() {
   const location = useLocation()
 
   const { hasAccess, grantAccess } = useAccess()
-  const { token, role } = useAuth()
+  const { token, role, user } = useAuth()
   const isStaff = role === 'ADMIN' || role === 'MODERATOR'
 
   const [animal, setAnimal] = useState<LocalAnimal | null>(null)
@@ -107,16 +108,12 @@ export default function AnimalDetail() {
     return () => { alive = false }
   }, [id])
 
-  // ---- Query params (paid + sid) ----
-  const { paid, sid } = useMemo(() => {
-    const params = new URLSearchParams(location.search)
-    return {
-      paid: params.get('paid'),
-      sid: params.get('sid') || undefined as string | undefined,
-    }
-  }, [location.search])
+  // ===== Stripe return handling (?paid=1&sid=cs_...) =====
+  const params = new URLSearchParams(location.search)
+  const paid = params.get('paid')
+  const sid  = params.get('sid') || undefined
 
-  // ---- Prefill email (localStorage stash first, then fallback) ----
+  // derive prefill email from storage or current user
   const prefillEmail = useMemo(() => {
     try {
       const stash = localStorage.getItem('dp:pendingUser')
@@ -127,45 +124,43 @@ export default function AnimalDetail() {
       const fallback = localStorage.getItem('dp:pendingEmail')
       if (fallback) return String(fallback)
     } catch {}
-    return ''
-  }, [])
+    return user?.email || ''
+  }, [user?.email])
 
-  // ---- Auto-claim on ?paid=1 (also handles optional ?sid=...) ----
   useEffect(() => {
     if (!id || paid !== '1') return
 
-    ;(async () => {
+    (async () => {
       try {
-        // optimistic unblur
+        // optimistic unlock for UX
         grantAccess(id)
         setForceLocked(false)
 
+        // auto-claim + login if we have an email
         if (prefillEmail) {
-          const { token: newToken } = await claimPaid(prefillEmail, sid)
-          setAuthToken(newToken)
-          await me() // refresh header/auth state if your app uses it
+          const { token } = await claimPaid(prefillEmail, sid)
+          setAuthToken(token)
+          await me() // refresh header/contexts
         }
 
-        // clean up local stashes & query params
+        // tidy up URL + local stashes
         try {
           localStorage.removeItem('dp:pendingUser')
           localStorage.removeItem('dp:pendingEmail')
         } catch {}
-
-        const params = new URLSearchParams(location.search)
-        params.delete('paid')
-        params.delete('sid')
-        const clean = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}`
+        params.delete('paid'); params.delete('sid')
+        const cleanQ = params.toString()
+        const clean = `${window.location.pathname}${cleanQ ? `?${cleanQ}` : ''}`
         window.history.replaceState({}, '', clean)
       } catch (e) {
+        // if anything fails, still show password-set dialog to recover
+        setShowAfterPay(true)
         // eslint-disable-next-line no-console
         console.error('[auto-claim] failed:', e)
-      } finally {
-        // open the set-password dialog (if needed) so the user can finalize login
-        setShowAfterPay(true)
       }
     })()
-  }, [id, paid, sid, prefillEmail, grantAccess, location.search])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, paid, sid, prefillEmail])
 
   const onCancelAdoption = useCallback(async () => {
     if (!animal) return
@@ -233,7 +228,7 @@ export default function AnimalDetail() {
           {title}
         </Typography>
 
-        {/* Charakteristik with Markdown + turquoise pill */}
+        {/* Charakteristik pill */}
         {animal.charakteristik && (
           <div
             style={{
@@ -302,7 +297,7 @@ export default function AnimalDetail() {
 
             <Divider sx={{ my: 2 }} />
 
-            {/* Adoption or payment section */}
+            {/* Adoption or payment */}
             <Box id="adopce">
               <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>
                 {isUnlocked ? 'Podpořit zvíře' : 'Chci adoptovat'}
@@ -325,8 +320,7 @@ export default function AnimalDetail() {
                   <PaymentButtons
                     animalId={animal.id}
                     amountCZK={200}
-                    // pass a concrete email so pledges are created with it
-                    email={prefillEmail || undefined}
+                    email={user?.email || prefillEmail || undefined}
                     name={animal.jmeno || animal.name}
                   />
                 </Box>
@@ -398,14 +392,14 @@ export default function AnimalDetail() {
         )}
       </Box>
 
-      {/* After-payment dialog (prefill + unlock hook) */}
+      {/* After-payment dialog */}
       <AfterPaymentPasswordDialog
         open={showAfterPay}
         onClose={() => setShowAfterPay(false)}
         animalId={id}
         defaultEmail={prefillEmail}
         onLoggedIn={() => {
-          if (id) grantAccess(id) // ensure unblur in case webhook is slow
+          if (id) grantAccess(id)
         }}
       />
 

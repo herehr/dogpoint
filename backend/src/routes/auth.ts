@@ -1,4 +1,3 @@
-// backend/src/routes/auth.ts
 import { Router, type Request, type Response } from 'express'
 import bcrypt from 'bcryptjs'
 import jwt, { type Secret, type SignOptions } from 'jsonwebtoken'
@@ -15,11 +14,7 @@ function signToken(user: { id: string; role: Role; email: string }) {
   return jwt.sign({ sub: user.id, role: user.role, email: user.email }, rawSecret as Secret, options)
 }
 
-/**
- * GET /api/auth/me
- * Returns the user and ALL their subscriptions' animalIds (no status filter),
- * so PENDING (grace) adoptions also show up.
- */
+/** Return user and ALL their subscriptions' animalIds (ACTIVE + PENDING) */
 router.get('/me', async (req: Request, res: Response) => {
   try {
     const hdr = req.headers.authorization || ''
@@ -33,36 +28,28 @@ router.get('/me', async (req: Request, res: Response) => {
     })
     if (!user) return res.status(401).json({ error: 'Unauthorized' })
 
-    // NOTE: No status filter → shows ACTIVE and PENDING alike (and remains schema-tolerant).
     const subs = await prisma.subscription.findMany({
       where: { userId: user.id },
       select: { animalId: true },
     })
 
-    res.json({ ...user, animals: subs.map(s => s.animalId) })
+    res.json({ ...user, animals: subs.map(s => s.animalId), subscriptions: subs })
   } catch (e) {
     console.error('[auth.me] error:', e)
     res.status(401).json({ error: 'Unauthorized' })
   }
 })
 
-/**
- * POST /api/auth/login
- * body: { email, password }
- */
 router.post('/login', async (req: Request, res: Response) => {
   try {
     const { email, password } = (req.body || {}) as { email?: string; password?: string }
     if (!email || !password) return res.status(400).json({ error: 'Missing email or password' })
-
     const user = await prisma.user.findUnique({ where: { email } })
     if (!user) return res.status(401).json({ error: 'Invalid credentials' })
     if (!user.passwordHash) return res.status(409).json({ error: 'PASSWORD_NOT_SET' })
-
     const ok = await bcrypt.compare(password, user.passwordHash)
     if (!ok) return res.status(401).json({ error: 'Invalid credentials' })
 
-    // Link paid or grace PENDING pledges → ensures subscription exists
     await linkPaidOrRecentPledgesToUser(user.id, user.email)
 
     const token = signToken({ id: user.id, role: user.role, email: user.email })
@@ -73,11 +60,7 @@ router.post('/login', async (req: Request, res: Response) => {
   }
 })
 
-/**
- * POST /api/auth/set-password-first-time
- * body: { email, password }
- */
-router.post('/set-password-first-time', async (req: Request, res: Response) => {
+router.post('/set-password-first-time', async (req, res) => {
   try {
     const { email, password } = (req.body || {}) as { email?: string; password?: string }
     if (!email || !password) return res.status(400).json({ error: 'Missing email or password' })
@@ -89,7 +72,6 @@ router.post('/set-password-first-time', async (req: Request, res: Response) => {
 
     const passwordHash = await bcrypt.hash(password, 10)
     const updated = await prisma.user.update({ where: { id: user.id }, data: { passwordHash } })
-
     await linkPaidOrRecentPledgesToUser(updated.id, updated.email)
 
     const token = signToken({ id: updated.id, role: updated.role, email: updated.email })
@@ -100,10 +82,6 @@ router.post('/set-password-first-time', async (req: Request, res: Response) => {
   }
 })
 
-/**
- * POST /api/auth/register-after-payment
- * body: { email, password }
- */
 router.post('/register-after-payment', async (req: Request, res: Response) => {
   try {
     const { email, password } = (req.body || {}) as { email?: string; password?: string }
@@ -129,29 +107,21 @@ router.post('/register-after-payment', async (req: Request, res: Response) => {
   }
 })
 
+/** POST /api/auth/claim-paid  { email, sessionId? }  */
 router.post('/claim-paid', async (req: Request, res: Response) => {
   try {
     const { email, sessionId } = (req.body || {}) as { email?: string; sessionId?: string }
     if (!email) return res.status(400).json({ error: 'Missing email' })
 
     if (sessionId) {
-      // If the pledge was created without email, fix it now
-      await prisma.pledge.updateMany({
-        where: { providerId: sessionId },
-        data: { email },
-      })
+      await prisma.pledge.updateMany({ where: { providerId: sessionId }, data: { email } })
     }
 
-    // Ensure user exists (create if needed with no password yet)
     let user = await prisma.user.findUnique({ where: { email } })
-    if (!user) {
-      user = await prisma.user.create({ data: { email, role: Role.USER } })
-    }
+    if (!user) user = await prisma.user.create({ data: { email, role: Role.USER } })
 
-    // Link pledges (PAID + recent PENDING) → subscriptions/payments
     await linkPaidOrRecentPledgesToUser(user.id, email)
 
-    // Return fresh token so user is logged in
     const token = signToken({ id: user.id, role: user.role, email: user.email })
     res.json({ ok: true, token, role: user.role })
   } catch (e) {
