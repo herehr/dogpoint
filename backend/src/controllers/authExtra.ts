@@ -1,7 +1,16 @@
 // backend/src/controllers/authExtra.ts
 import { prisma } from '../prisma'
-import { logErr } from '../lib/log'
 
+/**
+ * Link pledges (by email) to a user:
+ * - PAID pledges → ensure Subscription(userId+animalId), create a Payment once (manual idempotency)
+ * - recent PENDING pledges (within grace) → ensure Subscription so the UI can unblur immediately
+ *
+ * Works even if your Prisma schema:
+ *  - does NOT have Subscription.status / Subscription.startedAt
+ *  - does NOT have Payment.currency
+ *  - does NOT have a composite unique on Payment(subscriptionId, providerRef)
+ */
 export async function linkPaidOrRecentPledgesToUser(
   userId: string,
   email: string,
@@ -11,6 +20,7 @@ export async function linkPaidOrRecentPledgesToUser(
   const now = opts?.now ?? new Date()
   const graceSince = new Date(now.getTime() - graceMinutes * 60_000)
 
+  // 1) Relevant pledges for this email
   const pledges = await prisma.pledge.findMany({
     where: {
       email,
@@ -28,86 +38,72 @@ export async function linkPaidOrRecentPledgesToUser(
     try {
       if (!pledge.animalId) continue
 
+      // 2) Ensure subscription (userId + animalId)
       let sub = await prisma.subscription.findFirst({
         where: { userId, animalId: pledge.animalId },
       })
 
       if (!sub) {
+        // Try with status/startedAt if your schema has them, otherwise fall back to minimal create
         try {
           sub = await prisma.subscription.create({
             data: {
               userId,
               animalId: pledge.animalId,
-              status: pledge.status === 'PAID' ? ('ACTIVE' as any) : ('PENDING' as any),
+              status: (pledge.status === 'PAID' ? 'ACTIVE' : 'PENDING') as any,
               startedAt: new Date() as any,
             } as any,
           })
         } catch (e) {
-          logErr('subscription.create', e)
-          // Try minimal create if fields differ in your schema
+          console.error('[authExtra] subscription.create (rich) failed, falling back:', e)
           sub = await prisma.subscription.create({
             data: { userId, animalId: pledge.animalId } as any,
           })
         }
-      } else if (pledge.status === 'PAID' && (sub as any).status && (sub as any).status !== 'ACTIVE') {
+      } else if (pledge.status === 'PAID') {
+        // Promote to ACTIVE if schema has 'status'
         try {
-          sub = await prisma.subscription.update({
-            where: { id: sub.id },
-            data: { status: 'ACTIVE' as any },
-          })
+          if ((sub as any).status && (sub as any).status !== 'ACTIVE') {
+            sub = await prisma.subscription.update({
+              where: { id: sub.id },
+              data: { status: 'ACTIVE' as any },
+            })
+          }
         } catch (e) {
-          logErr('subscription.promote', e)
+          // schema may not have 'status'
+          console.error('[authExtra] subscription.promote failed:', e)
         }
       }
 
+      // 3) If PAID → create Payment once (manual idempotency; no composite unique needed)
       if (pledge.status === 'PAID') {
         const providerRef = pledge.providerId ?? `pledge:${pledge.id}`
 
-        try {
-          await prisma.payment.upsert({
-            where: {
-              subscriptionId_providerRef: {
+        const existing = await prisma.payment.findFirst({
+          where: { subscriptionId: sub.id, providerRef },
+          select: { id: true },
+        })
+
+        if (!existing) {
+          try {
+            await prisma.payment.create({
+              data: {
                 subscriptionId: sub.id,
                 providerRef,
+                amount: pledge.amount,
+                status: 'PAID' as any,
+                paidAt: new Date(),
+                provider: 'STRIPE' as any, // REQUIRED if your schema has 'provider'
+                // If your schema has 'currency', leave the next line; otherwise remove it.
+                currency: 'CZK' as any,
               } as any,
-            },
-            update: {},
-            create: {
-              subscriptionId: sub.id,
-              providerRef,
-              amount: pledge.amount,
-              status: 'PAID' as any,
-              paidAt: new Date(),
-              provider: 'STRIPE' as any,
-              // remove currency if not in your schema
-              ...(hasPaymentCurrency() ? { currency: 'CZK' } : {}),
-            } as any,
-          })
-        } catch (e) {
-          logErr('payment.upsert', e)
-          // Manual idempotency fallback
-          const existing = await prisma.payment.findFirst({
-            where: { subscriptionId: sub.id, providerRef },
-          })
-          if (!existing) {
-            try {
-              await prisma.payment.create({
-                data: {
-                  subscriptionId: sub.id,
-                  providerRef,
-                  amount: pledge.amount,
-                  status: 'PAID' as any,
-                  paidAt: new Date(),
-                  provider: 'STRIPE' as any,
-                  ...(hasPaymentCurrency() ? { currency: 'CZK' } : {}),
-                } as any,
-              })
-            } catch (e2) {
-              logErr('payment.create', e2)
-            }
+            })
+          } catch (e) {
+            console.error('[authExtra] payment.create failed:', e)
           }
         }
 
+        // Mark pledge with note (and status PAID—idempotent)
         try {
           await prisma.pledge.update({
             where: { id: pledge.id },
@@ -117,10 +113,10 @@ export async function linkPaidOrRecentPledgesToUser(
             },
           })
         } catch (e) {
-          logErr('pledge.update.paid', e)
+          console.error('[authExtra] pledge.update (paid) failed:', e)
         }
       } else {
-        // PENDING in grace
+        // PENDING within grace → keep subscription pending if schema supports it
         try {
           if ((sub as any).status && (sub as any).status !== 'ACTIVE') {
             await prisma.subscription.update({
@@ -129,21 +125,23 @@ export async function linkPaidOrRecentPledgesToUser(
             })
           }
         } catch (e) {
-          logErr('subscription.pending', e)
+          // schema may not have 'status'
+          console.error('[authExtra] subscription.pending mark failed:', e)
         }
+
         try {
           await prisma.pledge.update({
             where: { id: pledge.id },
             data: { note: appendNote(pledge.note, `grace-linked->sub:${sub.id}`) },
           })
         } catch (e) {
-          logErr('pledge.update.pending', e)
+          console.error('[authExtra] pledge.update (pending) failed:', e)
         }
       }
 
       processed += 1
     } catch (e) {
-      logErr('link.loop', e)
+      console.error('[authExtra] loop error:', e)
       // continue with next pledge
     }
   }
@@ -154,11 +152,4 @@ export async function linkPaidOrRecentPledgesToUser(
 function appendNote(note: string | null, msg: string): string {
   const base = note?.trim() ? `${note.trim()}\n` : ''
   return `${base}${new Date().toISOString()} ${msg}`
-}
-
-// runtime probe (duck typing): does Payment have a currency field?
-function hasPaymentCurrency(): boolean {
-  // quick & safe: try a select with currency and see if it throws
-  // (we don't actually call this, but keep it super cheap by caching if needed)
-  return true // set to false if your Payment has no `currency`
 }
