@@ -1,6 +1,6 @@
 // frontend/src/services/api.ts
 
-// --- Base URL ---
+// ---------- Base URL ----------
 const API_BASE =
   (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/+$/, '') || '';
 
@@ -9,99 +9,164 @@ export function apiUrl(path = ''): string {
   return `${API_BASE}${path}`;
 }
 
+// ---------- Token helpers ----------
 const tokenKey = 'accessToken';
 
-// ---- Token helpers ----
 export function setToken(token: string) {
-  try {
-    sessionStorage.setItem(tokenKey, token);
-  } catch {}
+  try { sessionStorage.setItem(tokenKey, token); } catch {}
 }
-
 export function getToken(): string | null {
-  try {
-    return sessionStorage.getItem(tokenKey);
-  } catch {
-    return null;
-  }
+  try { return sessionStorage.getItem(tokenKey); } catch { return null; }
 }
-
 export function clearToken() {
-  try {
-    sessionStorage.removeItem(tokenKey);
-  } catch {}
+  try { sessionStorage.removeItem(tokenKey); } catch {}
 }
 
-// Back-compat names used elsewhere:
-export { setToken as setAuthToken, getToken as getAuthToken, clearToken as clearAuthToken };
-
-// ---- HTTP helpers ----
-type FetchOpts = {
-  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
-  body?: any;
-  headers?: Record<string, string>;
-  signal?: AbortSignal;
+// Back-compat aliases used elsewhere:
+export {
+  setToken as setAuthToken,
+  getToken as getAuthToken,
+  clearToken as clearAuthToken,
 };
 
-function buildHeaders(json = true): HeadersInit {
-  const h: Record<string, string> = {};
-  if (json) h['Content-Type'] = 'application/json';
+// Optional legacy helper (some files import it)
+export function authHeader(): Record<string, string> {
   const t = getToken();
-  if (t) h['Authorization'] = `Bearer ${t}`;
+  return t ? { Authorization: `Bearer ${t}` } : {};
+}
+
+// ---------- Utilities ----------
+/** Build query string from a simple object */
+export function qs(obj?: Record<string, string | number | boolean | undefined | null>) {
+  if (!obj) return '';
+  const sp = new URLSearchParams();
+  Object.entries(obj).forEach(([k, v]) => {
+    if (v === undefined || v === null) return;
+    sp.set(k, String(v));
+  });
+  const s = sp.toString();
+  return s ? `?${s}` : '';
+}
+
+// ---------- HTTP core ----------
+type FetchOpts = {
+  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+  body?: any;                      // object (JSON) or FormData
+  headers?: Record<string, string>;
+  signal?: AbortSignal;
+  timeoutMs?: number;              // abort after this time
+  autoLogoutOn401?: boolean;       // clear token if 401
+};
+
+// Build headers; skip JSON header for FormData
+function buildHeaders(body: any, headers?: Record<string, string>): HeadersInit {
+  const h: Record<string, string> = { ...(headers || {}) };
+  const t = getToken();
+  if (t && !h['Authorization']) h['Authorization'] = `Bearer ${t}`;
+
+  const isFormData = typeof FormData !== 'undefined' && body instanceof FormData;
+  if (!isFormData && body !== undefined && !h['Content-Type']) {
+    h['Content-Type'] = 'application/json';
+  }
   return h;
 }
 
 async function doFetch<T>(path: string, opts: FetchOpts = {}): Promise<T> {
-  const url = apiUrl(path);
-  const res = await fetch(url, {
-    method: opts.method || 'GET',
-    headers: { ...buildHeaders(opts.body !== undefined), ...(opts.headers || {}) },
-    body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
-    signal: opts.signal,
-    credentials: 'omit',
-  });
+  const controller = new AbortController();
+  const timeout = opts.timeoutMs ?? 20000;
+  const timer = setTimeout(() => controller.abort(), timeout);
 
-  let data: any = null;
-  const text = await res.text();
-  try { data = text ? JSON.parse(text) : null; } catch {}
+  // merge signals if provided
+  const signal = opts.signal
+    ? new AbortControllerMerge([controller.signal, opts.signal]).signal
+    : controller.signal;
 
-  if (!res.ok) {
-    const msg = data?.error || data?.message || `HTTP ${res.status}`;
-    throw new Error(msg);
+  const isFormData = typeof FormData !== 'undefined' && opts.body instanceof FormData;
+
+  try {
+    const res = await fetch(apiUrl(path), {
+      method: opts.method || 'GET',
+      headers: buildHeaders(opts.body, opts.headers),
+      body: isFormData
+        ? (opts.body as FormData)
+        : opts.body !== undefined
+          ? JSON.stringify(opts.body)
+          : undefined,
+      credentials: 'omit',
+      signal,
+    });
+
+    // Decide how to parse
+    const ct = res.headers.get('content-type') || '';
+    const isJson = /\bapplication\/json\b/i.test(ct);
+
+    if (!res.ok) {
+      // Try to read server error message
+      let serverMsg = '';
+      try {
+        if (isJson) {
+          const errJson = await res.json();
+          serverMsg = errJson?.error || errJson?.message || '';
+        } else {
+          serverMsg = await res.text();
+        }
+      } catch {}
+      if (res.status === 401 && opts.autoLogoutOn401) {
+        clearToken();
+      }
+      const msg = serverMsg || `HTTP ${res.status}`;
+      throw new Error(msg);
+    }
+
+    if (res.status === 204) return undefined as T; // no content
+    const data = isJson ? await res.json() : ((await res.text()) as any);
+    return data as T;
+  } finally {
+    clearTimeout(timer);
   }
-  return data as T;
 }
 
+/** Merge multiple AbortSignals (tiny helper) */
+class AbortControllerMerge {
+  private c = new AbortController();
+  public signal = this.c.signal;
+  constructor(signals: AbortSignal[]) {
+    const onAbort = () => this.c.abort();
+    signals.forEach(s => {
+      if (s.aborted) this.c.abort();
+      else s.addEventListener('abort', onAbort, { once: true });
+    });
+  }
+}
+
+// Convenience wrappers
 export function getJSON<T>(path: string, opts?: Omit<FetchOpts, 'method' | 'body'>) {
   return doFetch<T>(path, { ...opts, method: 'GET' });
 }
-
 export function postJSON<T>(path: string, body?: any, opts?: Omit<FetchOpts, 'method'>) {
   return doFetch<T>(path, { ...opts, method: 'POST', body });
 }
-
 export function patchJSON<T>(path: string, body?: any, opts?: Omit<FetchOpts, 'method'>) {
   return doFetch<T>(path, { ...opts, method: 'PATCH', body });
 }
-
 export function delJSON<T>(path: string, opts?: Omit<FetchOpts, 'method' | 'body'>) {
   return doFetch<T>(path, { ...opts, method: 'DELETE' });
 }
 
-// ---- Domain calls used across the app ----
-
-// Auth
+// ---------- Domain calls ----------
+// Types (minimal)
 export type MeResponse = {
   id: string;
   email: string;
   role: 'ADMIN' | 'MODERATOR' | 'USER';
-  animals?: string[];            // list of animalIds from subscriptions (ACTIVE+PENDING)
-  myAdoptions?: string[];        // optional, if backend returns separate alias
-  subscriptions?: any[];         // optional shape
+  animals?: string[];      // animalIds from subscriptions (ACTIVE+PENDING)
+  myAdoptions?: string[];  // optional alias
+  subscriptions?: any[];   // optional
 };
 
+// Auth
 export async function me(): Promise<MeResponse> {
-  return getJSON<MeResponse>('/api/auth/me');
+  return getJSON<MeResponse>('/api/auth/me', { autoLogoutOn401: true });
 }
 
 export async function login(email: string, password: string) {
@@ -131,7 +196,7 @@ export async function setPasswordFirstTime(email: string, password: string) {
   return res;
 }
 
-// Auto-claim after Stripe redirect (paid=1&sid=...)
+// Auto-claim after Stripe redirect (?paid=1&sid=...)
 export async function claimPaid(email: string, sessionId?: string) {
   const res = await postJSON<{ ok: true; token: string; role: MeResponse['role'] }>(
     '/api/auth/claim-paid',
@@ -148,9 +213,8 @@ export async function createCheckoutSession(params: {
   email?: string;
   name?: string;
 }) {
-  // Your backend route (mounted at /api):
-  // POST /api/stripe/checkout-session
-  return postJSON<{ url: string }>('/api/stripe/checkout-session', params);
+  // Backend should build success_url back to /zvire/:id?paid=1&sid={CHECKOUT_SESSION_ID}
+  return postJSON<{ id: string; url: string }>('/api/stripe/checkout-session', params);
 }
 
 // Animals
@@ -170,7 +234,17 @@ export type Animal = {
 };
 
 export async function fetchAnimal(id: string): Promise<Animal> {
-  return getJSON<Animal>(`/api/animals/${id}`);
+  return getJSON<Animal>(`/api/animals/${encodeURIComponent(id)}`);
+}
+
+// Uploads (safe for FormData)
+export async function uploadMedia(file: File) {
+  const fd = new FormData();
+  fd.append('file', file);
+  return doFetch<{ data?: { url: string; key?: string; type?: 'image' | 'video' } }>(
+    '/api/upload',
+    { method: 'POST', body: fd }
+  );
 }
 
 // Optional convenience
