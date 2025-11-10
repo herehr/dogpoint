@@ -25,8 +25,8 @@ export async function linkPaidOrRecentPledgesToUser(
     where: {
       email,
       OR: [
-        { status: 'PAID' },
-        { status: 'PENDING', createdAt: { gte: graceSince } },
+        { status: 'PAID' as any },
+        { status: 'PENDING' as any, createdAt: { gte: graceSince } },
       ],
     },
     orderBy: { createdAt: 'asc' },
@@ -35,6 +35,8 @@ export async function linkPaidOrRecentPledgesToUser(
   let processed = 0
 
   for (const pledge of pledges) {
+    if (!pledge.animalId) continue
+
     // 2) Ensure subscription (NO amount/interval here)
     let sub = await prisma.subscription.findFirst({
       where: {
@@ -65,7 +67,6 @@ export async function linkPaidOrRecentPledgesToUser(
         } catch {
           // If your schema has no status, ignore
         }
-      }
     }
 
     // 3) If PAID → create Payment once (idempotent)
@@ -117,7 +118,7 @@ export async function linkPaidOrRecentPledgesToUser(
       await prisma.pledge.update({
         where: { id: pledge.id },
         data: {
-          status: 'PAID',
+          status: 'PAID' as any,
           note: appendNote(pledge.note, `linked->sub:${sub.id}`),
         },
       })
