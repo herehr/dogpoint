@@ -13,11 +13,7 @@ import AdoptionDialog from '../components/AdoptionDialog'
 import { useAuth } from '../context/AuthContext'
 import SafeMarkdown from '../components/SafeMarkdown'
 import PaymentButtons from '../components/payments/PaymentButtons'
-
-// services for auto-claim + auth
-import { claimPaid, me } from '../services/api'
-import { setAuthToken } from '../services/auth'
-import { claimPaid, me } from '../services/api'
+import AfterPaymentPasswordDialog from '../components/AfterPaymentPasswordDialog'
 
 type Media = { url: string; type?: 'image' | 'video' }
 type LocalAnimal = {
@@ -75,6 +71,7 @@ export default function AnimalDetail() {
   const [err, setErr] = useState<string | null>(null)
   const [adoptOpen, setAdoptOpen] = useState(false)
   const [forceLocked, setForceLocked] = useState(false)
+  const [showAfterPay, setShowAfterPay] = useState(false)
 
   const isUnlocked = useMemo(() => {
     if (isStaff) return true
@@ -95,7 +92,7 @@ export default function AnimalDetail() {
     }
   }, [id])
 
-  // initial load
+  // Initial load
   useEffect(() => {
     let alive = true
     if (!id) return
@@ -108,61 +105,22 @@ export default function AnimalDetail() {
     return () => { alive = false }
   }, [id])
 
-  // Handle Stripe success (?paid=1): auto-claim, login, grant access, clean URL
+  // On Stripe success (?paid=1): open password dialog and clean URL.
   useEffect(() => {
     if (!id) return
     const params = new URLSearchParams(location.search)
-    const paid = params.get('paid')
-
-    if (paid === '1') {
-      // attempt to restore email from local storage
-      let email: string | null = null
+    if (params.get('paid') === '1') {
+      // grant immediate local access so the user sees unblurred media while finishing signup
       try {
-        // primary stash (object)
-        const stash = localStorage.getItem('dp:pendingUser')
-        if (stash) {
-          const parsed = JSON.parse(stash)
-          email = parsed?.email || null
-        }
-        // fallback (string)
-        if (!email) {
-          const fallbackEmail = localStorage.getItem('dp:pendingEmail')
-          if (fallbackEmail) email = fallbackEmail
-        }
-      } catch {
-        // ignore
-      }
+        grantAccess(id)
+        setForceLocked(false)
+      } catch {}
+      setShowAfterPay(true)
 
-      (async () => {
-        try {
-          // grant immediate in-session access for UX
-          grantAccess(id)
-          setForceLocked(false)
-
-          if (email) {
-            // Ask backend to register/attach pledges and return JWT
-            const { token } = await claimPaid(email)
-
-            // save token -> AuthContext should pick it up
-            setAuthToken(token)
-
-            // refresh "me" so header updates (logged-in)
-            await me()
-          }
-
-          // cleanup local stashes & URL
-          try {
-            localStorage.removeItem('dp:pendingUser')
-            localStorage.removeItem('dp:pendingEmail')
-          } catch {}
-          params.delete('paid')
-          const clean = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}`
-          window.history.replaceState({}, '', clean)
-        } catch (e) {
-          // eslint-disable-next-line no-console
-          console.error('[auto-claim] failed:', e)
-        }
-      })()
+      // clean URL
+      params.delete('paid')
+      const clean = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}`
+      window.history.replaceState({}, '', clean.endsWith('?') ? clean.slice(0, -1) : clean)
     }
   }, [id, location.search, grantAccess])
 
@@ -395,6 +353,20 @@ export default function AnimalDetail() {
           </Typography>
         )}
       </Box>
+
+      {/* After-payment: ask for password, then log in */}
+      <AfterPaymentPasswordDialog
+        open={showAfterPay}
+        onClose={() => setShowAfterPay(false)}
+        onLoggedIn={() => {
+          setForceLocked(false)
+          if (id) {
+            try { grantAccess(id) } catch {}
+          }
+          // Optionally: reload data if any content depends on token
+          // loadAnimal()
+        }}
+      />
 
       {/* Adoption dialog */}
       <AdoptionDialog

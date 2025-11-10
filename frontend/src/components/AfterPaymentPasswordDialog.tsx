@@ -1,96 +1,66 @@
-// frontend/src/components/AfterPaymentPasswordDialog.tsx
-import { useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import {
   Dialog, DialogTitle, DialogContent, DialogActions,
-  TextField, Button, Alert, Typography
+  TextField, Button, Alert
 } from '@mui/material'
-
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000'
+import { registerAfterPayment, me } from '../services/api'
+import { setToken } from '../services/api'
 
 type Props = {
   open: boolean
   onClose: () => void
-  animalId: string
-  onLoggedIn?: (token: string) => void
+  onLoggedIn?: () => void
 }
 
-export default function AfterPaymentPasswordDialog({ open, onClose, animalId, onLoggedIn }: Props) {
+export default function AfterPaymentPasswordDialog({ open, onClose, onLoggedIn }: Props) {
   const [email, setEmail] = useState<string>(() => {
     try {
       const raw = localStorage.getItem('dp:pendingUser')
       if (!raw) return ''
       const o = JSON.parse(raw)
-      return o?.email || ''
-    } catch { return '' }
-  })
-  const [name, setName] = useState<string>(() => {
-    try {
-      const raw = localStorage.getItem('dp:pendingUser')
-      if (!raw) return ''
-      const o = JSON.parse(raw)
-      return o?.name || ''
+      return typeof o?.email === 'string' ? o.email : ''
     } catch { return '' }
   })
   const [password, setPassword] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [err, setErr] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
-  const passOk = password.trim().length >= 6
+  const emailOk = useMemo(() => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()), [email])
+  const passOk  = password.trim().length >= 6
 
   async function submit() {
-    setErr(null)
     if (!emailOk || !passOk) return
-    setSaving(true)
     try {
-      const res = await fetch(`${API_BASE}/api/auth/register-after-payment`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, name }),
-      })
-      if (!res.ok) throw new Error(await res.text())
-      const data = await res.json() as { token?: string }
-      const token = data.token || ''
-      try {
-        sessionStorage.setItem('userToken', token)
-        localStorage.setItem(`adopt:${animalId}`, '1') // unlock locally as well
-        localStorage.removeItem('dp:pendingUser')
-      } catch {}
-      onLoggedIn?.(token)
+      setError(null)
+      setLoading(true)
+      const res = await registerAfterPayment(email.trim(), password.trim())
+      setToken(res.token) // sessionStorage by default
+      try { localStorage.removeItem('dp:pendingUser') } catch {}
+      await me().catch(() => {})
+      onLoggedIn?.()
       onClose()
     } catch (e: any) {
-      setErr(e?.message || 'Registrace se nezdařila.')
+      setError(e?.message || 'Nepodařilo se dokončit registraci.')
     } finally {
-      setSaving(false)
+      setLoading(false)
     }
   }
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
-      <DialogTitle>Vytvořte si heslo</DialogTitle>
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="xs">
+      <DialogTitle>Dokončení registrace</DialogTitle>
       <DialogContent>
-        <Typography sx={{ mb: 2 }}>
-          Platba proběhla. Vytvořte si prosím heslo k vašemu účtu, abyste měli přístup k obsahu.
-        </Typography>
-
-        {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
+        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
         <TextField
           label="E-mail"
           fullWidth
           sx={{ mb: 2 }}
           value={email}
-          onChange={e => setEmail(e.target.value)}
+          InputProps={{ readOnly: true }}
         />
         <TextField
-          label="Jméno (nepovinné)"
-          fullWidth
-          sx={{ mb: 2 }}
-          value={name}
-          onChange={e => setName(e.target.value)}
-        />
-        <TextField
-          label="Heslo (min. 6 znaků)"
+          label="Zvolte heslo (min. 6 znaků)"
           type="password"
           fullWidth
           value={password}
@@ -98,9 +68,9 @@ export default function AfterPaymentPasswordDialog({ open, onClose, animalId, on
         />
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose}>Zavřít</Button>
-        <Button onClick={submit} disabled={!emailOk || !passOk || saving} variant="contained">
-          {saving ? 'Ukládám…' : 'Vytvořit účet'}
+        <Button onClick={onClose} disabled={loading}>Zavřít</Button>
+        <Button onClick={submit} disabled={!emailOk || !passOk || loading} variant="contained">
+          Dokončit a přihlásit
         </Button>
       </DialogActions>
     </Dialog>

@@ -1,76 +1,73 @@
+// backend/src/controllers/authExtra.ts
 import { prisma } from '../prisma'
-import { PaymentProvider, SubscriptionStatus, PaymentStatus } from '@prisma/client'
+import { PaymentProvider, PaymentStatus, SubscriptionStatus } from '@prisma/client'
 
 /**
- * Link pledges (PAID or recent PENDING) to the user and grant immediate access.
- * Call this after successful login, first-time password, and register-after-payment.
+ * Link all PAID pledges (and recent PENDING pledges within grace window)
+ * to the given user. Creates/upsserts Subscription + initial Payment and
+ * marks pledge as linked to user.
  */
-export async function linkPaidOrRecentPledgesToUser(userId: string, email: string) {
-  // Allow recent PENDING pledges to unlock access for a while (webhook will confirm later)
-  const PROVISIONAL_MINUTES = 180; // 3h
-  const cutoff = new Date(Date.now() - PROVISIONAL_MINUTES * 60 * 1000);
+export async function linkPaidOrRecentPledgesToUser(
+  userId: string,
+  email: string,
+  opts: { pendingGraceMinutes?: number } = {}
+) {
+  const graceMin = opts.pendingGraceMinutes ?? 30
+  const since = new Date(Date.now() - graceMin * 60_000)
 
   const pledges = await prisma.pledge.findMany({
     where: {
       email,
       OR: [
         { status: PaymentStatus.PAID },
-        { status: PaymentStatus.PENDING, createdAt: { gte: cutoff } },
+        { status: PaymentStatus.PENDING, createdAt: { gte: since } },
       ],
     },
-    orderBy: { createdAt: 'desc' },
-  });
+  })
 
-  for (const pl of pledges) {
-    // 1) Ensure ACTIVE subscription exists for this user+animal
+  for (const pledge of pledges) {
     const sub = await prisma.subscription.upsert({
       where: {
         userId_animalId_status: {
           userId,
-          animalId: pl.animalId,
+          animalId: pledge.animalId,
           status: SubscriptionStatus.ACTIVE,
         },
       },
       update: {},
       create: {
         userId,
-        animalId: pl.animalId,
-        monthlyAmount: pl.amount,
+        animalId: pledge.animalId,
+        monthlyAmount: pledge.amount,
         currency: 'CZK',
         provider: PaymentProvider.STRIPE,
-        providerRef: pl.providerId ?? undefined,
+        providerRef: pledge.providerId ?? undefined,
         status: SubscriptionStatus.ACTIVE,
         startedAt: new Date(),
       },
-    });
+    })
 
-    // 2) If the pledge is already PAID, record a Payment once (no composite unique available)
-    if (pl.status === PaymentStatus.PAID) {
-      const existing = await prisma.payment.findFirst({
-        where: {
+    await prisma.payment.upsert({
+      where: {
+        subscriptionId_providerRef: {
           subscriptionId: sub.id,
-          providerRef: pl.providerId ?? 'unknown',
+          providerRef: pledge.providerId ?? 'unknown',
         },
-      });
+      },
+      update: {},
+      create: {
+        subscriptionId: sub.id,
+        provider: PaymentProvider.STRIPE,
+        providerRef: pledge.providerId ?? 'unknown',
+        amount: pledge.amount,
+        currency: 'CZK',
+        status: pledge.status === 'PAID' ? PaymentStatus.PAID : PaymentStatus.PENDING,
+        paidAt: pledge.status === 'PAID' ? new Date() : null,
+      },
+    })
 
-      if (!existing) {
-        await prisma.payment.create({
-          data: {
-            subscriptionId: sub.id,
-            provider: PaymentProvider.STRIPE,
-            providerRef: pl.providerId ?? 'unknown',
-            amount: pl.amount,
-            currency: 'CZK',
-            status: PaymentStatus.PAID,
-            paidAt: new Date(),
-          },
-        });
-      }
+    if (!pledge.userId) {
+      await prisma.pledge.update({ where: { id: pledge.id }, data: { userId } })
     }
-
-    // 3) If you later add Pledge.userId to the schema, you can link here.
-    // For now we *don’t* write userId as it doesn’t exist in your schema.
-    // Optionally, add an audit note:
-    // await prisma.pledge.update({ where: { id: pl.id }, data: { note: 'linked to user ' + userId } }).catch(() => {});
   }
 }
