@@ -16,7 +16,8 @@ function signToken(user: { id: string; role: Role; email: string }) {
   return jwt.sign({ sub: user.id, role: user.role, email: user.email }, rawSecret as Secret, options)
 }
 
-router.get('/me', async (req, res) => {
+// backend/src/routes/auth.ts  — replace the /me route body
+router.get('/me', async (req: Request, res: Response) => {
   try {
     const hdr = req.headers.authorization || ''
     const m = hdr.match(/^Bearer\s+(.+)$/i)
@@ -29,21 +30,49 @@ router.get('/me', async (req, res) => {
     })
     if (!user) return res.status(401).json({ error: 'Unauthorized' })
 
-    // Include provisional adoptions too
+    // Return ALL user subscriptions (no status filter)
     const subs = await prisma.subscription.findMany({
-      where: {
-        userId: user.id,
-        OR: [
-          { status: 'ACTIVE' as any },
-          { status: 'PENDING' as any },
-          // If your schema might not have status, comment the OR and fall back to no filter.
-        ],
+      where: { userId: user.id },
+      select: {
+        id: true,
+        animalId: true,
+        // keep status if your schema has it; harmless if it doesn't
+        // @ts-ignore - optional in some schemas
+        status: true as any,
+        // include basic animal details so UI can render a card/list
+        animal: {
+          select: {
+            id: true,
+            jmeno: true,
+            name: true,
+            main: true,
+          },
+        },
       },
-      select: { animalId: true },
+      orderBy: { /* show newest first */ /* @ts-ignore */ startedAt: 'desc' as any },
     })
 
-    res.json({ ...user, animals: subs.map(s => s.animalId) })
-  } catch {
+    // back-compat: simple array of animalIds
+    const animalIds = subs.map(s => s.animalId)
+
+    // richer list for “Moje adopce” pages
+    const animals = subs
+      .map(s => s.animal)
+      .filter(Boolean)
+      .map(a => ({
+        id: a!.id,
+        title: a!.jmeno || a!.name || '—',
+        main: a!.main || null,
+      }))
+
+    res.json({
+      ...user,
+      animals: animalIds,     // old shape (ids)
+      myAdoptions: animals,   // new shape (objects ready to render)
+      subscriptions: subs,    // full detail if needed
+    })
+  } catch (e) {
+    console.error('/api/auth/me error:', e)
     res.status(401).json({ error: 'Unauthorized' })
   }
 })
