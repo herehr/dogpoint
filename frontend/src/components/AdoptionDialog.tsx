@@ -111,8 +111,8 @@ export default function AdoptionDialog({ open, onClose, animalId, defaultAmountC
         <PaymentButtons
           animalId={animalId}
           amountCZK={amount}
-          email={email || undefined}
-          name={name || undefined}
+           email={user?.email ?? typedEmail}   // ← NOT undefined
+           name={animal.jmeno || animal.name}
           disabled={disablePay}
         />
         <Typography variant="caption" color="text.secondary" sx={{ mt: 2, display: 'block' }}>

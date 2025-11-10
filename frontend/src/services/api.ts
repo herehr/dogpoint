@@ -57,16 +57,16 @@ export function clearToken() {
 
 // ---- Core fetch helpers -----------------------------------------------------
 
-export async function claimPaid(email: string) {
+export async function claimPaid(email: string, sessionId?: string) {
   const res = await postJSON<{ ok: true; token: string; role: MeResponse['role'] }>(
     '/api/auth/claim-paid',
-    { email }
+    { email, sessionId } // include sessionId if available
   )
-  setToken(res.token) // store JWT so /me works and content unblurs
+
+  setToken(res.token) // store JWT so /me works and unblur works
   return res
 }
 
-// (optional)
 export function logout() {
   clearToken()
 }

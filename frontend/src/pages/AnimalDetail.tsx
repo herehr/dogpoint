@@ -15,6 +15,10 @@ import SafeMarkdown from '../components/SafeMarkdown'
 import PaymentButtons from '../components/payments/PaymentButtons'
 import AfterPaymentPasswordDialog from '../components/AfterPaymentPasswordDialog'
 
+// services for auto-claim + auth
+import { claimPaid, me } from '../services/api'
+import { setAuthToken } from '../services/auth'
+
 type Media = { url: string; type?: 'image' | 'video' }
 type LocalAnimal = {
   id: string
@@ -103,29 +107,16 @@ export default function AnimalDetail() {
     return () => { alive = false }
   }, [id])
 
-  // Handle Stripe success (?paid=1): grant provisional access, show password dialog, clean URL
-  useEffect(() => {
-    if (!id) return
+  // ---- Query params (paid + sid) ----
+  const { paid, sid } = useMemo(() => {
     const params = new URLSearchParams(location.search)
-    const paid = params.get('paid')
-    if (paid === '1') {
-      try {
-        grantAccess(id)          // provisional unlock (grace window)
-        setForceLocked(false)
-        setShowAfterPay(true)    // open dialog to set password & log in
-
-        // clean URL
-        params.delete('paid')
-        const q = params.toString()
-        const clean = `${window.location.pathname}${q ? `?${q}` : ''}`
-        window.history.replaceState({}, '', clean)
-      } catch {
-        // ignore
-      }
+    return {
+      paid: params.get('paid'),
+      sid: params.get('sid') || undefined as string | undefined,
     }
-  }, [id, location.search, grantAccess])
+  }, [location.search])
 
-  // Prefill email from localStorage (safe, not inside JSX)
+  // ---- Prefill email (localStorage stash first, then fallback) ----
   const prefillEmail = useMemo(() => {
     try {
       const stash = localStorage.getItem('dp:pendingUser')
@@ -138,6 +129,43 @@ export default function AnimalDetail() {
     } catch {}
     return ''
   }, [])
+
+  // ---- Auto-claim on ?paid=1 (also handles optional ?sid=...) ----
+  useEffect(() => {
+    if (!id || paid !== '1') return
+
+    ;(async () => {
+      try {
+        // optimistic unblur
+        grantAccess(id)
+        setForceLocked(false)
+
+        if (prefillEmail) {
+          const { token: newToken } = await claimPaid(prefillEmail, sid)
+          setAuthToken(newToken)
+          await me() // refresh header/auth state if your app uses it
+        }
+
+        // clean up local stashes & query params
+        try {
+          localStorage.removeItem('dp:pendingUser')
+          localStorage.removeItem('dp:pendingEmail')
+        } catch {}
+
+        const params = new URLSearchParams(location.search)
+        params.delete('paid')
+        params.delete('sid')
+        const clean = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}`
+        window.history.replaceState({}, '', clean)
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error('[auto-claim] failed:', e)
+      } finally {
+        // open the set-password dialog (if needed) so the user can finalize login
+        setShowAfterPay(true)
+      }
+    })()
+  }, [id, paid, sid, prefillEmail, grantAccess, location.search])
 
   const onCancelAdoption = useCallback(async () => {
     if (!animal) return
@@ -297,7 +325,8 @@ export default function AnimalDetail() {
                   <PaymentButtons
                     animalId={animal.id}
                     amountCZK={200}
-                    email={undefined} // pokud znáte e-mail uživatele, můžete ho sem předat
+                    // pass a concrete email so pledges are created with it
+                    email={prefillEmail || undefined}
                     name={animal.jmeno || animal.name}
                   />
                 </Box>
