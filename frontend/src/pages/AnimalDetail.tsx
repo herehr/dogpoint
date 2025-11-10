@@ -1,3 +1,4 @@
+// frontend/src/pages/AnimalDetail.tsx
 import React, { useEffect, useState, useMemo, useCallback } from 'react'
 import { useParams, useLocation } from 'react-router-dom'
 import {
@@ -13,10 +14,10 @@ import { useAuth } from '../context/AuthContext'
 import SafeMarkdown from '../components/SafeMarkdown'
 import PaymentButtons from '../components/payments/PaymentButtons'
 import AfterPaymentPasswordDialog from '../components/AfterPaymentPasswordDialog'
+import ErrorBoundary from '../components/ErrorBoundary'
 
-// auth + api helpers
-import { me, claimPaid } from '../services/api'
-import { setAuthToken } from '../services/auth'
+// optional: if your claimPaid/me live here and claimPaid stores token internally
+import { claimPaid, me } from '../services/api'
 
 type Media = { url: string; type?: 'image' | 'video' }
 type LocalAnimal = {
@@ -45,10 +46,8 @@ function formatAge(a: LocalAnimal): string {
   if (bd && !Number.isNaN(bd.getTime())) {
     const now = new Date()
     let years = now.getFullYear() - bd.getFullYear()
-    if (
-      now.getMonth() < bd.getMonth() ||
-      (now.getMonth() === bd.getMonth() && now.getDate() < bd.getDate())
-    ) {
+    if (now.getMonth() < bd.getMonth() ||
+       (now.getMonth() === bd.getMonth() && now.getDate() < bd.getDate())) {
       years -= 1
     }
     return `${years} r`
@@ -108,13 +107,63 @@ export default function AnimalDetail() {
     return () => { alive = false }
   }, [id])
 
-  // ===== Stripe return handling (?paid=1&sid=cs_...) =====
-  const params = new URLSearchParams(location.search)
-  const paid = params.get('paid')
-  const sid  = params.get('sid') || undefined
+  // ----- Stripe return: ?paid=1&sid=... -> optimistic unlock + auto-claim -----
+  useEffect(() => {
+    if (!id) return
+    const params = new URLSearchParams(location.search)
+    const paid = params.get('paid')
+    const sid = params.get('sid') || undefined
 
-  // derive prefill email from storage or current user
-  const prefillEmail = useMemo(() => {
+    if (paid !== '1') return
+
+    // derive prefillEmail from localStorage stash or current user
+    let prefillEmail = ''
+    try {
+      const stash = localStorage.getItem('dp:pendingUser')
+      if (stash) {
+        const parsed = JSON.parse(stash)
+        if (parsed?.email) prefillEmail = String(parsed.email)
+      }
+      if (!prefillEmail) {
+        const fallback = localStorage.getItem('dp:pendingEmail')
+        if (fallback) prefillEmail = String(fallback)
+      }
+    } catch {}
+    if (!prefillEmail && user?.email) prefillEmail = user.email
+
+    ;(async () => {
+      try {
+        // optimistic unblur
+        grantAccess(id)
+        setForceLocked(false)
+
+        // auto-claim (stores token inside claimPaid)
+        if (prefillEmail) {
+          await claimPaid(prefillEmail, sid)
+          // refresh /me so UI & header reflect login
+          await me()
+        }
+
+        // clean up local stashes & URL
+        try {
+          localStorage.removeItem('dp:pendingUser')
+          localStorage.removeItem('dp:pendingEmail')
+        } catch {}
+
+        params.delete('paid'); params.delete('sid')
+        const clean = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}`
+        window.history.replaceState({}, '', clean)
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error('[auto-claim] failed:', e)
+        // still show the password dialog as a fallback
+        setShowAfterPay(true)
+      }
+    })()
+  }, [id, location.search, grantAccess, user?.email])
+
+  // Prefill email for the dialog (not during render of JSX)
+  const dialogPrefillEmail = useMemo(() => {
     try {
       const stash = localStorage.getItem('dp:pendingUser')
       if (stash) {
@@ -126,41 +175,6 @@ export default function AnimalDetail() {
     } catch {}
     return user?.email || ''
   }, [user?.email])
-
-  useEffect(() => {
-    if (!id || paid !== '1') return
-
-    (async () => {
-      try {
-        // optimistic unlock for UX
-        grantAccess(id)
-        setForceLocked(false)
-
-        // auto-claim + login if we have an email
-        if (prefillEmail) {
-          const { token } = await claimPaid(prefillEmail, sid)
-          setAuthToken(token)
-          await me() // refresh header/contexts
-        }
-
-        // tidy up URL + local stashes
-        try {
-          localStorage.removeItem('dp:pendingUser')
-          localStorage.removeItem('dp:pendingEmail')
-        } catch {}
-        params.delete('paid'); params.delete('sid')
-        const cleanQ = params.toString()
-        const clean = `${window.location.pathname}${cleanQ ? `?${cleanQ}` : ''}`
-        window.history.replaceState({}, '', clean)
-      } catch (e) {
-        // if anything fails, still show password-set dialog to recover
-        setShowAfterPay(true)
-        // eslint-disable-next-line no-console
-        console.error('[auto-claim] failed:', e)
-      }
-    })()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, paid, sid, prefillEmail])
 
   const onCancelAdoption = useCallback(async () => {
     if (!animal) return
@@ -186,233 +200,235 @@ export default function AnimalDetail() {
     }
   }, [animal, loadAnimal])
 
-  if (loading) {
-    return (
-      <Container sx={{ py: 4 }}>
-        <Skeleton variant="text" width={280} height={40} />
-        <Skeleton variant="rectangular" height={320} sx={{ mt: 2 }} />
-      </Container>
-    )
-  }
-  if (err) {
-    return (
-      <Container sx={{ py: 4 }}>
-        <Alert severity="error">{err}</Alert>
-      </Container>
-    )
-  }
-  if (!animal || !id) return null
-
-  const title = animal.jmeno || animal.name || '—'
-  const age = formatAge(animal)
-  const desc = animal.popis || animal.description || 'Bez popisu.'
-
-  const urls = Array.from(
-    new Set([
-      asUrl(animal.main) || undefined,
-      ...((animal.galerie || []).map(g => asUrl(g) || undefined)),
-    ].filter(Boolean))
-  ) as string[]
-
-  const mainUrl = urls[0] || '/no-image.jpg'
-  const extraUrls = urls.slice(1)
-
-  const lockTag = isUnlocked ? 'u1' : 'l1'
-  const withBust = (u: string) => `${u}${u.includes('?') ? '&' : '?'}v=${lockTag}`
-
+  // ---------- RENDER ----------
   return (
-    <Container sx={{ py: 4 }}>
-      {/* Header */}
-      <Stack spacing={1.25}>
-        <Typography variant="h4" sx={{ fontWeight: 900 }}>
-          {title}
-        </Typography>
-
-        {/* Charakteristik pill */}
-        {animal.charakteristik && (
-          <div
-            style={{
-              fontWeight: 700,
-              padding: '6px 10px',
-              borderRadius: 12,
-              display: 'inline-block',
-              background: '#00bcd4',
-              color: 'white',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
-              maxWidth: '100%',
-              wordBreak: 'break-word',
-            }}
-          >
-            <SafeMarkdown>{animal.charakteristik}</SafeMarkdown>
-          </div>
+    <ErrorBoundary>
+      <Container sx={{ py: 4 }}>
+        {/* Loading / Error gates */}
+        {loading && (
+          <>
+            <Skeleton variant="text" width={280} height={40} />
+            <Skeleton variant="rectangular" height={320} sx={{ mt: 2 }} />
+          </>
         )}
-
-        <Stack direction="row" spacing={1} alignItems="center">
-          <Chip label={age} />
-          {!!token && !isStaff && isUnlocked && (
-            <Button
-              variant="outlined"
-              color="error"
-              size="small"
-              onClick={onCancelAdoption}
-              sx={{ ml: 1 }}
-            >
-              Zrušit adopci
-            </Button>
-          )}
-        </Stack>
-      </Stack>
-
-      {/* Main photo & description */}
-      <Box sx={{ mt: 3 }}>
-        <Grid container spacing={2}>
-          <Grid item xs={12} md={6}>
-            <Box
-              component="a"
-              href={mainUrl}
-              target="_blank"
-              rel="noreferrer"
-              sx={{
-                display: 'block',
-                borderRadius: 2,
-                overflow: 'hidden',
-                border: '1px solid',
-                borderColor: 'divider',
-              }}
-            >
-              <img
-                src={withBust(mainUrl)}
-                alt="main"
-                style={{ width: '100%', height: 320, objectFit: 'cover' }}
-              />
-            </Box>
-          </Grid>
-          <Grid item xs={12} md={6}>
-            <Typography variant="h6" sx={{ fontWeight: 800, mb: 1 }}>
-              Popis
-            </Typography>
-            <div style={{ lineHeight: 1.6 }}>
-              <SafeMarkdown>{desc}</SafeMarkdown>
-            </div>
-
-            <Divider sx={{ my: 2 }} />
-
-            {/* Adoption or payment */}
-            <Box id="adopce">
-              <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>
-                {isUnlocked ? 'Podpořit zvíře' : 'Chci adoptovat'}
+        {!loading && err && (
+          <Alert severity="error">{err}</Alert>
+        )}
+        {!loading && !err && animal && id && (
+          <>
+            {/* Header */}
+            <Stack spacing={1.25}>
+              <Typography variant="h4" sx={{ fontWeight: 900 }}>
+                {animal.jmeno || animal.name || '—'}
               </Typography>
 
-              {!isUnlocked ? (
-                <>
-                  <Typography color="text.secondary" sx={{ mb: 2 }}>
-                    Po adopci uvidíte další fotografie, videa a příspěvky.
-                  </Typography>
-                  <Button variant="contained" onClick={() => setAdoptOpen(true)}>
-                    Pokračovat k adopci
+              {/* Charakteristik with Markdown + turquoise pill */}
+              {animal.charakteristik && (
+                <div
+                  style={{
+                    fontWeight: 700,
+                    padding: '6px 10px',
+                    borderRadius: 12,
+                    display: 'inline-block',
+                    background: '#00bcd4',
+                    color: 'white',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
+                    maxWidth: '100%',
+                    wordBreak: 'break-word',
+                  }}
+                >
+                  <SafeMarkdown>{animal.charakteristik}</SafeMarkdown>
+                </div>
+              )}
+
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Chip label={formatAge(animal)} />
+                {!!token && !isStaff && isUnlocked && (
+                  <Button
+                    variant="outlined"
+                    color="error"
+                    size="small"
+                    onClick={onCancelAdoption}
+                    sx={{ ml: 1 }}
+                  >
+                    Zrušit adopci
                   </Button>
-                </>
-              ) : (
-                <Box sx={{ mt: 2 }}>
-                  <Typography color="text.secondary" sx={{ mb: 2 }}>
-                    Vyberte způsob platby:
+                )}
+              </Stack>
+            </Stack>
+
+            {/* Main photo & description */}
+            <Box sx={{ mt: 3 }}>
+              <Grid container spacing={2}>
+                <Grid item xs={12} md={6}>
+                  {(() => {
+                    const urls = Array.from(
+                      new Set([
+                        asUrl(animal.main) || undefined,
+                        ...((animal.galerie || []).map(g => asUrl(g) || undefined)),
+                      ].filter(Boolean))
+                    ) as string[]
+                    const mainUrl = urls[0] || '/no-image.jpg'
+                    const lockTag = isUnlocked ? 'u1' : 'l1'
+                    const withBust = (u: string) => `${u}${u.includes('?') ? '&' : '?'}v=${lockTag}`
+
+                    return (
+                      <Box
+                        component="a"
+                        href={mainUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        sx={{
+                          display: 'block',
+                          borderRadius: 2,
+                          overflow: 'hidden',
+                          border: '1px solid',
+                          borderColor: 'divider',
+                        }}
+                      >
+                        <img
+                          src={withBust(mainUrl)}
+                          alt="main"
+                          style={{ width: '100%', height: 320, objectFit: 'cover' }}
+                        />
+                      </Box>
+                    )
+                  })()}
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Typography variant="h6" sx={{ fontWeight: 800, mb: 1 }}>
+                    Popis
                   </Typography>
-                  <PaymentButtons
-                    animalId={animal.id}
-                    amountCZK={200}
-                    email={user?.email || prefillEmail || undefined}
-                    name={animal.jmeno || animal.name}
-                  />
+                  <div style={{ lineHeight: 1.6 }}>
+                    <SafeMarkdown>{animal.popis || animal.description || 'Bez popisu.'}</SafeMarkdown>
+                  </div>
+
+                  <Divider sx={{ my: 2 }} />
+
+                  {/* Adoption or payment section */}
+                  <Box id="adopce">
+                    <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>
+                      {isUnlocked ? 'Podpořit zvíře' : 'Chci adoptovat'}
+                    </Typography>
+
+                    {!isUnlocked ? (
+                      <>
+                        <Typography color="text.secondary" sx={{ mb: 2 }}>
+                          Po adopci uvidíte další fotografie, videa a příspěvky.
+                        </Typography>
+                        <Button variant="contained" onClick={() => setAdoptOpen(true)}>
+                          Pokračovat k adopci
+                        </Button>
+                      </>
+                    ) : (
+                      <Box sx={{ mt: 2 }}>
+                        <Typography color="text.secondary" sx={{ mb: 2 }}>
+                          Vyberte způsob platby:
+                        </Typography>
+                        <PaymentButtons
+                          animalId={animal.id}
+                          amountCZK={200}
+                          email={user?.email} // pass known email if logged in
+                          name={animal.jmeno || animal.name}
+                        />
+                      </Box>
+                    )}
+                  </Box>
+                </Grid>
+              </Grid>
+            </Box>
+
+            {/* Additional gallery */}
+            {(() => {
+              const urls = Array.from(
+                new Set([
+                  asUrl(animal.main) || undefined,
+                  ...((animal.galerie || []).map(g => asUrl(g) || undefined)),
+                ].filter(Boolean))
+              ) as string[]
+              const extraUrls = urls.slice(1)
+              const lockTag = isUnlocked ? 'u1' : 'l1'
+              const withBust = (u: string) => `${u}${u.includes('?') ? '&' : '?'}v=${lockTag}`
+              return extraUrls.length > 0 ? (
+                <Box sx={{ mt: 4 }}>
+                  <Typography variant="h6" sx={{ fontWeight: 800, mb: 1 }}>
+                    Další fotografie a videa
+                  </Typography>
+
+                  <BlurBox blurred={!isUnlocked} key={isUnlocked ? 'unlocked-extras' : 'locked-extras'}>
+                    <Grid container spacing={1.5}>
+                      {extraUrls.map((u, i) => (
+                        <Grid item xs={6} sm={4} md={3} key={`${i}-${lockTag}`}>
+                          <Box
+                            component={isUnlocked ? 'a' : 'div'}
+                            {...(isUnlocked ? { href: u, target: '_blank', rel: 'noreferrer' } : {})}
+                            sx={{
+                              display: 'block',
+                              width: '100%',
+                              height: 160,
+                              borderRadius: 2,
+                              overflow: 'hidden',
+                              border: '1px solid',
+                              borderColor: 'divider',
+                            }}
+                            className={!isUnlocked ? 'lockedMedia' : undefined}
+                          >
+                            <img
+                              src={withBust(u)}
+                              alt={`media-${i + 1}`}
+                              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                            />
+                          </Box>
+                        </Grid>
+                      ))}
+                    </Grid>
+                  </BlurBox>
+
+                  {!isUnlocked && (
+                    <Typography variant="caption" color="text.secondary">
+                      Zamčeno – odemkne se po adopci.
+                    </Typography>
+                  )}
                 </Box>
+              ) : null
+            })()}
+
+            {/* Posts */}
+            <Box id="posts" sx={{ mt: 4 }}>
+              <Typography variant="h6" sx={{ fontWeight: 800, mb: 1 }}>
+                Příspěvky
+              </Typography>
+              <BlurBox blurred={!isUnlocked} key={isUnlocked ? 'unlocked-posts' : 'locked-posts'}>
+                <PostsSection animalId={animal.id} />
+              </BlurBox>
+              {!isUnlocked && (
+                <Typography variant="caption" color="text.secondary">
+                  Zamčeno – příspěvky se odemknou po adopci.
+                </Typography>
               )}
             </Box>
-          </Grid>
-        </Grid>
-      </Box>
 
-      {/* Additional gallery */}
-      {extraUrls.length > 0 && (
-        <Box sx={{ mt: 4 }}>
-          <Typography variant="h6" sx={{ fontWeight: 800, mb: 1 }}>
-            Další fotografie a videa
-          </Typography>
+            {/* After-payment dialog (prefill + unlock hook) */}
+            <AfterPaymentPasswordDialog
+              open={showAfterPay}
+              onClose={() => setShowAfterPay(false)}
+              animalId={id}
+              defaultEmail={dialogPrefillEmail}
+              onLoggedIn={() => {
+                if (id) grantAccess(id) // ensure unblur in case webhook is slow
+              }}
+            />
 
-          <BlurBox blurred={!isUnlocked} key={isUnlocked ? 'unlocked-extras' : 'locked-extras'}>
-            <Grid container spacing={1.5}>
-              {extraUrls.map((u, i) => {
-                const src = withBust(u)
-                return (
-                  <Grid item xs={6} sm={4} md={3} key={`${i}-${lockTag}`}>
-                    <Box
-                      component={isUnlocked ? 'a' : 'div'}
-                      {...(isUnlocked ? { href: u, target: '_blank', rel: 'noreferrer' } : {})}
-                      sx={{
-                        display: 'block',
-                        width: '100%',
-                        height: 160,
-                        borderRadius: 2,
-                        overflow: 'hidden',
-                        border: '1px solid',
-                        borderColor: 'divider',
-                      }}
-                      className={!isUnlocked ? 'lockedMedia' : undefined}
-                    >
-                      <img
-                        src={src}
-                        alt={`media-${i + 1}`}
-                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                      />
-                    </Box>
-                  </Grid>
-                )
-              })}
-            </Grid>
-          </BlurBox>
-
-          {!isUnlocked && (
-            <Typography variant="caption" color="text.secondary">
-              Zamčeno – odemkne se po adopci.
-            </Typography>
-          )}
-        </Box>
-      )}
-
-      {/* Posts */}
-      <Box id="posts" sx={{ mt: 4 }}>
-        <Typography variant="h6" sx={{ fontWeight: 800, mb: 1 }}>
-          Příspěvky
-        </Typography>
-        <BlurBox blurred={!isUnlocked} key={isUnlocked ? 'unlocked-posts' : 'locked-posts'}>
-          <PostsSection animalId={animal.id} />
-        </BlurBox>
-        {!isUnlocked && (
-          <Typography variant="caption" color="text.secondary">
-            Zamčeno – příspěvky se odemknou po adopci.
-          </Typography>
+            {/* Adoption dialog */}
+            <AdoptionDialog
+              open={adoptOpen}
+              onClose={() => setAdoptOpen(false)}
+              animalId={id}
+              defaultEmail={user?.email || dialogPrefillEmail}
+            />
+          </>
         )}
-      </Box>
-
-      {/* After-payment dialog */}
-      <AfterPaymentPasswordDialog
-        open={showAfterPay}
-        onClose={() => setShowAfterPay(false)}
-        animalId={id}
-        defaultEmail={prefillEmail}
-        onLoggedIn={() => {
-          if (id) grantAccess(id)
-        }}
-      />
-
-      {/* Adoption dialog */}
-      <AdoptionDialog
-        open={adoptOpen}
-        onClose={() => setAdoptOpen(false)}
-        animalId={id}
-        onGranted={() => {
-          setForceLocked(false)
-          if (id) grantAccess(id)
-        }}
-      />
-    </Container>
+      </Container>
+    </ErrorBoundary>
   )
 }

@@ -1,14 +1,24 @@
-import React from 'react';
+import React from 'react'
 
-type Props = { children: React.ReactNode };
-type State = { hasError: boolean; error?: any };
+type P = { children: React.ReactNode; fallback?: React.ReactNode }
+type S = { hasError: boolean }
 
-export default class ErrorBoundary extends React.Component<Props, State> {
-  state: State = { hasError: false };
-  static getDerivedStateFromError(error: any) { return { hasError: true, error }; }
-  componentDidCatch(error: any, info: any) { console.error('Runtime error:', error, info); }
+export default class ErrorBoundary extends React.Component<P, S> {
+  constructor(props: P) {
+    super(props)
+    this.state = { hasError: false }
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true }
+  }
+  componentDidCatch(err: any) {
+    // eslint-disable-next-line no-console
+    console.error('[ErrorBoundary]', err)
+  }
   render() {
-    if (this.state.hasError) return <div style={{ padding: 24, color: 'crimson' }}>Došlo k chybě: {String(this.state.error)}</div>;
-    return this.props.children;
+    if (this.state.hasError) {
+      return this.props.fallback ?? <div style={{ padding: 16 }}>Něco se pokazilo.</div>
+    }
+    return this.props.children
   }
 }
