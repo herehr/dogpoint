@@ -13,13 +13,8 @@ import AdoptionDialog from '../components/AdoptionDialog'
 import { useAuth } from '../context/AuthContext'
 import SafeMarkdown from '../components/SafeMarkdown'
 import PaymentButtons from '../components/payments/PaymentButtons'
-
-// services for auth + post-payment register
 import { me, registerAfterPayment } from '../services/api'
 import { setAuthToken } from '../services/auth'
-
-// Optional: if you have a ready-made dialog, we’ll trigger it;
-// otherwise, you can replace with your own inline form later.
 import AfterPaymentPasswordDialog from '../components/AfterPaymentPasswordDialog'
 
 type Media = { url: string; type?: 'image' | 'video' }
@@ -412,14 +407,34 @@ export default function AnimalDetail() {
         }}
       />
 
-      {/* After-payment password dialog */}
-      <AfterPaymentPasswordDialog
-        open={showAfterPay}
-        onClose={() => setShowAfterPay(false)}
-        animalId={id}
-        defaultEmail={prefillEmail}     // ← prefill form email here
-        onSubmit={handleAfterPayComplete} // ← calls registerAfterPayment, saves token, grantAccess, me()
-      />
+      const prefillEmail = (() => {
+  try {
+    const stash = localStorage.getItem('dp:pendingUser')
+    if (stash) {
+      const parsed = JSON.parse(stash)
+      if (parsed?.email) return parsed.email as string
+    }
+    const fallback = localStorage.getItem('dp:pendingEmail')
+    if (fallback) return fallback
+  } catch {}
+  return ''
+})()
+
+function handleAfterPayComplete(_ctx: { email: string; token: string; role: any }) {
+  // optional extra actions; token is already stored and me() was called
+  if (id) grantAccess(id) // redundant safety
+}
+
+<AfterPaymentPasswordDialog
+  open={showAfterPay}
+  onClose={() => setShowAfterPay(false)}
+  animalId={id || null}
+  defaultEmail={prefillEmail}           {/* ← prefill form email */}
+  onSubmit={handleAfterPayComplete}     {/* ← extra parent hook */}
+  onLoggedIn={() => {
+    if (id) grantAccess(id)             // ensure unblur
+  }}
+/>
     </Container>
   )
 }
