@@ -1,12 +1,14 @@
 // backend/src/index.ts
+import 'dotenv/config' // <-- load env BEFORE anything else that reads it
+
 import express, { Request, Response, NextFunction } from 'express'
-import dotenv from 'dotenv'
 import cors from 'cors'
 
-// Routes
+import stripeJsonRouter, { rawRouter as stripeRawRouter } from './routes/stripe'
+import authRoutes from './routes/auth'
+
 import adminModeratorsRoutes from './routes/adminModerators'
 import animalRoutes from './routes/animals'
-import authRoutes from './routes/auth'
 import uploadRoutes from './routes/upload'
 import postsRoutes from './routes/posts'
 import adminStatsRoutes from './routes/adminStats'
@@ -15,12 +17,7 @@ import paymentRouter from './routes/paymentRoutes'
 import adoptionRouter from './routes/adoption'
 import gpwebpayRoutes from './routes/gpwebpay'
 
-// Stripe routers (two exports from routes/stripe)
-import stripeJsonRouter, { rawRouter as stripeRawRouter } from './routes/stripe'
-
 import { prisma } from './prisma'
-
-dotenv.config()
 
 // ----- CORS -----
 const allowed = (process.env.CORS_ALLOWED_ORIGINS || '')
@@ -36,29 +33,28 @@ const corsOptions: Parameters<typeof cors>[0] = allowed.length
 const app = express()
 app.set('trust proxy', 1)
 
-// Enable CORS (and preflight)
+// CORS (and preflight)
 app.use(cors(corsOptions))
 app.options('*', cors(corsOptions))
 
-// Stripe RAW route FIRST (webhook needs raw body, no JSON parser before this)
+// IMPORTANT: Stripe RAW webhook FIRST (no JSON parser before this)
 app.use('/api/stripe', stripeRawRouter) // POST /api/stripe/webhook
 
-// JSON parser for everything else
+// JSON parser for the rest
 app.use(express.json({ limit: '2mb' }))
 
-// Request logger
+// Request logger (after we parse headers, before routers)
 app.use((req, _res, next) => {
-  const role = (req as any).user?.role
-  console.log(`[REQ] ${req.method} ${req.originalUrl} ${role ? `(role=${role})` : ''}`)
+  console.log(`[REQ] ${req.method} ${req.originalUrl}`)
   next()
 })
 
 // ----- Routes -----
-app.use('/api/admin', adminModeratorsRoutes)
-app.use('/api/animals', animalRoutes)
 app.use('/api/auth', authRoutes)
+app.use('/api/animals', animalRoutes)
 app.use('/api/upload', uploadRoutes)
 app.use('/api/posts', postsRoutes)
+app.use('/api/admin', adminModeratorsRoutes)
 app.use('/api/admin/stats', adminStatsRoutes)
 app.use('/api/subscriptions', subscriptionRoutes)
 app.use('/api/payments', paymentRouter)
@@ -149,14 +145,11 @@ const shutdown = async (signal: string) => {
 process.on('SIGTERM', () => shutdown('SIGTERM'))
 process.on('SIGINT', () => shutdown('SIGINT'))
 
-// ----- DB Probe (NO re-import of prisma here) -----
+// ----- DB probe -----
 ;(async () => {
   try {
-    const info = await prisma.$queryRawUnsafe<{ current_database: string; server: string }[]>(
-      `SELECT current_database() AS current_database, inet_server_addr()::text || ':' || inet_server_port()::text AS server`
-    )
     const animals = await prisma.animal.count()
-    console.log('[DB] connected to:', info?.[0], 'animals:', animals)
+    console.log('[DB] connected. animals:', animals)
   } catch (e: any) {
     console.error('[DB probe error]', e?.message)
   }

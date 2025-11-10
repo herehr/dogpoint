@@ -1,76 +1,69 @@
 // frontend/src/components/payments/PaymentButtons.tsx
-import { useState } from 'react'
+import React, { useState } from 'react'
+import { Button, Stack, TextField, Alert } from '@mui/material'
+import { createCheckoutSession } from '../../services/api'
 
 type Props = {
   animalId: string
   amountCZK: number
   email?: string
   name?: string
-  /** disable the button (e.g., until email/password/amount are valid) */
   disabled?: boolean
 }
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000'
-
 export default function PaymentButtons({ animalId, amountCZK, email, name, disabled }: Props) {
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [localEmail, setLocalEmail] = useState(email || '')
+  const [err, setErr] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
 
-  async function payStripe() {
+  async function startStripe() {
+    setErr(null)
+    const e = (localEmail || '').trim()
+    if (!e) { setErr('Zadejte e-mail.'); return }
+    setBusy(true)
     try {
-      setError(null)
-      setLoading(true)
-
-      // --- Stash identifiers so we can auto-login / claim after redirect ---
+      // stash for after-payment prefill + auto-claim
       try {
-  if (email) {
-    const payload = { email, animalId, ts: Date.now() }
-    localStorage.setItem('dp:pendingUser', JSON.stringify(payload))
-  }
-} catch {}
+        localStorage.setItem('dp:pendingEmail', e)
+        localStorage.setItem('dp:pendingUser', JSON.stringify({ email: e }))
+      } catch {}
 
-      // Create Checkout Session
-      const res = await fetch(`${API_BASE}/api/stripe/checkout-session`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ animalId, amountCZK, email, name }),
+      const { url } = await createCheckoutSession({
+        animalId,
+        amountCZK,
+        email: e,
+        name
       })
-      if (!res.ok) throw new Error(await res.text())
-      const data = (await res.json()) as { url?: string }
-      if (!data.url) throw new Error('Chybí adresa platební stránky.')
-      window.location.href = data.url
-    } catch (e: any) {
-      setError(e?.message || 'Chyba při vytváření platby.')
+      // Go to Stripe Checkout
+      window.location.href = url
+    } catch (ex: any) {
+      setErr(ex?.message || 'Nepodařilo se otevřít platbu.')
     } finally {
-      setLoading(false)
+      setBusy(false)
     }
   }
 
-  const isDisabled = loading || !!disabled
-
   return (
-    <div style={{ display: 'grid', gap: 8 }}>
-      <button
-        onClick={payStripe}
-        disabled={isDisabled}
-        style={{
-          padding: '12px 16px',
-          borderRadius: 12,
-          border: '1px solid #e0e0e0',
-          background: isDisabled ? '#9e9e9e' : '#111',
-          color: '#fff',
-          fontWeight: 600,
-          cursor: isDisabled ? 'not-allowed' : 'pointer',
-        }}
-        aria-disabled={isDisabled}
-      >
-        {loading ? 'Přesměrování…' : `Pokračovat na platbu kartou (CZK)`}
-      </button>
+    <Stack spacing={1.5}>
+      {/* If you want the email BELOW a “card form”, you’d need Stripe Payment Element.
+          With Checkout (redirect), we keep this email field here to pass it to Stripe. */}
+      <TextField
+        label="E-mail pro potvrzení"
+        value={localEmail}
+        onChange={e => setLocalEmail(e.target.value)}
+        type="email"
+        fullWidth
+      />
 
-      {error && <div style={{ color: '#c62828', fontSize: 14 }}>{error}</div>}
-      <div style={{ fontSize: 12, color: '#666' }}>
-        Platby jsou zpracovány bezpečně přes Stripe.
-      </div>
-    </div>
+      {err && <Alert severity="error">{err}</Alert>}
+
+      <Button
+        variant="contained"
+        onClick={startStripe}
+        disabled={busy || disabled}
+      >
+        Pokračovat k platbě
+      </Button>
+    </Stack>
   )
 }

@@ -13,7 +13,7 @@ import { useAuth } from '../context/AuthContext'
 import SafeMarkdown from '../components/SafeMarkdown'
 import AfterPaymentPasswordDialog from '../components/AfterPaymentPasswordDialog'
 
-// services
+// only what we actually use:
 import { createCheckoutSession } from '../services/api'
 
 type Media = { url: string; type?: 'image' | 'video' }
@@ -62,7 +62,6 @@ function formatAge(a: LocalAnimal): string {
 export default function AnimalDetail() {
   const { id } = useParams<{ id: string }>()
   const location = useLocation()
-
   const { hasAccess, grantAccess } = useAccess()
   const { role, user } = useAuth()
   const isStaff = role === 'ADMIN' || role === 'MODERATOR'
@@ -73,24 +72,19 @@ export default function AnimalDetail() {
   const [forceLocked, setForceLocked] = useState(false)
   const [showAfterPay, setShowAfterPay] = useState(false)
 
+  // Read Stripe return flags ONCE
+  const { paid, sid } = useMemo(() => {
+    const p = new URLSearchParams(location.search)
+    return {
+      paid: p.get('paid'),
+      sid : p.get('sid') || undefined
+    }
+  }, [location.search])
+
   const isUnlocked = useMemo(() => {
     if (isStaff) return true
     return !!(id && hasAccess(id)) && !forceLocked
   }, [isStaff, id, hasAccess, forceLocked])
-
-  const loadAnimal = useCallback(async () => {
-    if (!id) return
-    setLoading(true)
-    setErr(null)
-    try {
-      const a = await fetchAnimal(id)
-      setAnimal(a as any)
-    } catch (e: any) {
-      setErr(e?.message || 'Chyba načítání detailu')
-    } finally {
-      setLoading(false)
-    }
-  }, [id])
 
   // initial load
   useEffect(() => {
@@ -105,12 +99,7 @@ export default function AnimalDetail() {
     return () => { alive = false }
   }, [id])
 
-  // read return params
-  const params = new URLSearchParams(location.search)
-  const paid = params.get('paid')
-  const sid = params.get('sid') || undefined
-
-  // Prefill email for the after-payment dialog
+  // Prefill email for the after-payment dialog (from user or localStorage)
   const prefillEmail = useMemo(() => {
     try {
       if (user?.email) return user.email
@@ -125,48 +114,46 @@ export default function AnimalDetail() {
     return ''
   }, [user?.email])
 
-  // On return from Stripe: open the password dialog; also provisional unlock
+  // On return from Stripe: open the password dialog; also provisional unlock and clean URL
   useEffect(() => {
     if (!id || paid !== '1') return
     try {
-      grantAccess(id)
+      grantAccess(id)             // provisional unlock immediately
       setForceLocked(false)
-      setShowAfterPay(true)
-
+      setShowAfterPay(true)       // show email+password dialog
       // clean URL
-      params.delete('paid'); params.delete('sid')
-      const q = params.toString()
-      const clean = `${window.location.pathname}${q ? `?${q}` : ''}`
+      const p = new URLSearchParams(location.search)
+      p.delete('paid'); p.delete('sid')
+      const clean = `${window.location.pathname}${p.toString() ? `?${p}` : ''}`
       window.history.replaceState({}, '', clean)
-    } catch (e) {
+    } catch {
       // ignore
     }
-  }, [id, paid, grantAccess])
+  }, [id, paid, sid, location.search, grantAccess])
 
-  // direct-to-Stripe handler (skip email/amount dialog)
+  // Go straight to Stripe (skip pre-dialog); email is collected on our page and sent to Stripe
   const handleAdoptNow = useCallback(async () => {
     if (!id || !animal) return
     try {
-      // If we know an email, stash it so we can auto-claim later; if not, Stripe will ask for it.
+      // choose an email: prefer logged-in, else prefill, else empty (Stripe will ask)
       const email = user?.email || prefillEmail || undefined
+
+      // persist email for after-payment prefill/auto-link
       if (email) {
-        try { localStorage.setItem('dp:pendingEmail', email) } catch {}
+        try {
+          localStorage.setItem('dp:pendingEmail', email)
+          localStorage.setItem('dp:pendingUser', JSON.stringify({ email }))
+        } catch {}
       }
 
-      // default monthly amount (Kč)
       const amountCZK = 200
-
       const session = await createCheckoutSession({
         animalId: id,
         amountCZK,
         name: animal.jmeno || animal.name || 'Adopce',
-        email, // optional; Stripe will still allow changing it
+        email
       })
-
-      // redirect to Stripe
-      if (session?.url) {
-        window.location.href = session.url
-      }
+      if (session?.url) window.location.href = session.url
     } catch (e) {
       console.error('Start checkout failed', e)
       alert('Nepodařilo se spustit platbu. Zkuste to prosím znovu.')
@@ -184,11 +171,13 @@ export default function AnimalDetail() {
         try { v.pause(); v.removeAttribute('src'); v.load() } catch {}
       })
       setForceLocked(true)
-      await loadAnimal()
+      // (optional) reload detail
+      setLoading(true)
+      fetchAnimal(animal.id).then(a => setAnimal(a as any)).finally(() => setLoading(false))
     } catch (e) {
       console.error('Cancel adoption failed', e)
     }
-  }, [animal, loadAnimal])
+  }, [animal])
 
   if (loading) {
     return (
@@ -217,10 +206,8 @@ export default function AnimalDetail() {
       ...((animal.galerie || []).map(g => asUrl(g) || undefined)),
     ].filter(Boolean))
   ) as string[]
-
   const mainUrl = urls[0] || '/no-image.jpg'
   const extraUrls = urls.slice(1)
-
   const lockTag = isUnlocked ? 'u1' : 'l1'
   const withBust = (u: string) => `${u}${u.includes('?') ? '&' : '?'}v=${lockTag}`
 
