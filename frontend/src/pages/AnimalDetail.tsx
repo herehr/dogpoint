@@ -13,6 +13,13 @@ import AdoptionDialog from '../components/AdoptionDialog'
 import { useAuth } from '../context/AuthContext'
 import SafeMarkdown from '../components/SafeMarkdown'
 import PaymentButtons from '../components/payments/PaymentButtons'
+
+// services for auth + post-payment register
+import { me, registerAfterPayment } from '../services/api'
+import { setAuthToken } from '../services/auth'
+
+// Optional: if you have a ready-made dialog, we’ll trigger it;
+// otherwise, you can replace with your own inline form later.
 import AfterPaymentPasswordDialog from '../components/AfterPaymentPasswordDialog'
 
 type Media = { url: string; type?: 'image' | 'video' }
@@ -71,7 +78,10 @@ export default function AnimalDetail() {
   const [err, setErr] = useState<string | null>(null)
   const [adoptOpen, setAdoptOpen] = useState(false)
   const [forceLocked, setForceLocked] = useState(false)
+
+  // post-payment dialog state
   const [showAfterPay, setShowAfterPay] = useState(false)
+  const [prefillEmail, setPrefillEmail] = useState<string>('')
 
   const isUnlocked = useMemo(() => {
     if (isStaff) return true
@@ -92,7 +102,7 @@ export default function AnimalDetail() {
     }
   }, [id])
 
-  // Initial load
+  // initial load
   useEffect(() => {
     let alive = true
     if (!id) return
@@ -105,24 +115,61 @@ export default function AnimalDetail() {
     return () => { alive = false }
   }, [id])
 
-  // On Stripe success (?paid=1): open password dialog and clean URL.
+  // On Stripe return (?paid=1): open password dialog with prefilled email,
+  // grant temporary access so the page unblurs immediately after successful login.
   useEffect(() => {
     if (!id) return
     const params = new URLSearchParams(location.search)
-    if (params.get('paid') === '1') {
-      // grant immediate local access so the user sees unblurred media while finishing signup
+    const paid = params.get('paid')
+
+    if (paid === '1') {
+      // restore email we stashed before redirect
+      let email = ''
       try {
-        grantAccess(id)
-        setForceLocked(false)
+        const stash = localStorage.getItem('dp:pendingUser')
+        if (stash) {
+          const parsed = JSON.parse(stash)
+          if (parsed?.email) email = parsed.email
+        }
+        if (!email) {
+          const fallbackEmail = localStorage.getItem('dp:pendingEmail')
+          if (fallbackEmail) email = fallbackEmail
+        }
       } catch {}
+
+      if (email) setPrefillEmail(email)
+
+      // show the password dialog for /register-after-payment
       setShowAfterPay(true)
 
-      // clean URL
+      // Clean URL (remove ?paid=1) – purely cosmetic
       params.delete('paid')
       const clean = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}`
-      window.history.replaceState({}, '', clean.endsWith('?') ? clean.slice(0, -1) : clean)
+      window.history.replaceState({}, '', clean)
     }
-  }, [id, location.search, grantAccess])
+  }, [id, location.search])
+
+  // called by dialog after password submit success
+  const handleAfterPayComplete = useCallback(async (email: string, password: string) => {
+    // 1) call backend to create/set password and link pledges → get JWT
+    const res = await registerAfterPayment(email, password) // { ok, token, role }
+    setAuthToken(res.token)
+
+    // 2) ensure access to THIS animal right now (session-level unlock)
+    if (id) grantAccess(id)
+    setForceLocked(false)
+
+    // 3) refresh "me" so the header shows “logged in”
+    try { await me() } catch {}
+
+    // 4) cleanup email stash
+    try {
+      localStorage.removeItem('dp:pendingUser')
+      localStorage.removeItem('dp:pendingEmail')
+    } catch {}
+
+    setShowAfterPay(false)
+  }, [grantAccess, id])
 
   const onCancelAdoption = useCallback(async () => {
     if (!animal) return
@@ -190,7 +237,7 @@ export default function AnimalDetail() {
           {title}
         </Typography>
 
-        {/* Charakteristik with Markdown + turquoise pill */}
+        {/* Charakteristik pill */}
         {animal.charakteristik && (
           <div
             style={{
@@ -354,20 +401,6 @@ export default function AnimalDetail() {
         )}
       </Box>
 
-      {/* After-payment: ask for password, then log in */}
-      <AfterPaymentPasswordDialog
-        open={showAfterPay}
-        onClose={() => setShowAfterPay(false)}
-        onLoggedIn={() => {
-          setForceLocked(false)
-          if (id) {
-            try { grantAccess(id) } catch {}
-          }
-          // Optionally: reload data if any content depends on token
-          // loadAnimal()
-        }}
-      />
-
       {/* Adoption dialog */}
       <AdoptionDialog
         open={adoptOpen}
@@ -377,6 +410,15 @@ export default function AnimalDetail() {
           setForceLocked(false)
           grantAccess(id!)
         }}
+      />
+
+      {/* After-payment password dialog */}
+      <AfterPaymentPasswordDialog
+        open={showAfterPay}
+        onClose={() => setShowAfterPay(false)}
+        animalId={id}
+        defaultEmail={prefillEmail}     // ← prefill form email here
+        onSubmit={handleAfterPayComplete} // ← calls registerAfterPayment, saves token, grantAccess, me()
       />
     </Container>
   )
