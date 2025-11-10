@@ -22,15 +22,26 @@ router.get('/me', async (req, res) => {
     const m = hdr.match(/^Bearer\s+(.+)$/i)
     if (!m) return res.status(401).json({ error: 'Unauthorized' })
     const payload = jwt.verify(m[1], process.env.JWT_SECRET as Secret) as any
+
     const user = await prisma.user.findUnique({
       where: { id: String(payload.sub) },
       select: { id: true, email: true, role: true },
     })
     if (!user) return res.status(401).json({ error: 'Unauthorized' })
+
+    // Include provisional adoptions too
     const subs = await prisma.subscription.findMany({
-      where: { userId: user.id, status: 'ACTIVE' },
+      where: {
+        userId: user.id,
+        OR: [
+          { status: 'ACTIVE' as any },
+          { status: 'PENDING' as any },
+          // If your schema might not have status, comment the OR and fall back to no filter.
+        ],
+      },
       select: { animalId: true },
     })
+
     res.json({ ...user, animals: subs.map(s => s.animalId) })
   } catch {
     res.status(401).json({ error: 'Unauthorized' })
