@@ -1,15 +1,10 @@
-import React, { useMemo, useRef, useState, useEffect } from 'react'
+import React, { useMemo, useState } from 'react'
 import {
   Dialog, DialogTitle, DialogContent, DialogActions,
   TextField, Button, Stack, Alert, Typography
 } from '@mui/material'
 import { useNavigate } from 'react-router-dom'
-import {
-  login,
-  registerAfterPayment,
-  me,
-  setAuthToken,
-} from '../services/api'
+import { login, registerAfterPayment, me, setAuthToken } from '../services/api'
 
 type Props = {
   open: boolean
@@ -31,8 +26,6 @@ export default function AfterPaymentPasswordDialog({
   onLoggedIn,
 }: Props) {
   const navigate = useNavigate()
-  const emailInputRef = useRef<HTMLInputElement | null>(null)
-  const pwdInputRef = useRef<HTMLInputElement | null>(null)
 
   const [email, setEmail] = useState(defaultEmail)
   const [pwd, setPwd] = useState('')
@@ -40,20 +33,9 @@ export default function AfterPaymentPasswordDialog({
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
-  // keep email in sync if parent updates default
-  useEffect(() => {
+  React.useEffect(() => {
     setEmail(defaultEmail || '')
   }, [defaultEmail])
-
-  // autofocus: email if editable, otherwise password
-  useEffect(() => {
-    if (!open) return
-    const canEdit = isPlaceholderEmail(email)
-    const el = (canEdit ? emailInputRef.current : pwdInputRef.current)
-    // small delay to let dialog mount
-    const t = setTimeout(() => el?.focus(), 50)
-    return () => clearTimeout(t)
-  }, [open, email])
 
   const allowEditEmail = isPlaceholderEmail(email)
   const emailOk = !allowEditEmail || (email && isValidEmail(email))
@@ -67,34 +49,26 @@ export default function AfterPaymentPasswordDialog({
 
   async function finishLoginFlow(token?: string) {
     if (token) setAuthToken(token)
-    try {
-      await me().catch(() => {})
-    } catch {}
-    // clear any stash we may have left
-    try {
-      localStorage.removeItem('dp:pendingEmail')
-      localStorage.removeItem('dp:pendingUser')
-    } catch {}
+    try { await me().catch(() => {}) } catch {}
     onLoggedIn?.()
-    // go straight to the user dashboard → Moje adopce
-    navigate('/user/adopce', { replace: true })
+    // IMPORTANT: client-side navigate (prevents server 404)
+    navigate('/user', { replace: true })
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!canSubmit || busy) return
     setErr(null)
+    if (!canSubmit) return
     setBusy(true)
 
-    // 1) try first-time registration (backend should also link pledges)
+    // Try first-time registration (links pledges on the server)
     try {
       const reg = await registerAfterPayment(email, pwd)
       await finishLoginFlow(reg?.token)
       return
     } catch (e: any) {
       const msg = (e?.message || '').toString()
-      // conflict/exists → fall through to login
-      const isConflict = /\b409\b|exist/i.test(msg)
+      const isConflict = /409|exist/i.test(msg) // user likely already exists
       if (!isConflict) {
         setErr(msg || 'Nepodařilo se vytvořit účet.')
         setBusy(false)
@@ -102,7 +76,7 @@ export default function AfterPaymentPasswordDialog({
       }
     }
 
-    // 2) fallback: login existing account
+    // Fallback: login existing user
     try {
       const auth = await login(email, pwd)
       await finishLoginFlow(auth?.token)
@@ -127,10 +101,9 @@ export default function AfterPaymentPasswordDialog({
 
             <TextField
               label="E-mail"
-              inputRef={emailInputRef}
               value={email}
               onChange={e => setEmail(e.target.value)}
-              disabled={!allowEditEmail || busy}
+              disabled={!allowEditEmail}
               error={allowEditEmail && !!email && !emailOk}
               helperText={
                 allowEditEmail
@@ -144,12 +117,10 @@ export default function AfterPaymentPasswordDialog({
             <TextField
               label="Heslo"
               type="password"
-              inputRef={pwdInputRef}
               value={pwd}
               onChange={e => setPwd(e.target.value)}
               fullWidth
               required
-              disabled={busy}
               helperText="Minimálně 6 znaků"
             />
             <TextField
@@ -159,7 +130,6 @@ export default function AfterPaymentPasswordDialog({
               onChange={e => setPwd2(e.target.value)}
               fullWidth
               required
-              disabled={busy}
               error={!!pwd2 && pwd2 !== pwd}
               helperText={pwd2 && pwd2 !== pwd ? 'Hesla se neshodují' : ' '}
             />
