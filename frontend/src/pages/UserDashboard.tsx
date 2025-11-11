@@ -1,105 +1,102 @@
 import React from 'react'
-import { useNavigate, Link as RouterLink } from 'react-router-dom'
 import {
-  Box, Container, Typography, Stack, Card, CardContent,
-  CardActionArea, Chip, Alert, Skeleton, Button
+  Container, Typography, Grid, Card, CardContent, CardActionArea,
+  CardMedia, Stack, Chip, Alert, Skeleton, Button
 } from '@mui/material'
+import { Link as RouterLink } from 'react-router-dom'
 import { myAdoptedAnimals, markAnimalSeen, MyAdoptedItem } from '../services/api'
 import { useAuth } from '../context/AuthContext'
 
 export default function UserDashboard() {
-  const nav = useNavigate()
-  const { token } = useAuth()
+  const { user } = useAuth()
   const [items, setItems] = React.useState<MyAdoptedItem[] | null>(null)
   const [err, setErr] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(true)
 
   React.useEffect(() => {
     let alive = true
-    ;(async () => {
-      setLoading(true)
-      setErr(null)
-      try {
-        const data = await myAdoptedAnimals()
-        if (!alive) return
-        setItems(data || [])
-        // mark all seen (best-effort)
-        for (const it of data || []) {
-          try { if (it.animal?.id) await markAnimalSeen(it.animal.id) } catch {}
-        }
-      } catch (e: any) {
-        if (!alive) return
-        setErr(e?.message || 'Nepodařilo se načíst seznam adopcí.')
-      } finally {
-        if (alive) setLoading(false)
-      }
-    })()
+    setLoading(true)
+    setErr(null)
+    myAdoptedAnimals()
+      .then(list => { if (alive) setItems(list || []) })
+      .catch(e => { if (alive) setErr(e?.message || 'Nepodařilo se načíst adopce') })
+      .finally(() => { if (alive) setLoading(false) })
     return () => { alive = false }
-  }, [token])
-
-  // Optional “welcome” after password set
-  const welcome = React.useMemo(() => {
-    try {
-      const v = localStorage.getItem('dp:welcomeAfterPassword')
-      if (v) localStorage.removeItem('dp:welcomeAfterPassword')
-      return !!v
-    } catch { return false }
   }, [])
+
+  const onSeen = async (animalId: string) => {
+    try {
+      await markAnimalSeen(animalId)
+      // optimistic UI – nothing fancy here; could refetch if needed
+    } catch (e) {
+      console.warn('mark seen failed', e)
+    }
+  }
 
   return (
     <Container sx={{ py: 4 }}>
-      <Stack spacing={2} sx={{ mb: 2 }}>
-        <Typography variant="h4" sx={{ fontWeight: 900 }}>
-          Moje adopce
-        </Typography>
-        {welcome && (
-          <Alert severity="success">Účet je připraven. Děkujeme za podporu!</Alert>
+      <Stack direction="row" alignItems="baseline" justifyContent="space-between" sx={{ mb: 2 }}>
+        <Typography variant="h4" sx={{ fontWeight: 900 }}>Moje adopce</Typography>
+        {user?.email && (
+          <Chip label={user.email} color="default" variant="outlined" />
         )}
-        {err && <Alert severity="error">{err}</Alert>}
       </Stack>
 
-      {loading ? (
-        <Stack spacing={2}>
-          <Skeleton variant="rounded" height={96} />
-          <Skeleton variant="rounded" height={96} />
-        </Stack>
-      ) : !items || items.length === 0 ? (
-        <Stack spacing={2} alignItems="flex-start">
-          <Typography color="text.secondary">Zatím zde nic není.</Typography>
-          <Button component={RouterLink} to="/zvirata" variant="contained">
-            Vybrat zvíře k adopci
-          </Button>
-        </Stack>
-      ) : (
-        <Stack spacing={2}>
-          {items.map((it, idx) => {
-            const a = it.animal
-            const title = a?.jmeno || a?.name || '—'
-            const thumb = a?.main || ''
+      {loading && (
+        <Grid container spacing={2}>
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Grid item xs={12} sm={6} md={4} key={i}>
+              <Skeleton variant="rectangular" height={180} />
+              <Skeleton variant="text" />
+            </Grid>
+          ))}
+        </Grid>
+      )}
+
+      {!!err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
+
+      {!loading && items && items.length === 0 && (
+        <Alert severity="info">
+          Zatím tu nic není. Po úspěšné platbě se vaše adopce objeví zde.
+        </Alert>
+      )}
+
+      {!loading && items && items.length > 0 && (
+        <Grid container spacing={2}>
+          {items.map((it) => {
+            const title = it.title || it.jmeno || it.name || 'Zvíře'
             return (
-              <Card key={`${a?.id || 'x'}-${idx}`} variant="outlined">
-                <CardActionArea onClick={() => a?.id && nav(`/zvirata/${a.id}`)}>
-                  <CardContent>
-                    <Stack direction="row" spacing={2} alignItems="center">
-                      {thumb ? (
-                        <Box component="img" src={thumb} alt="" sx={{ width: 88, height: 66, objectFit: 'cover', borderRadius: 1, border: '1px solid', borderColor: 'divider' }} />
-                      ) : (
-                        <Box sx={{ width: 88, height: 66, bgcolor: 'grey.100', borderRadius: 1 }} />
-                      )}
-                      <Stack flex={1} spacing={0.5}>
-                        <Typography sx={{ fontWeight: 800 }}>{title}</Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          {it.monthly ? `Měsíční dar: ${it.monthly} Kč` : 'Jednorázový dar'}
-                        </Typography>
+              <Grid item xs={12} sm={6} md={4} key={it.animalId}>
+                <Card>
+                  <CardActionArea component={RouterLink} to={`/zvirata/${it.animalId}`} onClick={() => onSeen(it.animalId)}>
+                    {it.main && (
+                      <CardMedia component="img" height="160" image={it.main} alt={title} />
+                    )}
+                    <CardContent>
+                      <Stack direction="row" justifyContent="space-between" alignItems="center">
+                        <Typography variant="h6" sx={{ fontWeight: 800 }}>{title}</Typography>
+                        {it.status && <Chip size="small" label={it.status} />}
                       </Stack>
-                      {it.hasNew && <Chip color="primary" label="Novinky" />}
-                    </Stack>
-                  </CardContent>
-                </CardActionArea>
-              </Card>
+                      {it.since && (
+                        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                          od: {new Date(it.since).toLocaleDateString()}
+                        </Typography>
+                      )}
+                      <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+                        <Button size="small" component={RouterLink} to={`/zvirata/${it.animalId}`}>
+                          Zobrazit detail
+                        </Button>
+                        <Button size="small" onClick={(e) => { e.preventDefault(); onSeen(it.animalId); }}>
+                          Označit jako shlédnuté
+                        </Button>
+                      </Stack>
+                    </CardContent>
+                  </CardActionArea>
+                </Card>
+              </Grid>
             )
           })}
-        </Stack>
+        </Grid>
       )}
     </Container>
   )

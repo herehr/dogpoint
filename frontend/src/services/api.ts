@@ -1,5 +1,3 @@
-// frontend/src/services/api.ts
-
 // ---------- Base URL ----------
 const API_BASE =
   (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/+$/, '') || '';
@@ -29,7 +27,7 @@ export {
   clearToken as clearAuthToken,
 };
 
-// Optional legacy helper (some files import it)
+// Optional legacy header helper
 export function authHeader(): Record<string, string> {
   const t = getToken();
   return t ? { Authorization: `Bearer ${t}` } : {};
@@ -248,7 +246,9 @@ export function popPendingEmail(): string | undefined {
     const stash = localStorage.getItem(PENDING_USER_KEY);
     if (stash) {
       const parsed = JSON.parse(stash);
-      if (parsed?.email) return String(parsed.email);
+      if (parsed?.email) {
+        return String(parsed.email);
+      }
     }
     const fallback = localStorage.getItem(PENDING_EMAIL_KEY);
     if (fallback) {
@@ -277,6 +277,26 @@ export type Animal = {
 
 export async function fetchAnimal(id: string): Promise<Animal> {
   return getJSON<Animal>(`/api/animals/${encodeURIComponent(id)}`);
+}
+
+// ---------- User / Adoptions ----------
+export type MyAdoptedItem = {
+  animalId: string;
+  title?: string;          // server may send animal name
+  name?: string;           // alias
+  jmeno?: string;          // alias (cz)
+  main?: string;           // main image URL
+  since?: string;          // ISO date adopted from
+  status?: 'ACTIVE' | 'PENDING' | 'CANCELED';
+};
+
+export async function myAdoptedAnimals(): Promise<MyAdoptedItem[]> {
+  // Backend route mounted at /api/adoption
+  return getJSON<MyAdoptedItem[]>('/api/adoption/my', { autoLogoutOn401: true });
+}
+
+export async function markAnimalSeen(animalId: string): Promise<{ ok: true }> {
+  return postJSON<{ ok: true }>('/api/adoption/seen', { animalId });
 }
 
 // ---------- Uploads (FormData-safe) ----------
