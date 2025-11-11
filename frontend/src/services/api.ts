@@ -209,7 +209,6 @@ export async function claimPaid(email: string, sessionId?: string) {
 }
 
 // ---------- Stripe helpers ----------
-
 export type ConfirmStripeResp = {
   ok: boolean;
   token?: string;
@@ -249,10 +248,7 @@ export function popPendingEmail(): string | undefined {
     const stash = localStorage.getItem(PENDING_USER_KEY);
     if (stash) {
       const parsed = JSON.parse(stash);
-      if (parsed?.email) {
-        // do not clear user stash; we often reuse it for prefill
-        return String(parsed.email);
-      }
+      if (parsed?.email) return String(parsed.email);
     }
     const fallback = localStorage.getItem(PENDING_EMAIL_KEY);
     if (fallback) {
