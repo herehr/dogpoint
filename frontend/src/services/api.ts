@@ -101,12 +101,14 @@ async function doFetch<T>(path: string, opts: FetchOpts = {}): Promise<T> {
     const isJson = /\bapplication\/json\b/i.test(ct);
 
     if (!res.ok) {
-      // Try to read server error message
+      // Try to read server error message + detail
       let serverMsg = '';
+      let serverDetail = '';
       try {
         if (isJson) {
           const errJson = await res.json();
           serverMsg = errJson?.error || errJson?.message || '';
+          serverDetail = errJson?.detail || '';
         } else {
           serverMsg = await res.text();
         }
@@ -114,7 +116,7 @@ async function doFetch<T>(path: string, opts: FetchOpts = {}): Promise<T> {
       if (res.status === 401 && opts.autoLogoutOn401) {
         clearToken();
       }
-      const msg = serverMsg || `HTTP ${res.status}`;
+      const msg = (serverMsg || `HTTP ${res.status}`) + (serverDetail ? ` – ${serverDetail}` : '');
       throw new Error(msg);
     }
 
@@ -206,15 +208,14 @@ export async function claimPaid(email: string, sessionId?: string) {
   return res;
 }
 
-// Stripe checkout session
+// Stripe checkout session (backend returns { url })
 export async function createCheckoutSession(params: {
   animalId: string;
   amountCZK: number;
   email?: string;
   name?: string;
 }) {
-  // Backend should build success_url back to /zvire/:id?paid=1&sid={CHECKOUT_SESSION_ID}
-  return postJSON<{ id: string; url: string }>('/api/stripe/checkout-session', params);
+  return postJSON<{ url: string }>('/api/stripe/checkout-session', params);
 }
 
 // Animals

@@ -111,6 +111,8 @@ jsonRouter.get('/ping', (_req: Request, res: Response) => {
  * POST /api/stripe/checkout-session
  * body: { animalId: string, amountCZK: number, email?: string, name?: string }
  */
+// backend/src/routes/stripe.ts  (replace ONLY the checkout-session handler)
+
 jsonRouter.post('/checkout-session', async (req: Request, res: Response) => {
   try {
     const { animalId, amountCZK, email, name } = (req.body || {}) as {
@@ -119,61 +121,105 @@ jsonRouter.post('/checkout-session', async (req: Request, res: Response) => {
       email?: string
       name?: string
     }
-    if (!animalId || typeof animalId !== 'string') return res.status(400).json({ error: 'Missing/invalid animalId' })
+
+    if (!animalId || typeof animalId !== 'string') {
+      return res.status(400).json({ error: 'Missing or invalid animalId' })
+    }
     if (!amountCZK || typeof amountCZK !== 'number' || amountCZK <= 0) {
-      return res.status(400).json({ error: 'Missing/invalid amountCZK' })
+      return res.status(400).json({ error: 'Missing or invalid amountCZK' })
     }
 
-    // Create PENDING pledge (schema-tolerant)
-    const pledge = await prisma.pledge.create({
-      data: {
-        animalId,
-        email: email ?? null,
-        name: name ?? null,
-        amount: amountCZK,
-        interval: 'MONTHLY' as any,
-        method: 'CARD' as any,
-        status: 'PENDING' as any,
-      } as any,
+    // 1) Make sure the animal exists (prevents FK failures)
+    const animal = await prisma.animal.findUnique({
+      where: { id: animalId },
+      select: { id: true, jmeno: true, name: true }
     })
+    if (!animal) {
+      return res.status(400).json({ error: `Unknown animalId: ${animalId}` })
+    }
 
-    const successUrl = `${frontendBase()}/zvirata/${encodeURIComponent(
-      animalId
-    )}?paid=1&sid={CHECKOUT_SESSION_ID}`
-    const cancelUrl = `${frontendBase()}/zvirata/${encodeURIComponent(animalId)}?canceled=1`
+    // 2) Create a minimal pledge; keep fields schema-tolerant
+    let pledge
+    try {
+      pledge = await prisma.pledge.create({
+        data: {
+          animalId,
+          email: email ?? null,
+          name: name ?? null,
+          amount: amountCZK,
+          status: 'PENDING' as any,
+          // If your schema supports these, they’ll be accepted; if not, harmless as any:
+          method: 'CARD' as any,
+          interval: 'MONTHLY' as any,
+          provider: 'STRIPE' as any,
+        } as any,
+        select: { id: true },
+      })
+    } catch (e: any) {
+      console.error('[checkout] pledge.create failed:', e?.message || e)
+      return res.status(500).json({
+        error: 'PLEDGE_CREATE_FAILED',
+        detail: e?.message || 'Unable to create pledge (check schema fields)',
+      })
+    }
 
-    const session = await stripe.checkout.sessions.create({
-      mode: 'payment',
-      locale: 'cs',
-      success_url: successUrl,
-      cancel_url: cancelUrl,
-      currency: 'czk',
-      customer_email: email || undefined,
-      metadata: { animalId, pledgeId: pledge.id },
-      line_items: [
-        {
-          price_data: {
-            currency: 'czk',
-            product_data: {
-              name: name ? `Adopce: ${name}` : 'Adopce zvířete',
-              description: `Měsíční dar pro zvíře (${animalId})`,
-            },
-            unit_amount: Math.round(amountCZK * 100),
-          },
-          quantity: 1,
+    const FRONTEND_BASE =
+      (process.env.PUBLIC_WEB_BASE_URL || process.env.FRONTEND_BASE_URL || '').replace(/\/+$/, '')
+        || 'https://example.com'
+
+    const successUrl = `${FRONTEND_BASE}/zvirata/${encodeURIComponent(animalId)}?paid=1&sid={CHECKOUT_SESSION_ID}`
+    const cancelUrl  = `${FRONTEND_BASE}/zvirata/${encodeURIComponent(animalId)}?canceled=1`
+
+    // 3) Create Stripe session
+    let session: Stripe.Checkout.Session
+    try {
+      session = await stripe.checkout.sessions.create({
+        mode: 'payment',
+        locale: 'cs',
+        success_url: successUrl,
+        cancel_url: cancelUrl,
+        currency: 'czk',
+        customer_email: email || undefined,
+        metadata: {
+          animalId,
+          pledgeId: pledge.id,
         },
-      ],
-    })
+        line_items: [
+          {
+            price_data: {
+              currency: 'czk',
+              product_data: {
+                name: name ? `Adopce: ${name}` : `Adopce zvířete`,
+                description: `Měsíční dar pro zvíře (${animalId})`,
+              },
+              unit_amount: Math.round(amountCZK * 100),
+            },
+            quantity: 1,
+          },
+        ],
+      })
+    } catch (e: any) {
+      console.error('[checkout] stripe.sessions.create failed:', e?.message || e)
+      return res.status(500).json({
+        error: 'STRIPE_SESSION_FAILED',
+        detail: e?.message || 'Stripe error',
+      })
+    }
 
-    await prisma.pledge.update({
-      where: { id: pledge.id },
-      data: { providerId: session.id },
-    })
+    // 4) Store session id on pledge for reconciliation
+    try {
+      await prisma.pledge.update({
+        where: { id: pledge.id },
+        data: { providerId: session.id },
+      })
+    } catch (e: any) {
+      console.warn('[checkout] pledge.update providerId failed (non-fatal):', e?.message || e)
+    }
 
-    res.json({ url: session.url })
-  } catch (e) {
-    console.error('[stripe checkout-session] error:', e)
-    res.status(500).json({ error: 'Failed to create checkout session' })
+    return res.json({ url: session.url })
+  } catch (e: any) {
+    console.error('[checkout] unexpected error:', e?.message || e)
+    return res.status(500).json({ error: 'Failed to create checkout session', detail: e?.message || String(e) })
   }
 })
 
