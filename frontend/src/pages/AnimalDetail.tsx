@@ -1,22 +1,22 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react'
 import { useParams, useLocation, useNavigate } from 'react-router-dom'
 import {
-  Container, Typography, Box, Stack, Chip, Alert, Skeleton, Grid, Button, Divider
+  Container, Typography, Box, Stack, Chip, Alert, Skeleton, Grid, Button, Divider, TextField
 } from '@mui/material'
 
-import { fetchAnimal } from '../services/api'
+import { fetchAnimal } from '../api'
 import { useAccess } from '../context/AccessContext'
 import PostsSection from '../components/PostsSection'
 import BlurBox from '../components/BlurBox'
 import { useAuth } from '../context/AuthContext'
 import SafeMarkdown from '../components/SafeMarkdown'
 import AfterPaymentPasswordDialog from '../components/AfterPaymentPasswordDialog'
-
 import {
   createCheckoutSession,
   confirmStripeSession,
-  me,
   stashPendingEmail,
+  setAuthToken,
+  me,
 } from '../services/api'
 
 type Media = { url: string; type?: 'image' | 'video' }
@@ -35,9 +35,6 @@ type LocalAnimal = {
   bornYear?: number | null
 }
 
-const isPlaceholderEmail = (e?: string) =>
-  !e || /pending\+unknown@local/i.test(e) || !e.includes('@')
-
 function asUrl(x: string | Media | undefined | null): string | null {
   if (!x) return null
   if (typeof x === 'string') return x
@@ -49,8 +46,9 @@ function formatAge(a: LocalAnimal): string {
   if (bd && !Number.isNaN(bd.getTime())) {
     const now = new Date()
     let years = now.getFullYear() - bd.getFullYear()
-    if (now.getMonth() < bd.getMonth() ||
-        (now.getMonth() === bd.getMonth() && now.getDate() < bd.getDate())) years -= 1
+    if (now.getMonth() < bd.getMonth() || (now.getMonth() === bd.getMonth() && now.getDate() < bd.getDate())) {
+      years -= 1
+    }
     return `${years} r`
   }
   if (a.bornYear && a.bornYear > 1900) {
@@ -67,7 +65,7 @@ export default function AnimalDetail() {
   const navigate = useNavigate()
 
   const { hasAccess, grantAccess } = useAccess()
-  const { role, user, refreshMe } = useAuth()
+  const { role, user } = useAuth()
   const isStaff = role === 'ADMIN' || role === 'MODERATOR'
 
   const [animal, setAnimal] = useState<LocalAnimal | null>(null)
@@ -75,12 +73,18 @@ export default function AnimalDetail() {
   const [err, setErr] = useState<string | null>(null)
   const [forceLocked, setForceLocked] = useState(false)
   const [showAfterPay, setShowAfterPay] = useState(false)
-  const [dialogEmail, setDialogEmail] = useState('')
+  const [afterPayEmail, setAfterPayEmail] = useState('')
 
-  // Stripe return flags
+  // amount picker
+  const [amount, setAmount] = useState<number>(200)
+
+  // Read Stripe return flags ONCE
   const { paid, sid } = useMemo(() => {
     const p = new URLSearchParams(location.search)
-    return { paid: p.get('paid'), sid: p.get('sid') || undefined }
+    return {
+      paid: p.get('paid'),
+      sid : p.get('sid') || undefined
+    }
   }, [location.search])
 
   const isUnlocked = useMemo(() => {
@@ -101,89 +105,109 @@ export default function AnimalDetail() {
     return () => { alive = false }
   }, [id])
 
-  // Return from Stripe
+  // Prefill email for after-payment (prefer logged-in, else stashed)
+  const prefillEmail = useMemo(() => {
+    try {
+      if (user?.email) return user.email
+      const stash = localStorage.getItem('dp:pendingUser')
+      if (stash) {
+        const parsed = JSON.parse(stash)
+        if (parsed?.email) return String(parsed.email)
+      }
+      const fallback = localStorage.getItem('dp:pendingEmail')
+      if (fallback) return String(fallback)
+    } catch {}
+    return ''
+  }, [user?.email])
+
+  // On return from Stripe: confirm session → (token? go to /user) : open password dialog
   useEffect(() => {
     if (!id || paid !== '1') return
     (async () => {
       try {
-        // optimistic unlock
+        // unlock right away (optimistic)
         grantAccess(id)
         setForceLocked(false)
 
-        let preferredEmail = user?.email || ''
-
+        // Try to confirm & pull token+email
+        let confirmedEmail = ''
         if (sid) {
           try {
             const conf = await confirmStripeSession(sid)
-            // If token was returned, refresh user
+            if (conf?.email) confirmedEmail = conf.email
             if (conf?.token) {
-              await me().catch(() => {})
-              await refreshMe?.()
-            }
-            if (conf?.email) {
-              preferredEmail = conf.email
-              stashPendingEmail(conf.email)
-            }
-
-            // If we have a proper email (not placeholder) AND a token → go directly to /user
-            if (conf?.token && conf?.email && !isPlaceholderEmail(conf.email)) {
-              setShowAfterPay(false)
-              // Clean URL then navigate
+              setAuthToken(conf.token)
+              try { await me() } catch {}
+              // If we already have a token, the user dashboard will show "Moje adopce" immediately
+              navigate('/user', { replace: true })
+              // clean URL after navigation
               const p = new URLSearchParams(location.search)
               p.delete('paid'); p.delete('sid')
               const clean = `${window.location.pathname}${p.toString() ? `?${p}` : ''}`
               window.history.replaceState({}, '', clean)
-              navigate('/user')
               return
             }
           } catch (e) {
-            console.warn('[confirmStripeSession] failed', e)
+            // continue to dialog flow
+            // console.warn('[confirmStripeSession] failed:', e)
           }
         }
 
-        // show password dialog (first-time / placeholder email case)
-        setDialogEmail(preferredEmail)
+        // No token yet → show the password dialog; default e-mail from confirm or stashed
+        const emailForDialog = confirmedEmail || prefillEmail || ''
+        setAfterPayEmail(emailForDialog)
         setShowAfterPay(true)
 
-        // clean URL
+        // clean URL (remove paid/sid to avoid re-trigger)
         const p = new URLSearchParams(location.search)
         p.delete('paid'); p.delete('sid')
         const clean = `${window.location.pathname}${p.toString() ? `?${p}` : ''}`
         window.history.replaceState({}, '', clean)
-      } catch (e) {
-        console.error('[return from stripe] flow error:', e)
+      } catch {
+        // ignore – dialog still lets user finish
+        setShowAfterPay(true)
       }
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, paid, sid])
 
-  // Start Stripe
+  // amount quick presets
+  const pickAmount = (v: number) => setAmount(v)
+
+  // Go straight to Stripe (skip pre-dialog)
   const handleAdoptNow = useCallback(async () => {
     if (!id || !animal) {
       alert('Zkuste stránku znovu načíst (chybí ID zvířete).')
       return
     }
+    if (!amount || amount < 50) {
+      alert('Minimální částka je 50 Kč.')
+      return
+    }
     try {
-      const preferredEmail = user?.email || dialogEmail || ''
-      if (preferredEmail) stashPendingEmail(preferredEmail)
+      const email = user?.email || prefillEmail || undefined
+
+      // persist email so we can prefill after redirect
+      if (email) stashPendingEmail(email)
 
       const session = await createCheckoutSession({
         animalId: id,
-        amountCZK: 200,
+        amountCZK: amount,
         name: animal.jmeno || animal.name || 'Adopce',
-        email: preferredEmail || undefined,
+        email,
       })
 
       if (!session || !session.url) {
         alert('Server nevrátil odkaz na platbu. Zkuste to prosím znovu.')
         return
       }
+
       window.location.href = session.url
     } catch (e: any) {
       const msg = (e?.message || '').toString()
       alert(`Nepodařilo se spustit platbu.${msg ? `\n\nDůvod: ${msg}` : ''}`)
     }
-  }, [id, animal, user?.email, dialogEmail])
+  }, [id, animal, user?.email, prefillEmail, amount])
 
   const onCancelAdoption = useCallback(async () => {
     if (!animal) return
@@ -233,6 +257,7 @@ export default function AnimalDetail() {
 
   const mainUrl = urls[0] || '/no-image.jpg'
   const extraUrls = urls.slice(1)
+
   const lockTag = isUnlocked ? 'u1' : 'l1'
   const withBust = (u: string) => `${u}${u.includes('?') ? '&' : '?'}v=${lockTag}`
 
@@ -312,7 +337,7 @@ export default function AnimalDetail() {
 
             <Divider sx={{ my: 2 }} />
 
-            {/* Adoption / go straight to Stripe */}
+            {/* Adoption / amount picker / go to Stripe */}
             <Box id="adopce">
               <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>
                 {isUnlocked ? 'Podpořit zvíře' : 'Chci adoptovat'}
@@ -323,6 +348,33 @@ export default function AnimalDetail() {
                   <Typography color="text.secondary" sx={{ mb: 2 }}>
                     Po adopci uvidíte další fotografie, videa a příspěvky.
                   </Typography>
+
+                  <Stack direction="row" spacing={1} sx={{ mb: 1 }}>
+                    {[200, 500, 1000].map(v => (
+                      <Button
+                        key={v}
+                        variant={amount === v ? 'contained' : 'outlined'}
+                        onClick={() => setAmount(v)}
+                      >
+                        {v} Kč
+                      </Button>
+                    ))}
+                  </Stack>
+
+                  <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2 }}>
+                    <TextField
+                      type="number"
+                      label="Částka (Kč)"
+                      value={amount}
+                      onChange={e => setAmount(Math.max(0, parseInt(e.target.value || '0', 10)))}
+                      inputProps={{ min: 50, step: 10 }}
+                      sx={{ width: 160 }}
+                    />
+                    <Typography variant="caption" color="text.secondary">
+                      Minimum 50 Kč
+                    </Typography>
+                  </Stack>
+
                   <Button variant="contained" onClick={handleAdoptNow}>
                     Pokračovat k platbě
                   </Button>
@@ -403,10 +455,11 @@ export default function AnimalDetail() {
       <AfterPaymentPasswordDialog
         open={showAfterPay}
         onClose={() => setShowAfterPay(false)}
-        defaultEmail={dialogEmail}
+        animalId={id}
+        defaultEmail={afterPayEmail || prefillEmail}
         onLoggedIn={() => {
-          if (id) grantAccess(id);
-          navigate('/user');
+          if (id) grantAccess(id)
+          navigate('/user', { replace: true })
         }}
       />
     </Container>
