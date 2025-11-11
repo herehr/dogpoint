@@ -3,8 +3,8 @@ import React, { useEffect } from 'react'
 import { Routes, Route, Link, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { Container, Typography, Button } from '@mui/material'
 
-/** Use the shared RequireRole from components (not routes) */
-import RequireRole from './components/RequireRole'
+/** Correct location of RequireRole */
+import RequireRole from './routes/RequireRole'
 
 /** Layout */
 import Header from './components/Header'
@@ -51,12 +51,7 @@ export default function App() {
   const navigate = useNavigate()
   const location = useLocation()
 
-  /**
-   * In case Stripe success_url was (or still is) pointed at the site root with
-   * query flags like `/?paid=1&animal=XYZ`, we forward the user to the proper
-   * client route `/zvirata/:id?...` to avoid static-site deep-link 404s.
-   * (If you already use success_url=/zvirata/:id?paid=1&sid=..., this is a no-op.)
-   */
+  // If Stripe ever lands you at /?paid=1&animal=XYZ (legacy), forward to the SPA route
   useEffect(() => {
     const params = new URLSearchParams(location.search)
     const paid = params.get('paid')
@@ -71,9 +66,7 @@ export default function App() {
 
   return (
     <Routes>
-      {/* All routes share the same header via AppLayout */}
       <Route path="/" element={<AppLayout />}>
-        {/* Home */}
         <Route index element={<LandingPage />} />
 
         {/* Public */}
@@ -81,7 +74,7 @@ export default function App() {
         <Route path="zvirata/:id" element={<AnimalDetail />} />
         <Route path="ochrana-osobnich-udaju" element={<OchranaOsobnichUdaju />} />
 
-        {/* Single login page for all roles */}
+        {/* Auth */}
         <Route path="login" element={<Login />} />
 
         {/* Admin */}
@@ -138,10 +131,10 @@ export default function App() {
           }
         />
 
-        {/* Prototype (optional) */}
+        {/* Prototype */}
         <Route path="proto/*" element={<UXPrototype />} />
 
-        {/* Fallback */}
+        {/* 404 */}
         <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>
