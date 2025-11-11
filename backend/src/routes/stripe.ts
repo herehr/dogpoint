@@ -221,7 +221,6 @@ jsonRouter.get('/confirm', async (req: Request, res: Response) => {
       return
     }
 
-    app.get('/api/ping', (_req, res) => res.json({ ok: true }));
 
     const session = await stripe.checkout.sessions.retrieve(sid, {
       expand: ['payment_intent', 'customer'],
