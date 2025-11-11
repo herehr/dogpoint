@@ -144,7 +144,7 @@ const jsonRouter = Router()
 jsonRouter.use(express.json())
 
 /** Simple readiness probe */
-jsonRouter.get('/ping', (req: Request, res: Response) => {
+jsonRouter.get('/ping', (_req: Request, res: Response) => {
   res.json({
     ok: true,
     stripeKey: !!(process.env.STRIPE_SECRET_KEY || process.env.STRIPE_SECRET),
@@ -177,6 +177,7 @@ jsonRouter.post('/checkout-session', async (req: Request, res: Response) => {
 
     const safeEmail = normalizeEmail(email) ?? 'pending+unknown@local'
 
+    // NB: Your Pledge model doesn't accept `provider`. We only set allowed fields.
     const pledge = await prisma.pledge.create({
       data: {
         animalId,
@@ -185,8 +186,8 @@ jsonRouter.post('/checkout-session', async (req: Request, res: Response) => {
         amount: amountCZK,
         interval: 'MONTHLY' as any,
         method: 'CARD' as any,
-        provider: 'STRIPE' as any,
         status: 'PENDING' as any,
+        // providerId is set after we create the Stripe session
       } as any,
       select: { id: true },
     })
