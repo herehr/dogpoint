@@ -3,8 +3,8 @@ import {
   Dialog, DialogTitle, DialogContent, DialogActions,
   TextField, Button, Stack, Alert, Typography
 } from '@mui/material'
-import { useNavigate } from 'react-router-dom'
-import { login, registerAfterPayment, me, setAuthToken } from '../services/api'
+import { login, registerAfterPayment, me } from '../services/api'
+import { useAuth } from '../context/AuthContext'
 
 type Props = {
   open: boolean
@@ -25,8 +25,7 @@ export default function AfterPaymentPasswordDialog({
   defaultEmail = '',
   onLoggedIn,
 }: Props) {
-  const navigate = useNavigate()
-
+  const { refreshMe } = useAuth()
   const [email, setEmail] = useState(defaultEmail)
   const [pwd, setPwd] = useState('')
   const [pwd2, setPwd2] = useState('')
@@ -47,28 +46,26 @@ export default function AfterPaymentPasswordDialog({
     return true
   }, [emailOk, pwd, pwd2])
 
-  async function finishLoginFlow(token?: string) {
-    if (token) setAuthToken(token)
+  async function finishLoginFlow() {
     try { await me().catch(() => {}) } catch {}
+    await refreshMe?.()
     onLoggedIn?.()
-    // IMPORTANT: client-side navigate (prevents server 404)
-    navigate('/user', { replace: true })
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    setErr(null)
     if (!canSubmit) return
+    setErr(null)
     setBusy(true)
 
-    // Try first-time registration (links pledges on the server)
+    // 1) Try to register as first-time user
     try {
-      const reg = await registerAfterPayment(email, pwd)
-      await finishLoginFlow(reg?.token)
+      await registerAfterPayment(email, pwd)
+      await finishLoginFlow()
       return
     } catch (e: any) {
       const msg = (e?.message || '').toString()
-      const isConflict = /409|exist/i.test(msg) // user likely already exists
+      const isConflict = /409|exist/i.test(msg)
       if (!isConflict) {
         setErr(msg || 'Nepodařilo se vytvořit účet.')
         setBusy(false)
@@ -76,10 +73,10 @@ export default function AfterPaymentPasswordDialog({
       }
     }
 
-    // Fallback: login existing user
+    // 2) If account exists, just log in
     try {
-      const auth = await login(email, pwd)
-      await finishLoginFlow(auth?.token)
+      await login(email, pwd)
+      await finishLoginFlow()
     } catch (e: any) {
       setErr((e?.message || '').toString() || 'Přihlášení selhalo.')
       setBusy(false)

@@ -27,7 +27,6 @@ export default function UserDashboard() {
   const onSeen = async (animalId: string) => {
     try {
       await markAnimalSeen(animalId)
-      // optimistic UI – nothing fancy here; could refetch if needed
     } catch (e) {
       console.warn('mark seen failed', e)
     }
@@ -37,9 +36,7 @@ export default function UserDashboard() {
     <Container sx={{ py: 4 }}>
       <Stack direction="row" alignItems="baseline" justifyContent="space-between" sx={{ mb: 2 }}>
         <Typography variant="h4" sx={{ fontWeight: 900 }}>Moje adopce</Typography>
-        {user?.email && (
-          <Chip label={user.email} color="default" variant="outlined" />
-        )}
+        {user?.email && <Chip label={user.email} variant="outlined" />}
       </Stack>
 
       {loading && (

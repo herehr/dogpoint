@@ -2,7 +2,6 @@
 const API_BASE =
   (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/+$/, '') || '';
 
-/** Build a full API URL from a path, e.g. apiUrl('/api/animals') */
 export function apiUrl(path = ''): string {
   return `${API_BASE}${path}`;
 }
@@ -20,33 +19,30 @@ export function clearToken() {
   try { sessionStorage.removeItem(tokenKey); } catch {}
 }
 
-// Back-compat aliases used elsewhere:
+// Back-compat aliases:
 export {
   setToken as setAuthToken,
   getToken as getAuthToken,
   clearToken as clearAuthToken,
 };
 
-// Optional legacy header helper
 export function authHeader(): Record<string, string> {
   const t = getToken();
   return t ? { Authorization: `Bearer ${t}` } : {};
 }
 
 // ---------- Utilities ----------
-/** Build query string from a simple object */
 export function qs(obj?: Record<string, string | number | boolean | undefined | null>) {
   if (!obj) return '';
   const sp = new URLSearchParams();
   Object.entries(obj).forEach(([k, v]) => {
-    if (v === undefined || v === null) return;
+    if (v == null) return;
     sp.set(k, String(v));
   });
   const s = sp.toString();
   return s ? `?${s}` : '';
 }
 
-/** Merge multiple AbortSignals (tiny helper) */
 class AbortControllerMerge {
   private c = new AbortController();
   public signal = this.c.signal;
@@ -62,19 +58,17 @@ class AbortControllerMerge {
 // ---------- HTTP core ----------
 type FetchOpts = {
   method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
-  body?: any;                      // object (JSON) or FormData
+  body?: any;
   headers?: Record<string, string>;
   signal?: AbortSignal;
-  timeoutMs?: number;              // abort after this time
-  autoLogoutOn401?: boolean;       // clear token if 401
+  timeoutMs?: number;
+  autoLogoutOn401?: boolean;
 };
 
-// Build headers; skip JSON header for FormData
 function buildHeaders(body: any, headers?: Record<string, string>): HeadersInit {
   const h: Record<string, string> = { ...(headers || {}) };
   const t = getToken();
   if (t && !h['Authorization']) h['Authorization'] = `Bearer ${t}`;
-
   const isFormData = typeof FormData !== 'undefined' && body instanceof FormData;
   if (!isFormData && body !== undefined && !h['Content-Type']) {
     h['Content-Type'] = 'application/json';
@@ -87,7 +81,6 @@ async function doFetch<T>(path: string, opts: FetchOpts = {}): Promise<T> {
   const timeout = opts.timeoutMs ?? 20000;
   const timer = setTimeout(() => controller.abort(), timeout);
 
-  // merge signals if provided
   const signal = opts.signal
     ? new AbortControllerMerge([controller.signal, opts.signal]).signal
     : controller.signal;
@@ -107,12 +100,10 @@ async function doFetch<T>(path: string, opts: FetchOpts = {}): Promise<T> {
       signal,
     });
 
-    // Decide how to parse
     const ct = res.headers.get('content-type') || '';
     const isJson = /\bapplication\/json\b/i.test(ct);
 
     if (!res.ok) {
-      // Try to read server error message + detail
       let serverMsg = '';
       let serverDetail = '';
       try {
@@ -131,7 +122,7 @@ async function doFetch<T>(path: string, opts: FetchOpts = {}): Promise<T> {
       throw new Error(msg);
     }
 
-    if (res.status === 204) return undefined as T; // no content
+    if (res.status === 204) return undefined as T;
     const data = isJson ? await res.json() : ((await res.text()) as any);
     return data as T;
   } finally {
@@ -139,7 +130,6 @@ async function doFetch<T>(path: string, opts: FetchOpts = {}): Promise<T> {
   }
 }
 
-// Convenience wrappers
 export function getJSON<T>(path: string, opts?: Omit<FetchOpts, 'method' | 'body'>) {
   return doFetch<T>(path, { ...opts, method: 'GET' });
 }
@@ -153,18 +143,16 @@ export function delJSON<T>(path: string, opts?: Omit<FetchOpts, 'method' | 'body
   return doFetch<T>(path, { ...opts, method: 'DELETE' });
 }
 
-// ---------- Domain calls ----------
-// Types (minimal)
+// ---------- Auth & Me ----------
 export type MeResponse = {
   id: string;
   email: string;
   role: 'ADMIN' | 'MODERATOR' | 'USER';
-  animals?: string[];      // animalIds from subscriptions (ACTIVE+PENDING)
-  myAdoptions?: string[];  // optional alias
-  subscriptions?: any[];   // optional
+  animals?: string[];
+  myAdoptions?: string[];
+  subscriptions?: any[];
 };
 
-// Auth
 export async function me(): Promise<MeResponse> {
   return getJSON<MeResponse>('/api/auth/me', { autoLogoutOn401: true });
 }
@@ -196,7 +184,6 @@ export async function setPasswordFirstTime(email: string, password: string) {
   return res;
 }
 
-// Auto-claim after Stripe redirect (?paid=1&sid=...)
 export async function claimPaid(email: string, sessionId?: string) {
   const res = await postJSON<{ ok: true; token: string; role: MeResponse['role'] }>(
     '/api/auth/claim-paid',
@@ -213,13 +200,10 @@ export type ConfirmStripeResp = {
   email?: string;
 };
 
-/** Confirm a Stripe session after returning (?sid=...) from Checkout. */
 export async function confirmStripeSession(sid: string): Promise<ConfirmStripeResp> {
-  const url = `/api/stripe/confirm?sid=${encodeURIComponent(sid)}`;
-  return getJSON<ConfirmStripeResp>(url);
+  return getJSON<ConfirmStripeResp>(`/api/stripe/confirm${qs({ sid })}`);
 }
 
-/** Create a Stripe Checkout session (backend returns { id, url }). */
 export async function createCheckoutSession(params: {
   animalId: string;
   amountCZK: number;
@@ -229,7 +213,7 @@ export async function createCheckoutSession(params: {
   return postJSON<{ id?: string; url: string }>('/api/stripe/checkout-session', params);
 }
 
-// Stash helpers used before/after redirect
+// Stash helpers (used across pages)
 const PENDING_EMAIL_KEY = 'dp:pendingEmail';
 const PENDING_USER_KEY  = 'dp:pendingUser';
 
@@ -246,9 +230,7 @@ export function popPendingEmail(): string | undefined {
     const stash = localStorage.getItem(PENDING_USER_KEY);
     if (stash) {
       const parsed = JSON.parse(stash);
-      if (parsed?.email) {
-        return String(parsed.email);
-      }
+      if (parsed?.email) return String(parsed.email);
     }
     const fallback = localStorage.getItem(PENDING_EMAIL_KEY);
     if (fallback) {
@@ -282,16 +264,15 @@ export async function fetchAnimal(id: string): Promise<Animal> {
 // ---------- User / Adoptions ----------
 export type MyAdoptedItem = {
   animalId: string;
-  title?: string;          // server may send animal name
-  name?: string;           // alias
-  jmeno?: string;          // alias (cz)
-  main?: string;           // main image URL
-  since?: string;          // ISO date adopted from
+  title?: string;
+  name?: string;
+  jmeno?: string;
+  main?: string;
+  since?: string;
   status?: 'ACTIVE' | 'PENDING' | 'CANCELED';
 };
 
 export async function myAdoptedAnimals(): Promise<MyAdoptedItem[]> {
-  // Backend route mounted at /api/adoption
   return getJSON<MyAdoptedItem[]>('/api/adoption/my', { autoLogoutOn401: true });
 }
 
@@ -299,7 +280,7 @@ export async function markAnimalSeen(animalId: string): Promise<{ ok: true }> {
   return postJSON<{ ok: true }>('/api/adoption/seen', { animalId });
 }
 
-// ---------- Uploads (FormData-safe) ----------
+// ---------- Uploads ----------
 export async function uploadMedia(file: File) {
   const fd = new FormData();
   fd.append('file', file);
