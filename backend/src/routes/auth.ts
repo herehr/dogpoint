@@ -1,3 +1,4 @@
+// backend/src/routes/auth.ts
 import { Router, type Request, type Response } from 'express'
 import bcrypt from 'bcryptjs'
 import jwt, { type Secret, type SignOptions } from 'jsonwebtoken'
@@ -7,14 +8,17 @@ import { linkPaidOrRecentPledgesToUser } from '../controllers/authExtra'
 
 const router = Router()
 
-function signToken(user: { id: string; role: Role; email: string }) {
+function signToken(user: { id: string; role: Role | string; email: string }) {
   const rawSecret = process.env.JWT_SECRET
   if (!rawSecret) throw new Error('Server misconfigured: JWT_SECRET missing')
   const options: SignOptions = { expiresIn: '7d' }
   return jwt.sign({ sub: user.id, role: user.role, email: user.email }, rawSecret as Secret, options)
 }
 
-/** Return user and ALL their subscriptions' animalIds (ACTIVE + PENDING) */
+/**
+ * GET /api/auth/me
+ * Returns basic user + all subscription animalIds (ACTIVE + PENDING)
+ */
 router.get('/me', async (req: Request, res: Response) => {
   try {
     const hdr = req.headers.authorization || ''
@@ -35,32 +39,40 @@ router.get('/me', async (req: Request, res: Response) => {
 
     res.json({ ...user, animals: subs.map(s => s.animalId), subscriptions: subs })
   } catch (e) {
-    console.error('[auth.me] error:', e)
     res.status(401).json({ error: 'Unauthorized' })
   }
 })
 
+/**
+ * POST /api/auth/login
+ * body: { email, password }
+ */
 router.post('/login', async (req: Request, res: Response) => {
   try {
     const { email, password } = (req.body || {}) as { email?: string; password?: string }
     if (!email || !password) return res.status(400).json({ error: 'Missing email or password' })
+
     const user = await prisma.user.findUnique({ where: { email } })
     if (!user) return res.status(401).json({ error: 'Invalid credentials' })
     if (!user.passwordHash) return res.status(409).json({ error: 'PASSWORD_NOT_SET' })
+
     const ok = await bcrypt.compare(password, user.passwordHash)
     if (!ok) return res.status(401).json({ error: 'Invalid credentials' })
 
-    await linkPaidOrRecentPledgesToUser(user.id, user.email)
+    await linkPaidOrRecentPledgesToUser(user.id, user.email) // link pledges
 
     const token = signToken({ id: user.id, role: user.role, email: user.email })
     res.json({ token, role: user.role })
   } catch (e) {
-    console.error('Auth login error:', e)
     res.status(500).json({ error: 'Internal error' })
   }
 })
 
-router.post('/set-password-first-time', async (req, res) => {
+/**
+ * POST /api/auth/set-password-first-time
+ * body: { email, password }
+ */
+router.post('/set-password-first-time', async (req: Request, res: Response) => {
   try {
     const { email, password } = (req.body || {}) as { email?: string; password?: string }
     if (!email || !password) return res.status(400).json({ error: 'Missing email or password' })
@@ -72,16 +84,20 @@ router.post('/set-password-first-time', async (req, res) => {
 
     const passwordHash = await bcrypt.hash(password, 10)
     const updated = await prisma.user.update({ where: { id: user.id }, data: { passwordHash } })
+
     await linkPaidOrRecentPledgesToUser(updated.id, updated.email)
 
     const token = signToken({ id: updated.id, role: updated.role, email: updated.email })
     res.json({ ok: true, token, role: updated.role })
   } catch (e) {
-    console.error('set-password-first-time error:', e)
     res.status(500).json({ error: 'Internal error' })
   }
 })
 
+/**
+ * POST /api/auth/register-after-payment
+ * body: { email, password }
+ */
 router.post('/register-after-payment', async (req: Request, res: Response) => {
   try {
     const { email, password } = (req.body || {}) as { email?: string; password?: string }
@@ -102,19 +118,25 @@ router.post('/register-after-payment', async (req: Request, res: Response) => {
     const token = signToken({ id: user.id, role: user.role, email: user.email })
     res.json({ ok: true, token, role: user.role })
   } catch (e) {
-    console.error('register-after-payment error:', e)
     res.status(500).json({ error: 'Internal error' })
   }
 })
 
-/** POST /api/auth/claim-paid  { email, sessionId? }  */
+/**
+ * POST /api/auth/claim-paid
+ * body: { email, sessionId? }
+ * Ensures pledges are linked immediately after redirect.
+ */
 router.post('/claim-paid', async (req: Request, res: Response) => {
   try {
     const { email, sessionId } = (req.body || {}) as { email?: string; sessionId?: string }
     if (!email) return res.status(400).json({ error: 'Missing email' })
 
     if (sessionId) {
-      await prisma.pledge.updateMany({ where: { providerId: sessionId }, data: { email } })
+      await prisma.pledge.updateMany({
+        where: { providerId: sessionId },
+        data: { email },
+      })
     }
 
     let user = await prisma.user.findUnique({ where: { email } })
@@ -125,7 +147,6 @@ router.post('/claim-paid', async (req: Request, res: Response) => {
     const token = signToken({ id: user.id, role: user.role, email: user.email })
     res.json({ ok: true, token, role: user.role })
   } catch (e) {
-    console.error('claim-paid error:', e)
     res.status(500).json({ error: 'Internal error' })
   }
 })

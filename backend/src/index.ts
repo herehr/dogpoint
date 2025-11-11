@@ -1,5 +1,5 @@
 // backend/src/index.ts
-import 'dotenv/config' 
+import 'dotenv/config' // load env early
 
 import express, { Request, Response, NextFunction } from 'express'
 import cors from 'cors'
@@ -38,12 +38,12 @@ app.use(cors(corsOptions))
 app.options('*', cors(corsOptions))
 
 // IMPORTANT: Stripe RAW webhook FIRST (no JSON parser before this)
-app.use('/api/stripe', stripeRawRouter) 
+app.use('/api/stripe', stripeRawRouter) // POST /api/stripe/webhook
 
 // JSON parser for the rest
 app.use(express.json({ limit: '2mb' }))
 
-// Request logger (after we parse headers, before routers)
+// Request logger
 app.use((req, _res, next) => {
   console.log(`[REQ] ${req.method} ${req.originalUrl}`)
   next()
@@ -59,10 +59,9 @@ app.use('/api/admin/stats', adminStatsRoutes)
 app.use('/api/subscriptions', subscriptionRoutes)
 app.use('/api/payments', paymentRouter)
 app.use('/api/adoption', adoptionRouter)
+
+// Stripe JSON routes AFTER JSON parser (includes /api/stripe/ping and /checkout-session)
 app.use('/api/stripe', stripeJsonRouter)
-
-
-app.get('/api/ping', (_req: Request, res: Response) => res.json({ ok: true }));
 
 // GP webpay (feature flag)
 const gpEnabled =

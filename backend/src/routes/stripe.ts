@@ -5,19 +5,24 @@ import jwt, { Secret } from 'jsonwebtoken'
 import { prisma } from '../prisma'
 import { linkPaidOrRecentPledgesToUser } from '../controllers/authExtra'
 
-/* --------------------------- Stripe client --------------------------- */
+/* ------------------------------------------------------------------ */
+/* Stripe client                                                      */
+/* ------------------------------------------------------------------ */
 const stripeSecret = process.env.STRIPE_SECRET_KEY || process.env.STRIPE_SECRET || ''
 if (!stripeSecret) {
-  console.warn('[stripe] Missing STRIPE_SECRET_KEY / STRIPE_SECRET — checkout will fail until set.')
+  console.warn('[stripe] Missing STRIPE_SECRET_KEY. Checkout will fail until set.')
 }
 const stripe = new Stripe(stripeSecret || 'sk_test_dummy')
 
-/* ------------------------------ helpers ------------------------------ */
+/* ------------------------------------------------------------------ */
+/* Helpers                                                            */
+/* ------------------------------------------------------------------ */
 function signToken(user: { id: string; role: string; email: string }) {
   const rawSecret = process.env.JWT_SECRET
   if (!rawSecret) throw new Error('Server misconfigured: JWT_SECRET missing')
   return jwt.sign({ sub: user.id, role: user.role, email: user.email }, rawSecret as Secret, { expiresIn: '7d' })
 }
+
 function frontendBase(): string {
   return (
     process.env.PUBLIC_WEB_BASE_URL ||
@@ -26,8 +31,14 @@ function frontendBase(): string {
   ).replace(/\/+$/, '')
 }
 
-/* =============================== RAW ================================ */
-/** Webhook must receive the raw body. Mount BEFORE express.json(). */
+function normalizeEmail(x?: string | null): string | undefined {
+  const s = (x ?? '').trim()
+  return s ? s : undefined
+}
+
+/* =========================================================================
+ * RAW router (webhook needs raw body; mount BEFORE express.json())
+ * ========================================================================= */
 export const rawRouter = Router()
 
 rawRouter.post(
@@ -40,7 +51,7 @@ rawRouter.post(
 
       let event: Stripe.Event
       if (!webhookSecret || !sig) {
-        // Dev fallback: accept unverified (only for non-prod)
+        // Dev/preview fallback (unverified)
         try {
           event = JSON.parse(req.body.toString() || '{}') as Stripe.Event
         } catch {
@@ -57,49 +68,83 @@ rawRouter.post(
         }
       }
 
+      // best-effort: persist raw event if you have such a table
+      try {
+        // @ts-ignore optional table
+        await prisma.webhookEvent?.create?.({
+          data: { provider: 'STRIPE', rawPayload: event as any, processed: false },
+        })
+      } catch { /* ignore */ }
+
       if (event.type === 'checkout.session.completed') {
         const session = event.data.object as Stripe.Checkout.Session
-
-        // Mark pledge PAID by metadata/providerId
         const pledgeId = (session.metadata as any)?.pledgeId as string | undefined
-        try {
-          if (pledgeId) {
+        const stripeEmail = normalizeEmail(session.customer_email)
+
+        // Update pledge → PAID (+ patch email if placeholder)
+        if (pledgeId) {
+          try {
             await prisma.pledge.update({
               where: { id: pledgeId },
-              data: { status: 'PAID', providerId: session.id },
+              data: {
+                status: 'PAID',
+                providerId: session.id,
+                ...(stripeEmail ? { email: stripeEmail } : {}),
+              },
             })
-          } else {
-            const p = await prisma.pledge.findFirst({ where: { providerId: session.id } })
-            if (p && p.status !== 'PAID') {
-              await prisma.pledge.update({ where: { id: p.id }, data: { status: 'PAID' } })
-            }
+          } catch { /* ignore */ }
+        } else {
+          const p = await prisma.pledge.findFirst({ where: { providerId: session.id } })
+          if (p) {
+            try {
+              await prisma.pledge.update({
+                where: { id: p.id },
+                data: {
+                  status: 'PAID',
+                  ...(stripeEmail ? { email: stripeEmail } : {}),
+                },
+              })
+            } catch { /* ignore */ }
           }
-        } catch {/* ignore */}
+        }
 
-        // Ensure user, link pledges → subscription/payment
-        const email = session.customer_email || undefined
-        if (email) {
-          let user = await prisma.user.findUnique({ where: { email } })
-          if (!user) user = await prisma.user.create({ data: { email, role: 'USER' } })
-          await linkPaidOrRecentPledgesToUser(user.id, email)
+        // Ensure user + link pledges
+        const emailToUse =
+          stripeEmail ||
+          (await (async () => {
+            const p = await prisma.pledge.findFirst({ where: { providerId: session.id } })
+            return p?.email
+          })())
+
+        if (emailToUse) {
+          let user = await prisma.user.findUnique({ where: { email: emailToUse } })
+          if (!user) user = await prisma.user.create({ data: { email: emailToUse, role: 'USER' } })
+          await linkPaidOrRecentPledgesToUser(user.id, emailToUse)
         }
       }
 
+      // mark processed if you keep a log table
+      try {
+        // @ts-ignore optional table
+        await prisma.webhookEvent?.updateMany?.({ data: { processed: true }, where: { processed: false } })
+      } catch { /* ignore */ }
+
       res.json({ received: true })
     } catch (e) {
-      console.error('[stripe webhook] error:', e)
+      console.error('[stripe webhook] handler error:', e)
       res.status(500).send('Webhook handler error')
     }
   }
 )
 
-/* =============================== JSON =============================== */
-/** Normal JSON endpoints. Mount AFTER express.json(). */
+/* =========================================================================
+ * JSON router (normal JSON endpoints; mount AFTER express.json())
+ * ========================================================================= */
 const jsonRouter = Router()
 jsonRouter.use(express.json())
 
-// 🔔 Health/ping for Stripe routes
-jsonRouter.get('/ping', (_req: Request, res: Response) => {
+/** Simple readiness probe */
+jsonRouter.get('/ping', (req: Request, res: Response) => {
   res.json({
     ok: true,
     stripeKey: !!(process.env.STRIPE_SECRET_KEY || process.env.STRIPE_SECRET),
@@ -110,9 +155,8 @@ jsonRouter.get('/ping', (_req: Request, res: Response) => {
 /**
  * POST /api/stripe/checkout-session
  * body: { animalId: string, amountCZK: number, email?: string, name?: string }
+ * Uses a placeholder email if none provided; Stripe email overwrites it after payment.
  */
-// backend/src/routes/stripe.ts  (replace ONLY the checkout-session handler)
-
 jsonRouter.post('/checkout-session', async (req: Request, res: Response) => {
   try {
     const { animalId, amountCZK, email, name } = (req.body || {}) as {
@@ -123,142 +167,137 @@ jsonRouter.post('/checkout-session', async (req: Request, res: Response) => {
     }
 
     if (!animalId || typeof animalId !== 'string') {
-      return res.status(400).json({ error: 'Missing or invalid animalId' })
+      res.status(400).json({ error: 'Missing or invalid animalId' })
+      return
     }
     if (!amountCZK || typeof amountCZK !== 'number' || amountCZK <= 0) {
-      return res.status(400).json({ error: 'Missing or invalid amountCZK' })
+      res.status(400).json({ error: 'Missing or invalid amountCZK' })
+      return
     }
 
-    // 1) Make sure the animal exists (prevents FK failures)
-    const animal = await prisma.animal.findUnique({
-      where: { id: animalId },
-      select: { id: true, jmeno: true, name: true }
+    const safeEmail = normalizeEmail(email) ?? 'pending+unknown@local'
+
+    const pledge = await prisma.pledge.create({
+      data: {
+        animalId,
+        email: safeEmail,
+        name: name ?? null,
+        amount: amountCZK,
+        interval: 'MONTHLY' as any,
+        method: 'CARD' as any,
+        provider: 'STRIPE' as any,
+        status: 'PENDING' as any,
+      } as any,
+      select: { id: true },
     })
-    if (!animal) {
-      return res.status(400).json({ error: `Unknown animalId: ${animalId}` })
-    }
 
-    // 2) Create a minimal pledge; keep fields schema-tolerant
-    let pledge
-    try {
-      pledge = await prisma.pledge.create({
-        data: {
-          animalId,
-          email: email ?? null,
-          name: name ?? null,
-          amount: amountCZK,
-          status: 'PENDING' as any,
-          // If your schema supports these, they’ll be accepted; if not, harmless as any:
-          method: 'CARD' as any,
-          interval: 'MONTHLY' as any,
-          provider: 'STRIPE' as any,
-        } as any,
-        select: { id: true },
-      })
-    } catch (e: any) {
-      console.error('[checkout] pledge.create failed:', e?.message || e)
-      return res.status(500).json({
-        error: 'PLEDGE_CREATE_FAILED',
-        detail: e?.message || 'Unable to create pledge (check schema fields)',
-      })
-    }
+    const FRONTEND_BASE = frontendBase()
+    const successUrl = `${FRONTEND_BASE}/zvirata/${encodeURIComponent(
+      animalId
+    )}?paid=1&sid={CHECKOUT_SESSION_ID}`
+    const cancelUrl = `${FRONTEND_BASE}/zvirata/${encodeURIComponent(animalId)}?canceled=1`
 
-    const FRONTEND_BASE =
-      (process.env.PUBLIC_WEB_BASE_URL || process.env.FRONTEND_BASE_URL || '').replace(/\/+$/, '')
-        || 'https://example.com'
-
-    const successUrl = `${FRONTEND_BASE}/zvirata/${encodeURIComponent(animalId)}?paid=1&sid={CHECKOUT_SESSION_ID}`
-    const cancelUrl  = `${FRONTEND_BASE}/zvirata/${encodeURIComponent(animalId)}?canceled=1`
-
-    // 3) Create Stripe session
-    let session: Stripe.Checkout.Session
-    try {
-      session = await stripe.checkout.sessions.create({
-        mode: 'payment',
-        locale: 'cs',
-        success_url: successUrl,
-        cancel_url: cancelUrl,
-        currency: 'czk',
-        customer_email: email || undefined,
-        metadata: {
-          animalId,
-          pledgeId: pledge.id,
-        },
-        line_items: [
-          {
-            price_data: {
-              currency: 'czk',
-              product_data: {
-                name: name ? `Adopce: ${name}` : `Adopce zvířete`,
-                description: `Měsíční dar pro zvíře (${animalId})`,
-              },
-              unit_amount: Math.round(amountCZK * 100),
+    const session = await stripe.checkout.sessions.create({
+      mode: 'payment',
+      locale: 'cs',
+      success_url: successUrl,
+      cancel_url: cancelUrl,
+      currency: 'czk',
+      customer_email: normalizeEmail(email),
+      metadata: {
+        animalId,
+        pledgeId: pledge.id,
+      },
+      line_items: [
+        {
+          price_data: {
+            currency: 'czk',
+            product_data: {
+              name: name ? `Adopce: ${name}` : 'Adopce zvířete',
+              description: `Měsíční dar pro zvíře (${animalId})`,
             },
-            quantity: 1,
+            unit_amount: Math.round(amountCZK * 100),
           },
-        ],
-      })
-    } catch (e: any) {
-      console.error('[checkout] stripe.sessions.create failed:', e?.message || e)
-      return res.status(500).json({
-        error: 'STRIPE_SESSION_FAILED',
-        detail: e?.message || 'Stripe error',
-      })
-    }
+          quantity: 1,
+        },
+      ],
+    })
 
-    // 4) Store session id on pledge for reconciliation
-    try {
-      await prisma.pledge.update({
-        where: { id: pledge.id },
-        data: { providerId: session.id },
-      })
-    } catch (e: any) {
-      console.warn('[checkout] pledge.update providerId failed (non-fatal):', e?.message || e)
-    }
+    await prisma.pledge.update({
+      where: { id: pledge.id },
+      data: { providerId: session.id },
+    })
 
-    return res.json({ url: session.url })
+    res.json({ id: session.id, url: session.url })
   } catch (e: any) {
-    console.error('[checkout] unexpected error:', e?.message || e)
-    return res.status(500).json({ error: 'Failed to create checkout session', detail: e?.message || String(e) })
+    console.error('[stripe checkout-session] error:', e)
+    res.status(500).json({
+      error: 'Failed to create checkout session',
+      detail: e?.message || String(e),
+    })
   }
 })
 
-/** GET /api/stripe/confirm?sid=cs_... — fast confirm on success redirect */
+/**
+ * GET /api/stripe/confirm?sid=cs_...
+ * For instant confirmation at success redirect.
+ * Returns { ok: true, token?: string }
+ */
 jsonRouter.get('/confirm', async (req: Request, res: Response) => {
   try {
     const sid = String(req.query.sid || '')
-    if (!sid) return res.status(400).json({ error: 'Missing sid' })
-
-    const session = await stripe.checkout.sessions.retrieve(sid, { expand: ['payment_intent', 'customer'] })
-    if (!session || session.payment_status !== 'paid') {
-      return res.status(409).json({ error: 'Session not paid yet' })
+    if (!sid) {
+      res.status(400).json({ error: 'Missing sid' })
+      return
     }
 
-    const email =
-      session.customer_email ||
-      ((session.customer as any)?.email as string | undefined) ||
-      undefined
+    const session = await stripe.checkout.sessions.retrieve(sid, {
+      expand: ['payment_intent', 'customer'],
+    })
+    if (!session || session.payment_status !== 'paid') {
+      res.status(409).json({ error: 'Session not paid yet' })
+      return
+    }
 
-    // Mark pledge as PAID
-    const pledgeId = (session.metadata || {} as any).pledgeId as string | undefined
+    const stripeEmail =
+      normalizeEmail(session.customer_email) ||
+      normalizeEmail((session.customer as any)?.email as string | undefined)
+
+    const meta = (session.metadata || {}) as Record<string, string | undefined>
+    const pledgeId = meta.pledgeId
+
     try {
       if (pledgeId) {
-        await prisma.pledge.update({ where: { id: pledgeId }, data: { status: 'PAID', providerId: session.id } })
+        await prisma.pledge.update({
+          where: { id: pledgeId },
+          data: {
+            status: 'PAID',
+            providerId: session.id,
+            ...(stripeEmail ? { email: stripeEmail } : {}),
+          },
+        })
       } else {
         const p = await prisma.pledge.findFirst({ where: { providerId: sid } })
-        if (p && p.status !== 'PAID') await prisma.pledge.update({ where: { id: p.id }, data: { status: 'PAID' } })
+        if (p) {
+          await prisma.pledge.update({
+            where: { id: p.id },
+            data: {
+              status: 'PAID',
+              ...(stripeEmail ? { email: stripeEmail } : {}),
+            },
+          })
+        }
       }
-    } catch {/* ignore */}
+    } catch { /* ignore */ }
 
-    // Ensure user + link pledges; return token if possible
-    let token: string | null = null
     const resolvedEmail =
-      email ||
+      stripeEmail ||
       (await (async () => {
         const p = await prisma.pledge.findFirst({ where: { providerId: sid } })
-        return p?.email || undefined
+        return p?.email
       })())
 
+    let token: string | null = null
     if (resolvedEmail) {
       let user = await prisma.user.findUnique({ where: { email: resolvedEmail } })
       if (!user) user = await prisma.user.create({ data: { email: resolvedEmail, role: 'USER' } })
