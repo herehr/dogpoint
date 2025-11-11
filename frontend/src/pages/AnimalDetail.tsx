@@ -1,11 +1,10 @@
-// frontend/src/pages/AnimalDetail.tsx
 import React, { useEffect, useState, useMemo, useCallback } from 'react'
 import { useParams, useLocation, useNavigate } from 'react-router-dom'
 import {
   Container, Typography, Box, Stack, Chip, Alert, Skeleton, Grid, Button, Divider
 } from '@mui/material'
 
-import { fetchAnimal } from '../api'
+import { fetchAnimal } from '../api' // legacy shim that calls services/api.getJSON internally
 import { useAccess } from '../context/AccessContext'
 import PostsSection from '../components/PostsSection'
 import BlurBox from '../components/BlurBox'
@@ -13,14 +12,13 @@ import { useAuth } from '../context/AuthContext'
 import SafeMarkdown from '../components/SafeMarkdown'
 import AfterPaymentPasswordDialog from '../components/AfterPaymentPasswordDialog'
 
-// services
+// API helpers
 import {
   createCheckoutSession,
   confirmStripeSession,
-  setAuthToken,
+  setAuthToken, // alias to setToken
   me,
   stashPendingEmail,
-  popPendingEmail,
 } from '../services/api'
 
 type Media = { url: string; type?: 'image' | 'video' }
@@ -50,8 +48,10 @@ function formatAge(a: LocalAnimal): string {
   if (bd && !Number.isNaN(bd.getTime())) {
     const now = new Date()
     let years = now.getFullYear() - bd.getFullYear()
-    if (now.getMonth() < bd.getMonth() ||
-       (now.getMonth() === bd.getMonth() && now.getDate() < bd.getDate())) {
+    if (
+      now.getMonth() < bd.getMonth() ||
+      (now.getMonth() === bd.getMonth() && now.getDate() < bd.getDate())
+    ) {
       years -= 1
     }
     return `${years} r`
@@ -77,10 +77,12 @@ export default function AnimalDetail() {
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
   const [forceLocked, setForceLocked] = useState(false)
-  const [showAfterPay, setShowAfterPay] = useState(false)
-  const [dialogEmail, setDialogEmail] = useState<string>('')
 
-  // Read Stripe return flags ONCE
+  // password dialog control + email prefill after Stripe
+  const [showAfterPay, setShowAfterPay] = useState(false)
+  const [afterPayEmail, setAfterPayEmail] = useState<string>('')
+
+  // Read Stripe return flags ONCE (sid is the checkout session id)
   const { paid, sid } = useMemo(() => {
     const p = new URLSearchParams(location.search)
     return {
@@ -107,65 +109,78 @@ export default function AnimalDetail() {
     return () => { alive = false }
   }, [id])
 
-  // Prefill email baseline (user or stash)
-  const basePrefillEmail = useMemo(() => {
-    if (user?.email) return user.email
-    return popPendingEmail() || ''
+  // Prepare default email (from logged-in user or from localStorage)
+  const prefillEmail = useMemo(() => {
+    try {
+      if (user?.email) return user.email
+      const stash = localStorage.getItem('dp:pendingUser')
+      if (stash) {
+        const parsed = JSON.parse(stash)
+        if (parsed?.email) return String(parsed.email)
+      }
+      const fallback = localStorage.getItem('dp:pendingEmail')
+      if (fallback) return String(fallback)
+    } catch {}
+    return ''
   }, [user?.email])
 
-  // After Stripe success: confirm session → (token? go /user : open dialog with email)
+  /**
+   * After Stripe redirect:
+   * 1) Optimistically unlock this animal (UX win).
+   * 2) Confirm the Stripe session with backend → may return {token, email}.
+   * 3) If token present, we set it and fetch /me.
+   * 4) We ALWAYS open the password dialog (for first-time users), prefilled with email
+   *    from backend response (preferred) or stash/user email.
+   * 5) Clean the URL to remove ?paid=1&sid=...
+   */
   useEffect(() => {
     if (!id || paid !== '1' || !sid) return
     ;(async () => {
       try {
-        // 1) Optimistic unlock (nice UX)
+        // Provisional unlock immediately
         grantAccess(id)
         setForceLocked(false)
 
-        // 2) Confirm with backend (may return token and/or normalized email)
-        const conf = await confirmStripeSession(sid)
-
-        // 3) If we got a token: log user in and go to /user
-        if (conf?.token) {
-          setAuthToken(conf.token)
-          try { await me() } catch {}
-          // clean URL
-          const p = new URLSearchParams(location.search)
-          p.delete('paid'); p.delete('sid')
-          const clean = `${window.location.pathname}${p.toString() ? `?${p}` : ''}`
-          window.history.replaceState({}, '', clean)
-          navigate('/user', { replace: true })
-          return
+        // Confirm session: may give us a JWT token + the normalized email used on Stripe
+        let confirmedEmail = ''
+        try {
+          const conf = await confirmStripeSession(sid)
+          if (conf?.token) {
+            setAuthToken(conf.token)
+            await me().catch(() => {})
+          }
+          if (conf?.email) confirmedEmail = conf.email
+        } catch (e) {
+          // Not fatal; dialog below will allow creating/logging an account
+          console.warn('[stripe confirm] failed:', e)
         }
 
-        // 4) No token yet (first-time user) → open password dialog
-        const emailForDialog = conf?.email || basePrefillEmail || ''
-        setDialogEmail(emailForDialog)
+        // decide which email to show in the dialog
+        const effectiveEmail = confirmedEmail || prefillEmail || ''
+        setAfterPayEmail(effectiveEmail)
+
+        // Open password dialog (first-time users set password; existing users can log in)
         setShowAfterPay(true)
 
-        // clean URL
+        // Clean URL
         const p = new URLSearchParams(location.search)
         p.delete('paid'); p.delete('sid')
         const clean = `${window.location.pathname}${p.toString() ? `?${p}` : ''}`
         window.history.replaceState({}, '', clean)
       } catch (e) {
-        // eslint-disable-next-line no-console
-        console.warn('[stripe confirm] failed, falling back to dialog', e)
-        setDialogEmail(basePrefillEmail || '')
-        setShowAfterPay(true)
+        console.error('[return from stripe] flow error:', e)
       }
     })()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, paid, sid])
+  }, [id, paid, sid, prefillEmail, grantAccess, location.search])
 
-  // Go straight to Stripe
+  // "Adopt now" → go straight to Stripe. We also stash email so we can prefill after redirect.
   const handleAdoptNow = useCallback(async () => {
     if (!id || !animal) {
       alert('Zkuste stránku znovu načíst (chybí ID zvířete).')
       return
     }
     try {
-      const email = user?.email || basePrefillEmail || undefined
+      const email = user?.email || prefillEmail || undefined
       if (email) stashPendingEmail(email)
 
       const amountCZK = 200
@@ -173,7 +188,7 @@ export default function AnimalDetail() {
         animalId: id,
         amountCZK,
         name: animal.jmeno || animal.name || 'Adopce',
-        email,
+        email
       })
 
       if (!session || !session.url) {
@@ -182,11 +197,13 @@ export default function AnimalDetail() {
       }
       window.location.href = session.url
     } catch (e: any) {
+      console.error('[checkout] failed', e)
       const msg = (e?.message || '').toString()
       alert(`Nepodařilo se spustit platbu.${msg ? `\n\nDůvod: ${msg}` : ''}`)
     }
-  }, [id, animal, user?.email, basePrefillEmail])
+  }, [id, animal, user?.email, prefillEmail])
 
+  // Cancel adoption (locks view again)
   const onCancelAdoption = useCallback(async () => {
     if (!animal) return
     try {
@@ -201,10 +218,25 @@ export default function AnimalDetail() {
       setLoading(true)
       fetchAnimal(animal.id).then(a => setAnimal(a as any)).finally(() => setLoading(false))
     } catch (e) {
-      // eslint-disable-next-line no-console
       console.error('Cancel adoption failed', e)
     }
   }, [animal])
+
+  // Helpers for gallery
+  const urls = useMemo(() => {
+    if (!animal) return []
+    return Array.from(
+      new Set([
+        asUrl(animal.main) || undefined,
+        ...((animal.galerie || []).map(g => asUrl(g) || undefined)),
+      ].filter(Boolean))
+    ) as string[]
+  }, [animal])
+
+  const mainUrl = urls[0] || '/no-image.jpg'
+  const extraUrls = urls.slice(1)
+  const lockTag = isUnlocked ? 'u1' : 'l1'
+  const withBust = (u: string) => `${u}${u.includes('?') ? '&' : '?'}v=${lockTag}`
 
   if (loading) {
     return (
@@ -226,19 +258,7 @@ export default function AnimalDetail() {
   const title = animal.jmeno || animal.name || '—'
   const age = formatAge(animal)
   const desc = animal.popis || animal.description || 'Bez popisu.'
-
-  const urls = Array.from(
-    new Set([
-      asUrl(animal.main) || undefined,
-      ...((animal.galerie || []).map(g => asUrl(g) || undefined)),
-    ].filter(Boolean))
-  ) as string[]
-
-  const mainUrl = urls[0] || '/no-image.jpg'
-  const extraUrls = urls.slice(1)
-
-  const lockTag = isUnlocked ? 'u1' : 'l1'
-  const withBust = (u: string) => `${u}${u.includes('?') ? '&' : '?'}v=${lockTag}`
+  const isUser = role === 'USER'
 
   return (
     <Container sx={{ py: 4 }}>
@@ -332,9 +352,17 @@ export default function AnimalDetail() {
                   </Button>
                 </>
               ) : (
-                <Typography color="text.secondary" sx={{ mt: 1 }}>
-                  Adopce je aktivní. Děkujeme!
-                </Typography>
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <Typography color="text.secondary" sx={{ mt: 1 }}>
+                    Adopce je aktivní. Děkujeme!
+                  </Typography>
+                  {/* Small convenience: if user role is USER, show a quick link */}
+                  {isUser && (
+                    <Button variant="text" onClick={() => navigate('/user')}>
+                      Přejít na „Moje adopce“
+                    </Button>
+                  )}
+                </Stack>
               )}
             </Box>
           </Grid>
@@ -407,10 +435,11 @@ export default function AnimalDetail() {
       <AfterPaymentPasswordDialog
         open={showAfterPay}
         onClose={() => setShowAfterPay(false)}
-        animalId={id}
-        defaultEmail={dialogEmail || basePrefillEmail}
+        defaultEmail={afterPayEmail}
+        // upon success (register/login), make sure unlocked + go to Moje adopce
         onLoggedIn={() => {
-          if (id) grantAccess(id) // ensure unblur even if webhook slow
+          if (id) grantAccess(id)
+          navigate('/user')
         }}
       />
     </Container>
