@@ -13,8 +13,8 @@ import { useAuth } from '../context/AuthContext'
 import SafeMarkdown from '../components/SafeMarkdown'
 import AfterPaymentPasswordDialog from '../components/AfterPaymentPasswordDialog'
 
-// only what we actually use:
-import { createCheckoutSession } from '../services/api'
+// services
+import { createCheckoutSession, claimPaid, me, setAuthToken } from '../services/api'
 
 type Media = { url: string; type?: 'image' | 'video' }
 type LocalAnimal = {
@@ -43,10 +43,8 @@ function formatAge(a: LocalAnimal): string {
   if (bd && !Number.isNaN(bd.getTime())) {
     const now = new Date()
     let years = now.getFullYear() - bd.getFullYear()
-    if (
-      now.getMonth() < bd.getMonth() ||
-      (now.getMonth() === bd.getMonth() && now.getDate() < bd.getDate())
-    ) {
+    if (now.getMonth() < bd.getMonth() ||
+       (now.getMonth() === bd.getMonth() && now.getDate() < bd.getDate())) {
       years -= 1
     }
     return `${years} r`
@@ -62,6 +60,7 @@ function formatAge(a: LocalAnimal): string {
 export default function AnimalDetail() {
   const { id } = useParams<{ id: string }>()
   const location = useLocation()
+
   const { hasAccess, grantAccess } = useAccess()
   const { role, user } = useAuth()
   const isStaff = role === 'ADMIN' || role === 'MODERATOR'
@@ -99,7 +98,7 @@ export default function AnimalDetail() {
     return () => { alive = false }
   }, [id])
 
-  // Prefill email for the after-payment dialog (from user or localStorage)
+  // Prefill email for after-payment (prefer logged-in, else stashed)
   const prefillEmail = useMemo(() => {
     try {
       if (user?.email) return user.email
@@ -114,31 +113,53 @@ export default function AnimalDetail() {
     return ''
   }, [user?.email])
 
-  // On return from Stripe: open the password dialog; also provisional unlock and clean URL
+  // On return from Stripe: optimistic unlock, try auto-claim, clean URL, show password dialog
   useEffect(() => {
     if (!id || paid !== '1') return
-    try {
-      grantAccess(id)             // provisional unlock immediately
-      setForceLocked(false)
-      setShowAfterPay(true)       // show email+password dialog
-      // clean URL
-      const p = new URLSearchParams(location.search)
-      p.delete('paid'); p.delete('sid')
-      const clean = `${window.location.pathname}${p.toString() ? `?${p}` : ''}`
-      window.history.replaceState({}, '', clean)
-    } catch {
-      // ignore
-    }
-  }, [id, paid, sid, location.search, grantAccess])
+    (async () => {
+      try {
+        // provisional unlock right away
+        grantAccess(id)
+        setForceLocked(false)
 
-  // Go straight to Stripe (skip pre-dialog); email is collected on our page and sent to Stripe
+        if (prefillEmail) {
+          try {
+            const { token } = await claimPaid(prefillEmail, sid)
+            if (token) {
+              setAuthToken(token)
+              await me()
+            }
+          } catch (e) {
+            // Auto-claim failed (no email/session mismatch etc.). The dialog will handle first-time password.
+            console.warn('[auto-claim] failed:', e)
+          }
+        }
+
+        // show the password dialog to cover first-time users
+        setShowAfterPay(true)
+
+        // clean URL
+        const p = new URLSearchParams(location.search)
+        p.delete('paid'); p.delete('sid')
+        const clean = `${window.location.pathname}${p.toString() ? `?${p}` : ''}`
+        window.history.replaceState({}, '', clean)
+      } catch (e) {
+        console.error('[return from stripe] flow error:', e)
+      }
+    })()
+  }, [id, paid, sid, prefillEmail, grantAccess, location.search])
+
+  // Go straight to Stripe (skip any pre-dialog)
   const handleAdoptNow = useCallback(async () => {
-    if (!id || !animal) return
+    if (!id || !animal) {
+      console.error('[checkout] Missing animal id or data', { id, animal })
+      alert('Zkuste stránku znovu načíst (chybí ID zvířete).')
+      return
+    }
     try {
-      // choose an email: prefer logged-in, else prefill, else empty (Stripe will ask)
       const email = user?.email || prefillEmail || undefined
 
-      // persist email for after-payment prefill/auto-link
+      // persist email so we can auto-claim after redirect
       if (email) {
         try {
           localStorage.setItem('dp:pendingEmail', email)
@@ -153,10 +174,18 @@ export default function AnimalDetail() {
         name: animal.jmeno || animal.name || 'Adopce',
         email
       })
-      if (session?.url) window.location.href = session.url
-    } catch (e) {
-      console.error('Start checkout failed', e)
-      alert('Nepodařilo se spustit platbu. Zkuste to prosím znovu.')
+
+      if (!session || !session.url) {
+        console.error('[checkout] bad response', session)
+        alert('Server nevrátil odkaz na platbu. Zkuste to prosím znovu.')
+        return
+      }
+
+      window.location.href = session.url
+    } catch (e: any) {
+      console.error('[checkout] failed', e)
+      const msg = (e?.message || '').toString()
+      alert(`Nepodařilo se spustit platbu. ${msg ? `\n\nDůvod: ${msg}` : 'Zkuste to prosím znovu.'}`)
     }
   }, [id, animal, user?.email, prefillEmail])
 
@@ -171,7 +200,6 @@ export default function AnimalDetail() {
         try { v.pause(); v.removeAttribute('src'); v.load() } catch {}
       })
       setForceLocked(true)
-      // (optional) reload detail
       setLoading(true)
       fetchAnimal(animal.id).then(a => setAnimal(a as any)).finally(() => setLoading(false))
     } catch (e) {
@@ -206,8 +234,10 @@ export default function AnimalDetail() {
       ...((animal.galerie || []).map(g => asUrl(g) || undefined)),
     ].filter(Boolean))
   ) as string[]
+
   const mainUrl = urls[0] || '/no-image.jpg'
   const extraUrls = urls.slice(1)
+
   const lockTag = isUnlocked ? 'u1' : 'l1'
   const withBust = (u: string) => `${u}${u.includes('?') ? '&' : '?'}v=${lockTag}`
 
