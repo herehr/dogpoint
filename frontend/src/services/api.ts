@@ -48,6 +48,19 @@ export function qs(obj?: Record<string, string | number | boolean | undefined | 
   return s ? `?${s}` : '';
 }
 
+/** Merge multiple AbortSignals (tiny helper) */
+class AbortControllerMerge {
+  private c = new AbortController();
+  public signal = this.c.signal;
+  constructor(signals: AbortSignal[]) {
+    const onAbort = () => this.c.abort();
+    signals.forEach(s => {
+      if (s.aborted) this.c.abort();
+      else s.addEventListener('abort', onAbort, { once: true });
+    });
+  }
+}
+
 // ---------- HTTP core ----------
 type FetchOpts = {
   method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
@@ -128,19 +141,6 @@ async function doFetch<T>(path: string, opts: FetchOpts = {}): Promise<T> {
   }
 }
 
-/** Merge multiple AbortSignals (tiny helper) */
-class AbortControllerMerge {
-  private c = new AbortController();
-  public signal = this.c.signal;
-  constructor(signals: AbortSignal[]) {
-    const onAbort = () => this.c.abort();
-    signals.forEach(s => {
-      if (s.aborted) this.c.abort();
-      else s.addEventListener('abort', onAbort, { once: true });
-    });
-  }
-}
-
 // Convenience wrappers
 export function getJSON<T>(path: string, opts?: Omit<FetchOpts, 'method' | 'body'>) {
   return doFetch<T>(path, { ...opts, method: 'GET' });
@@ -208,68 +208,62 @@ export async function claimPaid(email: string, sessionId?: string) {
   return res;
 }
 
-// --- Stripe confirm (after success redirect) ---
+// ---------- Stripe helpers ----------
+
 export type ConfirmStripeResp = {
-  ok: boolean
-  token?: string
-  email?: string
-}
+  ok: boolean;
+  token?: string;
+  email?: string;
+};
 
+/** Confirm a Stripe session after returning (?sid=...) from Checkout. */
 export async function confirmStripeSession(sid: string): Promise<ConfirmStripeResp> {
-  return getJSON<ConfirmStripeResp>(`/api/stripe/confirm${qs({ sid })}`)
+  const url = `/api/stripe/confirm?sid=${encodeURIComponent(sid)}`;
+  return getJSON<ConfirmStripeResp>(url);
 }
 
-// Stash helpers used before redirect (optional, but handy)
-export function stashPendingEmail(email?: string) {
-  if (!email) return
-  try {
-    localStorage.setItem('dp:pendingEmail', email)
-    localStorage.setItem('dp:pendingUser', JSON.stringify({ email }))
-  } catch {}
-}
-
-export function popPendingEmail(): string | undefined {
-  try {
-    const stash = localStorage.getItem('dp:pendingUser')
-    if (stash) {
-      const parsed = JSON.parse(stash)
-      if (parsed?.email) return String(parsed.email)
-    }
-    const fallback = localStorage.getItem('dp:pendingEmail')
-    if (fallback) return String(fallback)
-  } catch {}
-  return undefined
-}
-
-// Stripe checkout session (backend returns { url })
+/** Create a Stripe Checkout session (backend returns { id, url }). */
 export async function createCheckoutSession(params: {
   animalId: string;
   amountCZK: number;
   email?: string;
   name?: string;
 }) {
-  return postJSON<{ url: string }>('/api/stripe/checkout-session', params);
+  return postJSON<{ id?: string; url: string }>('/api/stripe/checkout-session', params);
 }
 
-// simple helpers to keep the email around
-const PENDING_EMAIL_KEY = 'dp:pendingEmail'
+// Stash helpers used before/after redirect
+const PENDING_EMAIL_KEY = 'dp:pendingEmail';
+const PENDING_USER_KEY  = 'dp:pendingUser';
+
 export function stashPendingEmail(email?: string) {
-  try { if (email) localStorage.setItem(PENDING_EMAIL_KEY, email) } catch {}
-}
-export function popPendingEmail(): string | '' {
+  if (!email) return;
   try {
-    const v = localStorage.getItem(PENDING_EMAIL_KEY)
-    if (v) localStorage.removeItem(PENDING_EMAIL_KEY)
-    return v || ''
-  } catch { return '' }
+    localStorage.setItem(PENDING_EMAIL_KEY, email);
+    localStorage.setItem(PENDING_USER_KEY, JSON.stringify({ email }));
+  } catch {}
 }
 
-// confirm the session after redirect to pull token + email
-export async function confirmStripeSession(sid: string) {
-  return getJSON<{ ok: true; token?: string; email?: string }>(`/api/stripe/confirm?sid=${encodeURIComponent(sid)}`)
+export function popPendingEmail(): string | undefined {
+  try {
+    const stash = localStorage.getItem(PENDING_USER_KEY);
+    if (stash) {
+      const parsed = JSON.parse(stash);
+      if (parsed?.email) {
+        // do not clear user stash; we often reuse it for prefill
+        return String(parsed.email);
+      }
+    }
+    const fallback = localStorage.getItem(PENDING_EMAIL_KEY);
+    if (fallback) {
+      localStorage.removeItem(PENDING_EMAIL_KEY);
+      return String(fallback);
+    }
+  } catch {}
+  return undefined;
 }
 
-// Animals
+// ---------- Animals ----------
 export type Animal = {
   id: string;
   jmeno?: string;
@@ -289,7 +283,7 @@ export async function fetchAnimal(id: string): Promise<Animal> {
   return getJSON<Animal>(`/api/animals/${encodeURIComponent(id)}`);
 }
 
-// Uploads (safe for FormData)
+// ---------- Uploads (FormData-safe) ----------
 export async function uploadMedia(file: File) {
   const fd = new FormData();
   fd.append('file', file);
