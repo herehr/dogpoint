@@ -13,8 +13,14 @@ import { useAuth } from '../context/AuthContext'
 import SafeMarkdown from '../components/SafeMarkdown'
 import AfterPaymentPasswordDialog from '../components/AfterPaymentPasswordDialog'
 
-// services
-import { createCheckoutSession, claimPaid, me, setAuthToken } from '../services/api'
+// New Stripe API helpers
+import {
+  createCheckoutSession,
+  confirmStripeSession,
+  setAuthToken,
+  me,
+  stashPendingEmail,
+} from '../services/api'
 
 type Media = { url: string; type?: 'image' | 'video' }
 type LocalAnimal = {
@@ -76,7 +82,7 @@ export default function AnimalDetail() {
     const p = new URLSearchParams(location.search)
     return {
       paid: p.get('paid'),
-      sid : p.get('sid') || undefined
+      sid : p.get('sid') || undefined,
     }
   }, [location.search])
 
@@ -113,32 +119,46 @@ export default function AnimalDetail() {
     return ''
   }, [user?.email])
 
-  // On return from Stripe: optimistic unlock, try auto-claim, clean URL, show password dialog
+  // On return from Stripe: provisional unlock; try /api/stripe/confirm; clean URL
   useEffect(() => {
     if (!id || paid !== '1') return
     (async () => {
       try {
-        // provisional unlock right away
+        // Provisional unlock immediately
         grantAccess(id)
         setForceLocked(false)
 
-        if (prefillEmail) {
+        // Try instant confirm (may also give us token + email)
+        let tokenFromConfirm: string | undefined
+        let emailFromConfirm: string | undefined
+        if (sid) {
           try {
-            const { token } = await claimPaid(prefillEmail, sid)
-            if (token) {
-              setAuthToken(token)
-              await me()
-            }
+            const { token, email } = await confirmStripeSession(sid)
+            tokenFromConfirm = token
+            emailFromConfirm = email
           } catch (e) {
-            // Auto-claim failed (no email/session mismatch etc.). The dialog will handle first-time password.
-            console.warn('[auto-claim] failed:', e)
+            console.warn('[stripe confirm] failed:', e)
           }
         }
 
-        // show the password dialog to cover first-time users
-        setShowAfterPay(true)
+        // If we got a token, log the user in silently
+        if (tokenFromConfirm) {
+          setAuthToken(tokenFromConfirm)
+          try { await me() } catch {}
+          setShowAfterPay(false) // no need for password dialog
+        } else {
+          // No token yet → open the email+password dialog
+          // Prefer the email that came back from confirm, otherwise prefill
+          if (emailFromConfirm) {
+            try {
+              localStorage.setItem('dp:pendingEmail', emailFromConfirm)
+              localStorage.setItem('dp:pendingUser', JSON.stringify({ email: emailFromConfirm }))
+            } catch {}
+          }
+          setShowAfterPay(true)
+        }
 
-        // clean URL
+        // Clean URL (?paid, ?sid)
         const p = new URLSearchParams(location.search)
         p.delete('paid'); p.delete('sid')
         const clean = `${window.location.pathname}${p.toString() ? `?${p}` : ''}`
@@ -147,7 +167,7 @@ export default function AnimalDetail() {
         console.error('[return from stripe] flow error:', e)
       }
     })()
-  }, [id, paid, sid, prefillEmail, grantAccess, location.search])
+  }, [id, paid, sid, grantAccess, location.search])
 
   // Go straight to Stripe (skip any pre-dialog)
   const handleAdoptNow = useCallback(async () => {
@@ -159,20 +179,15 @@ export default function AnimalDetail() {
     try {
       const email = user?.email || prefillEmail || undefined
 
-      // persist email so we can auto-claim after redirect
-      if (email) {
-        try {
-          localStorage.setItem('dp:pendingEmail', email)
-          localStorage.setItem('dp:pendingUser', JSON.stringify({ email }))
-        } catch {}
-      }
+      // Stash for the post-redirect flow (helper ensures both keys)
+      if (email) stashPendingEmail(email)
 
       const amountCZK = 200
       const session = await createCheckoutSession({
         animalId: id,
         amountCZK,
         name: animal.jmeno || animal.name || 'Adopce',
-        email
+        email,
       })
 
       if (!session || !session.url) {

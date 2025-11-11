@@ -218,6 +218,24 @@ export async function createCheckoutSession(params: {
   return postJSON<{ url: string }>('/api/stripe/checkout-session', params);
 }
 
+// simple helpers to keep the email around
+const PENDING_EMAIL_KEY = 'dp:pendingEmail'
+export function stashPendingEmail(email?: string) {
+  try { if (email) localStorage.setItem(PENDING_EMAIL_KEY, email) } catch {}
+}
+export function popPendingEmail(): string | '' {
+  try {
+    const v = localStorage.getItem(PENDING_EMAIL_KEY)
+    if (v) localStorage.removeItem(PENDING_EMAIL_KEY)
+    return v || ''
+  } catch { return '' }
+}
+
+// confirm the session after redirect to pull token + email
+export async function confirmStripeSession(sid: string) {
+  return getJSON<{ ok: true; token?: string; email?: string }>(`/api/stripe/confirm?sid=${encodeURIComponent(sid)}`)
+}
+
 // Animals
 export type Animal = {
   id: string;

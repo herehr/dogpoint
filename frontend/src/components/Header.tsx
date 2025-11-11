@@ -1,6 +1,7 @@
+// frontend/src/components/Header.tsx
 import React from 'react'
-import { Link as RouterLink } from 'react-router-dom'
-import { Box, Container, Stack, Button } from '@mui/material'
+import { Link as RouterLink, useNavigate } from 'react-router-dom'
+import { Box, Container, Stack, Button, Typography } from '@mui/material'
 import { useAuth } from '../context/AuthContext'
 
 type Props = {
@@ -12,26 +13,37 @@ export default function Header({
   logoSrc = '/logo1.png',
   subtitle = 'Adopce na dálku',
 }: Props) {
-  const { token, role, logout } = useAuth()
+  const navigate = useNavigate()
+  const { token, role, user, logout } = useAuth()
 
+  const isAdmin = role === 'ADMIN'
+  const isMod   = role === 'MODERATOR'
+  const isUser  = role === 'USER'
+
+  // Destination for the primary account button
   const dashboardHref =
-    role === 'ADMIN' ? '/admin'
-    : role === 'MODERATOR' ? '/moderator'
-    : role === 'USER' ? '/user'
+    isAdmin ? '/admin'
+    : isMod  ? '/moderator'
+    : isUser ? '/user'
     : '/login'
 
-  const accountLabel = !token
-    ? 'Přihlášení'
-    : role === 'ADMIN' ? 'Admin'
-    : role === 'MODERATOR' ? 'Moderátor'
+  const accountLabel =
+    !token ? 'Přihlášení'
+    : isAdmin ? 'Admin'
+    : isMod   ? 'Moderátor'
     : 'Můj účet'
+
+  const handleLogout = () => {
+    logout()
+    navigate('/') // return to homepage after logout
+  }
 
   return (
     <Box
       component="header"
       sx={{
         position: 'relative',
-        backgroundColor: '#23D3DF', // dark turquoise band
+        backgroundColor: '#23D3DF',
         color: '#000',
         overflow: 'hidden',
       }}
@@ -46,7 +58,7 @@ export default function Header({
         }}
       >
         <Stack direction="row" alignItems="center" justifyContent="space-between" gap={2}>
-          {/* Logo + subtitle (no more teaser toggle) */}
+          {/* Logo + subtitle */}
           <Button
             component={RouterLink}
             to="/"
@@ -81,17 +93,44 @@ export default function Header({
             </Stack>
           </Button>
 
-          {/* Account buttons */}
+          {/* Account area */}
           {!token ? (
             <Button component={RouterLink} to="/login" variant="outlined" sx={pillBtn}>
               PŘIHLÁŠENÍ
             </Button>
           ) : (
-            <Stack direction="row" spacing={1}>
+            <Stack direction="row" spacing={1} alignItems="center">
+              {/* Show user email (trimmed) when logged in */}
+              {user?.email && (
+                <Typography
+                  variant="body2"
+                  sx={{
+                    maxWidth: { xs: 120, sm: 200 },
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    fontWeight: 700,
+                  }}
+                  title={user.email}
+                >
+                  {user.email}
+                </Typography>
+              )}
+
+              {/* For USER role, offer direct “Moje adopce” */}
+              {isUser && (
+                <Button component={RouterLink} to="/user" variant="outlined" sx={pillBtn}>
+                  Moje&nbsp;adopce
+                </Button>
+              )}
+
+              {/* Primary account/dashboard button (roles keep their targets) */}
               <Button component={RouterLink} to={dashboardHref} variant="outlined" sx={pillBtn}>
                 {accountLabel}
               </Button>
-              <Button onClick={logout} variant="text" sx={textBtn}>
+
+              {/* Logout */}
+              <Button onClick={handleLogout} variant="text" sx={textBtn}>
                 Odhlásit
               </Button>
             </Stack>
