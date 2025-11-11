@@ -79,7 +79,13 @@ rawRouter.post(
       if (event.type === 'checkout.session.completed') {
         const session = event.data.object as Stripe.Checkout.Session
         const pledgeId = (session.metadata as any)?.pledgeId as string | undefined
-        const stripeEmail = normalizeEmail(session.customer_email)
+        const stripeEmail =
+        normalizeEmail(
+        // the most reliable field after checkout:
+         (session as any).customer_details?.email
+         ) ||
+        normalizeEmail(session.customer_email) ||
+        normalizeEmail(((session.customer as any)?.email as string | undefined));
 
         // Update pledge → PAID (+ patch email if placeholder)
         if (pledgeId) {
@@ -261,36 +267,37 @@ jsonRouter.get('/confirm', async (req: Request, res: Response) => {
     }
 
     const stripeEmail =
-      normalizeEmail(session.customer_email) ||
-      normalizeEmail((session.customer as any)?.email as string | undefined)
+  normalizeEmail((session as any).customer_details?.email) ||
+  normalizeEmail(session.customer_email) ||
+  normalizeEmail(((session.customer as any)?.email as string | undefined));
 
-    const meta = (session.metadata || {}) as Record<string, string | undefined>
-    const pledgeId = meta.pledgeId
+const meta = (session.metadata || {}) as Record<string, string | undefined>;
+const pledgeId = meta.pledgeId;
 
     // Mark pledge PAID and patch email if we have it
     try {
-      if (pledgeId) {
-        await prisma.pledge.update({
-          where: { id: pledgeId },
-          data: {
-            status: 'PAID',
-            providerId: session.id,
-            ...(stripeEmail ? { email: stripeEmail } : {}),
-          },
-        })
-      } else {
-        const p = await prisma.pledge.findFirst({ where: { providerId: sid } })
-        if (p) {
-          await prisma.pledge.update({
-            where: { id: p.id },
-            data: {
-              status: 'PAID',
-              ...(stripeEmail ? { email: stripeEmail } : {}),
-            },
-          })
-        }
-      }
-    } catch { /* ignore */ }
+  if (pledgeId) {
+    await prisma.pledge.update({
+      where: { id: pledgeId },
+      data: {
+        status: 'PAID',
+        providerId: session.id,
+        ...(stripeEmail ? { email: stripeEmail } : {}),
+      },
+    });
+  } else {
+    const p = await prisma.pledge.findFirst({ where: { providerId: sid } });
+    if (p) {
+      await prisma.pledge.update({
+        where: { id: p.id },
+        data: {
+          status: 'PAID',
+          ...(stripeEmail ? { email: stripeEmail } : {}),
+        },
+      });
+    }
+  }
+} catch { /* ignore */ }
 
     // ---------- Your requested block (integrated perfectly) ----------
     // earlier in the handler:
@@ -298,33 +305,30 @@ jsonRouter.get('/confirm', async (req: Request, res: Response) => {
     // (we already normalized to lower-case above)
 
     // resolve email: prefer Stripe → then pledge.providerId match
-    let resolvedEmail: string | undefined = stripeEmail || undefined
-    if (!resolvedEmail) {
-      const p = await prisma.pledge.findFirst({
-        where: { providerId: sid },
-        select: { email: true },
-      })
-      if (p?.email) resolvedEmail = p.email
-    }
+   let resolvedEmail: string | undefined = stripeEmail;
+if (!resolvedEmail) {
+  const p = await prisma.pledge.findFirst({
+    where: { providerId: sid },
+    select: { email: true },
+  });
+  if (p?.email) resolvedEmail = normalizeEmail(p.email);
+}
 
     // normalize
     if (resolvedEmail) resolvedEmail = normalizeEmail(resolvedEmail)
 
-    let token: string | undefined
-    let returnedEmail: string | undefined = resolvedEmail
+   let token: string | undefined;
+let returnedEmail: string | undefined = resolvedEmail;
 
-    if (resolvedEmail) {
-      let user = await prisma.user.findUnique({ where: { email: resolvedEmail } })
-      if (!user) {
-        user = await prisma.user.create({ data: { email: resolvedEmail, role: 'USER' } })
-      }
-      await linkPaidOrRecentPledgesToUser(user.id, resolvedEmail)
-      token = signToken({ id: user.id, role: user.role, email: user.email })
-      returnedEmail = user.email // ensure normalized from DB
-    }
+if (resolvedEmail) {
+  let user = await prisma.user.findUnique({ where: { email: resolvedEmail } });
+  if (!user) user = await prisma.user.create({ data: { email: resolvedEmail, role: 'USER' } });
+  await linkPaidOrRecentPledgesToUser(user.id, resolvedEmail);
+  token = signToken({ id: user.id, role: user.role, email: user.email });
+  returnedEmail = user.email; // normalized from DB
+}
 
-    // always return ok:true; token/email only when present
-    res.json({ ok: true, token, email: returnedEmail })
+res.json({ ok: true, token, email: returnedEmail });
   } catch (e) {
     console.error('[stripe confirm] error:', e)
     res.status(500).json({ error: 'Failed to confirm session' })

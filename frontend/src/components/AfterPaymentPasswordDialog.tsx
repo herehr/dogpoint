@@ -8,19 +8,16 @@ import { login, registerAfterPayment, me, setAuthToken } from '../services/api'
 type Props = {
   open: boolean
   onClose: () => void
-  /** Prefilled email after Stripe return; we keep this disabled to avoid mismatch with pledge */
   defaultEmail?: string
-  /** Called when the user has a valid session (after register or login) */
   onLoggedIn?: () => void
 }
 
-/**
- * Shown after successful Stripe Checkout redirect.
- * Primary path:
- *   - First-time donor: set a password → we call registerAfterPayment(email, password)
- *   - Existing donor: if register fails with 409 → fallback to login(email, password)
- * Either way, on success: set token, fetch /me, call onLoggedIn().
- */
+const isPlaceholderEmail = (e?: string) =>
+  !e || /pending\+unknown@local/i.test(e) || !e.includes('@')
+
+const isValidEmail = (e: string) =>
+  /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)
+
 export default function AfterPaymentPasswordDialog({
   open,
   onClose,
@@ -33,23 +30,23 @@ export default function AfterPaymentPasswordDialog({
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
-  // Keep email in sync with prop (for when AnimalDetail updates it from confirm response)
   React.useEffect(() => {
     setEmail(defaultEmail || '')
   }, [defaultEmail])
 
+  const allowEditEmail = isPlaceholderEmail(email)
+  const emailOk = !allowEditEmail || (email && isValidEmail(email))
+
   const canSubmit = useMemo(() => {
-    if (!email) return false
+    if (!emailOk) return false
     if (!pwd || pwd.length < 6) return false
     if (pwd !== pwd2) return false
     return true
-  }, [email, pwd, pwd2])
+  }, [emailOk, pwd, pwd2])
 
   async function finishLoginFlow(token?: string) {
     if (token) setAuthToken(token)
-    try {
-      await me().catch(() => {})
-    } catch {}
+    try { await me().catch(() => {}) } catch {}
     onLoggedIn?.()
   }
 
@@ -58,32 +55,30 @@ export default function AfterPaymentPasswordDialog({
     setErr(null)
     if (!canSubmit) return
     setBusy(true)
+
+    // First try registering a first-time user (this should also link pledges server-side)
     try {
-      // 1) Try registering for the first time (backend will connect pledge → user)
       const reg = await registerAfterPayment(email, pwd)
       await finishLoginFlow(reg?.token)
       return
     } catch (e: any) {
       const msg = (e?.message || '').toString()
-      // If user already exists, fall back to login
+      // If already exists → try login
       const isConflict = /409|exist/i.test(msg)
       if (!isConflict) {
-        // unknown failure during register
         setErr(msg || 'Nepodařilo se vytvořit účet.')
         setBusy(false)
         return
       }
     }
 
-    // 2) Fallback → user exists → login
+    // Fallback: login existing user
     try {
       const auth = await login(email, pwd)
       await finishLoginFlow(auth?.token)
     } catch (e: any) {
-      const msg = (e?.message || '').toString()
-      setErr(msg || 'Přihlášení selhalo.')
+      setErr((e?.message || '').toString() || 'Přihlášení selhalo.')
       setBusy(false)
-      return
     }
   }
 
@@ -103,9 +98,18 @@ export default function AfterPaymentPasswordDialog({
             <TextField
               label="E-mail"
               value={email}
-              disabled
+              onChange={e => setEmail(e.target.value)}
+              disabled={!allowEditEmail}
+              error={allowEditEmail && !!email && !emailOk}
+              helperText={
+                allowEditEmail
+                  ? (!email ? 'Zadejte e-mail' : (!emailOk ? 'Zadejte platný e-mail' : ' '))
+                  : ' '
+              }
               fullWidth
+              required
             />
+
             <TextField
               label="Heslo"
               type="password"
