@@ -19,7 +19,7 @@ export function clearToken() {
   try { sessionStorage.removeItem(tokenKey); } catch {}
 }
 
-// Back-compat aliases:
+// Back-compat aliases
 export {
   setToken as setAuthToken,
   getToken as getAuthToken,
@@ -115,9 +115,7 @@ async function doFetch<T>(path: string, opts: FetchOpts = {}): Promise<T> {
           serverMsg = await res.text();
         }
       } catch {}
-      if (res.status === 401 && opts.autoLogoutOn401) {
-        clearToken();
-      }
+      if (res.status === 401 && opts.autoLogoutOn401) clearToken();
       const msg = (serverMsg || `HTTP ${res.status}`) + (serverDetail ? ` – ${serverDetail}` : '');
       throw new Error(msg);
     }
@@ -194,11 +192,7 @@ export async function claimPaid(email: string, sessionId?: string) {
 }
 
 // ---------- Stripe helpers ----------
-export type ConfirmStripeResp = {
-  ok: boolean;
-  token?: string;
-  email?: string;
-};
+export type ConfirmStripeResp = { ok: boolean; token?: string; email?: string };
 
 export async function confirmStripeSession(sid: string): Promise<ConfirmStripeResp> {
   return getJSON<ConfirmStripeResp>(`/api/stripe/confirm${qs({ sid })}`);
@@ -213,7 +207,7 @@ export async function createCheckoutSession(params: {
   return postJSON<{ id?: string; url: string }>('/api/stripe/checkout-session', params);
 }
 
-// Stash helpers (used across pages)
+// Stash helpers
 const PENDING_EMAIL_KEY = 'dp:pendingEmail';
 const PENDING_USER_KEY  = 'dp:pendingUser';
 
@@ -272,12 +266,32 @@ export type MyAdoptedItem = {
   status?: 'ACTIVE' | 'PENDING' | 'CANCELED';
 };
 
+/**
+ * Prefer backend /api/adoption/my.
+ * If 404 (route not present yet), fallback to /api/auth/me and build items from ids.
+ */
 export async function myAdoptedAnimals(): Promise<MyAdoptedItem[]> {
-  return getJSON<MyAdoptedItem[]>('/api/adoption/my', { autoLogoutOn401: true });
+  try {
+    return await getJSON<MyAdoptedItem[]>('/api/adoption/my', { autoLogoutOn401: true });
+  } catch (e: any) {
+    const msg = (e?.message || '').toString();
+    if (/404/.test(msg)) {
+      const m = await me();
+      const ids = (m.myAdoptions && m.myAdoptions.length ? m.myAdoptions : m.animals) || [];
+      return ids.map((id: string) => ({ animalId: id, status: 'ACTIVE' as const }));
+    }
+    throw e;
+  }
 }
 
 export async function markAnimalSeen(animalId: string): Promise<{ ok: true }> {
-  return postJSON<{ ok: true }>('/api/adoption/seen', { animalId });
+  // if route exists
+  try {
+    return await postJSON<{ ok: true }>('/api/adoption/seen', { animalId });
+  } catch {
+    // ignore if not implemented server-side
+    return { ok: true };
+  }
 }
 
 // ---------- Uploads ----------

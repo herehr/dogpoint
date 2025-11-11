@@ -58,7 +58,7 @@ export default function AfterPaymentPasswordDialog({
     setErr(null)
     setBusy(true)
 
-    // 1) Try to register as first-time user
+    // 1) First-time registration
     try {
       await registerAfterPayment(email, pwd)
       await finishLoginFlow()
@@ -73,7 +73,7 @@ export default function AfterPaymentPasswordDialog({
       }
     }
 
-    // 2) If account exists, just log in
+    // 2) Existing user: login
     try {
       await login(email, pwd)
       await finishLoginFlow()

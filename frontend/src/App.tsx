@@ -3,10 +3,13 @@ import React, { useEffect } from 'react'
 import { Routes, Route, Link, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { Container, Typography, Button } from '@mui/material'
 
-// Components
+/** Use the shared RequireRole from components (not routes) */
+import RequireRole from './components/RequireRole'
+
+/** Layout */
 import Header from './components/Header'
 
-// Pages
+/** Pages */
 import LandingPage from './pages/LandingPage'
 import AnimalsPage from './pages/AnimalsPage'
 import AnimalDetail from './pages/AnimalDetail'
@@ -18,10 +21,6 @@ import UXPrototype from './prototypes/UXPrototype'
 import Login from './pages/Login'
 import UserDashboard from './pages/UserDashboard'
 import OchranaOsobnichUdaju from './pages/OchranaOsobnichUdaju'
-
-
-// Guards
-import RequireRole from './routes/RequireRole'
 
 function AppLayout() {
   return (
@@ -52,35 +51,35 @@ export default function App() {
   const navigate = useNavigate()
   const location = useLocation()
 
-  // Handle Stripe return from backend root: /?paid=1&animal=XYZ or ?canceled=1&animal=XYZ
+  /**
+   * In case Stripe success_url was (or still is) pointed at the site root with
+   * query flags like `/?paid=1&animal=XYZ`, we forward the user to the proper
+   * client route `/zvirata/:id?...` to avoid static-site deep-link 404s.
+   * (If you already use success_url=/zvirata/:id?paid=1&sid=..., this is a no-op.)
+   */
   useEffect(() => {
     const params = new URLSearchParams(location.search)
     const paid = params.get('paid')
     const canceled = params.get('canceled')
     const animal = params.get('animal')
-
     if ((paid === '1' || canceled === '1') && animal) {
-      try {
-        if (paid === '1') localStorage.setItem('dp:justPaid', '1')
-      } catch {}
-      // Navigate client-side to avoid static-host 404 on deep links
-      const to = `/zvirata/${encodeURIComponent(animal)}${
-        paid === '1' ? '?paid=1' : '?canceled=1'
-      }`
+      try { if (paid === '1') localStorage.setItem('dp:justPaid', '1') } catch {}
+      const to = `/zvirata/${encodeURIComponent(animal)}${paid === '1' ? '?paid=1' : '?canceled=1'}`
       navigate(to, { replace: true })
     }
   }, [location.search, navigate])
 
   return (
     <Routes>
-      {/* Parent layout is bound to "/" */}
+      {/* All routes share the same header via AppLayout */}
       <Route path="/" element={<AppLayout />}>
-        {/* Index (home) */}
+        {/* Home */}
         <Route index element={<LandingPage />} />
 
         {/* Public */}
         <Route path="zvirata" element={<AnimalsPage />} />
         <Route path="zvirata/:id" element={<AnimalDetail />} />
+        <Route path="ochrana-osobnich-udaju" element={<OchranaOsobnichUdaju />} />
 
         {/* Single login page for all roles */}
         <Route path="login" element={<Login />} />
@@ -138,10 +137,6 @@ export default function App() {
             </RequireRole>
           }
         />
-       
-
-        <Route path="ochrana-osobnich-udaju" element={<OchranaOsobnichUdaju />} />
-      
 
         {/* Prototype (optional) */}
         <Route path="proto/*" element={<UXPrototype />} />

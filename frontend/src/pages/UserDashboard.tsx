@@ -25,11 +25,7 @@ export default function UserDashboard() {
   }, [])
 
   const onSeen = async (animalId: string) => {
-    try {
-      await markAnimalSeen(animalId)
-    } catch (e) {
-      console.warn('mark seen failed', e)
-    }
+    try { await markAnimalSeen(animalId) } catch {}
   }
 
   return (

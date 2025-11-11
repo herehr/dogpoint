@@ -35,6 +35,9 @@ type LocalAnimal = {
   bornYear?: number | null
 }
 
+const isPlaceholderEmail = (e?: string) =>
+  !e || /pending\+unknown@local/i.test(e) || !e.includes('@')
+
 function asUrl(x: string | Media | undefined | null): string | null {
   if (!x) return null
   if (typeof x === 'string') return x
@@ -46,10 +49,8 @@ function formatAge(a: LocalAnimal): string {
   if (bd && !Number.isNaN(bd.getTime())) {
     const now = new Date()
     let years = now.getFullYear() - bd.getFullYear()
-    if (
-      now.getMonth() < bd.getMonth() ||
-      (now.getMonth() === bd.getMonth() && now.getDate() < bd.getDate())
-    ) years -= 1
+    if (now.getMonth() < bd.getMonth() ||
+        (now.getMonth() === bd.getMonth() && now.getDate() < bd.getDate())) years -= 1
     return `${years} r`
   }
   if (a.bornYear && a.bornYear > 1900) {
@@ -100,40 +101,48 @@ export default function AnimalDetail() {
     return () => { alive = false }
   }, [id])
 
-  // On return from Stripe:
-  // - Optimistic unlock
-  // - Confirm session to obtain token/email (if available)
-  // - Pre-fill and show password dialog for first-time users
+  // Return from Stripe
   useEffect(() => {
     if (!id || paid !== '1') return
     (async () => {
       try {
-        grantAccess(id)           // provisional unlock
+        // optimistic unlock
+        grantAccess(id)
         setForceLocked(false)
 
-        let emailForDialog = user?.email || ''
+        let preferredEmail = user?.email || ''
 
         if (sid) {
           try {
             const conf = await confirmStripeSession(sid)
-            // If backend returned a token, AuthContext should pick it up (me() below)
+            // If token was returned, refresh user
             if (conf?.token) {
               await me().catch(() => {})
               await refreshMe?.()
             }
             if (conf?.email) {
-              emailForDialog = conf.email
+              preferredEmail = conf.email
               stashPendingEmail(conf.email)
             }
+
+            // If we have a proper email (not placeholder) AND a token → go directly to /user
+            if (conf?.token && conf?.email && !isPlaceholderEmail(conf.email)) {
+              setShowAfterPay(false)
+              // Clean URL then navigate
+              const p = new URLSearchParams(location.search)
+              p.delete('paid'); p.delete('sid')
+              const clean = `${window.location.pathname}${p.toString() ? `?${p}` : ''}`
+              window.history.replaceState({}, '', clean)
+              navigate('/user')
+              return
+            }
           } catch (e) {
-            // ignore; dialog will still appear
             console.warn('[confirmStripeSession] failed', e)
           }
         }
 
-        setDialogEmail(emailForDialog || user?.email || '')
-
-        // open dialog for password setup / login
+        // show password dialog (first-time / placeholder email case)
+        setDialogEmail(preferredEmail)
         setShowAfterPay(true)
 
         // clean URL
@@ -397,7 +406,7 @@ export default function AnimalDetail() {
         defaultEmail={dialogEmail}
         onLoggedIn={() => {
           if (id) grantAccess(id);
-          navigate('/user'); // final step -> go to dashboard
+          navigate('/user');
         }}
       />
     </Container>
