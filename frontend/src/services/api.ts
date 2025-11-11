@@ -208,6 +208,39 @@ export async function claimPaid(email: string, sessionId?: string) {
   return res;
 }
 
+// --- Stripe confirm (after success redirect) ---
+export type ConfirmStripeResp = {
+  ok: boolean
+  token?: string
+  email?: string
+}
+
+export async function confirmStripeSession(sid: string): Promise<ConfirmStripeResp> {
+  return getJSON<ConfirmStripeResp>(`/api/stripe/confirm${qs({ sid })}`)
+}
+
+// Stash helpers used before redirect (optional, but handy)
+export function stashPendingEmail(email?: string) {
+  if (!email) return
+  try {
+    localStorage.setItem('dp:pendingEmail', email)
+    localStorage.setItem('dp:pendingUser', JSON.stringify({ email }))
+  } catch {}
+}
+
+export function popPendingEmail(): string | undefined {
+  try {
+    const stash = localStorage.getItem('dp:pendingUser')
+    if (stash) {
+      const parsed = JSON.parse(stash)
+      if (parsed?.email) return String(parsed.email)
+    }
+    const fallback = localStorage.getItem('dp:pendingEmail')
+    if (fallback) return String(fallback)
+  } catch {}
+  return undefined
+}
+
 // Stripe checkout session (backend returns { url })
 export async function createCheckoutSession(params: {
   animalId: string;

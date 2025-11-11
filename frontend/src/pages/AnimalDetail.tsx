@@ -1,6 +1,6 @@
 // frontend/src/pages/AnimalDetail.tsx
 import React, { useEffect, useState, useMemo, useCallback } from 'react'
-import { useParams, useLocation } from 'react-router-dom'
+import { useParams, useLocation, useNavigate } from 'react-router-dom'
 import {
   Container, Typography, Box, Stack, Chip, Alert, Skeleton, Grid, Button, Divider
 } from '@mui/material'
@@ -13,13 +13,14 @@ import { useAuth } from '../context/AuthContext'
 import SafeMarkdown from '../components/SafeMarkdown'
 import AfterPaymentPasswordDialog from '../components/AfterPaymentPasswordDialog'
 
-// New Stripe API helpers
+// services
 import {
   createCheckoutSession,
   confirmStripeSession,
   setAuthToken,
   me,
   stashPendingEmail,
+  popPendingEmail,
 } from '../services/api'
 
 type Media = { url: string; type?: 'image' | 'video' }
@@ -66,6 +67,7 @@ function formatAge(a: LocalAnimal): string {
 export default function AnimalDetail() {
   const { id } = useParams<{ id: string }>()
   const location = useLocation()
+  const navigate = useNavigate()
 
   const { hasAccess, grantAccess } = useAccess()
   const { role, user } = useAuth()
@@ -76,13 +78,14 @@ export default function AnimalDetail() {
   const [err, setErr] = useState<string | null>(null)
   const [forceLocked, setForceLocked] = useState(false)
   const [showAfterPay, setShowAfterPay] = useState(false)
+  const [dialogEmail, setDialogEmail] = useState<string>('')
 
   // Read Stripe return flags ONCE
   const { paid, sid } = useMemo(() => {
     const p = new URLSearchParams(location.search)
     return {
       paid: p.get('paid'),
-      sid : p.get('sid') || undefined,
+      sid : p.get('sid') || undefined
     }
   }, [location.search])
 
@@ -104,82 +107,65 @@ export default function AnimalDetail() {
     return () => { alive = false }
   }, [id])
 
-  // Prefill email for after-payment (prefer logged-in, else stashed)
-  const prefillEmail = useMemo(() => {
-    try {
-      if (user?.email) return user.email
-      const stash = localStorage.getItem('dp:pendingUser')
-      if (stash) {
-        const parsed = JSON.parse(stash)
-        if (parsed?.email) return String(parsed.email)
-      }
-      const fallback = localStorage.getItem('dp:pendingEmail')
-      if (fallback) return String(fallback)
-    } catch {}
-    return ''
+  // Prefill email baseline (user or stash)
+  const basePrefillEmail = useMemo(() => {
+    if (user?.email) return user.email
+    return popPendingEmail() || ''
   }, [user?.email])
 
-  // On return from Stripe: provisional unlock; try /api/stripe/confirm; clean URL
+  // After Stripe success: confirm session → (token? go /user : open dialog with email)
   useEffect(() => {
-    if (!id || paid !== '1') return
-    (async () => {
+    if (!id || paid !== '1' || !sid) return
+    ;(async () => {
       try {
-        // Provisional unlock immediately
+        // 1) Optimistic unlock (nice UX)
         grantAccess(id)
         setForceLocked(false)
 
-        // Try instant confirm (may also give us token + email)
-        let tokenFromConfirm: string | undefined
-        let emailFromConfirm: string | undefined
-        if (sid) {
-          try {
-            const { token, email } = await confirmStripeSession(sid)
-            tokenFromConfirm = token
-            emailFromConfirm = email
-          } catch (e) {
-            console.warn('[stripe confirm] failed:', e)
-          }
-        }
+        // 2) Confirm with backend (may return token and/or normalized email)
+        const conf = await confirmStripeSession(sid)
 
-        // If we got a token, log the user in silently
-        if (tokenFromConfirm) {
-          setAuthToken(tokenFromConfirm)
+        // 3) If we got a token: log user in and go to /user
+        if (conf?.token) {
+          setAuthToken(conf.token)
           try { await me() } catch {}
-          setShowAfterPay(false) // no need for password dialog
-        } else {
-          // No token yet → open the email+password dialog
-          // Prefer the email that came back from confirm, otherwise prefill
-          if (emailFromConfirm) {
-            try {
-              localStorage.setItem('dp:pendingEmail', emailFromConfirm)
-              localStorage.setItem('dp:pendingUser', JSON.stringify({ email: emailFromConfirm }))
-            } catch {}
-          }
-          setShowAfterPay(true)
+          // clean URL
+          const p = new URLSearchParams(location.search)
+          p.delete('paid'); p.delete('sid')
+          const clean = `${window.location.pathname}${p.toString() ? `?${p}` : ''}`
+          window.history.replaceState({}, '', clean)
+          navigate('/user', { replace: true })
+          return
         }
 
-        // Clean URL (?paid, ?sid)
+        // 4) No token yet (first-time user) → open password dialog
+        const emailForDialog = conf?.email || basePrefillEmail || ''
+        setDialogEmail(emailForDialog)
+        setShowAfterPay(true)
+
+        // clean URL
         const p = new URLSearchParams(location.search)
         p.delete('paid'); p.delete('sid')
         const clean = `${window.location.pathname}${p.toString() ? `?${p}` : ''}`
         window.history.replaceState({}, '', clean)
       } catch (e) {
-        console.error('[return from stripe] flow error:', e)
+        // eslint-disable-next-line no-console
+        console.warn('[stripe confirm] failed, falling back to dialog', e)
+        setDialogEmail(basePrefillEmail || '')
+        setShowAfterPay(true)
       }
     })()
-  }, [id, paid, sid, grantAccess, location.search])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, paid, sid])
 
-  // Go straight to Stripe (skip any pre-dialog)
+  // Go straight to Stripe
   const handleAdoptNow = useCallback(async () => {
     if (!id || !animal) {
-      console.error('[checkout] Missing animal id or data', { id, animal })
       alert('Zkuste stránku znovu načíst (chybí ID zvířete).')
       return
     }
     try {
-      const email = user?.email || prefillEmail || undefined
-
-      // Stash for the post-redirect flow (helper ensures both keys)
+      const email = user?.email || basePrefillEmail || undefined
       if (email) stashPendingEmail(email)
 
       const amountCZK = 200
@@ -191,18 +177,15 @@ export default function AnimalDetail() {
       })
 
       if (!session || !session.url) {
-        console.error('[checkout] bad response', session)
         alert('Server nevrátil odkaz na platbu. Zkuste to prosím znovu.')
         return
       }
-
       window.location.href = session.url
     } catch (e: any) {
-      console.error('[checkout] failed', e)
       const msg = (e?.message || '').toString()
-      alert(`Nepodařilo se spustit platbu. ${msg ? `\n\nDůvod: ${msg}` : 'Zkuste to prosím znovu.'}`)
+      alert(`Nepodařilo se spustit platbu.${msg ? `\n\nDůvod: ${msg}` : ''}`)
     }
-  }, [id, animal, user?.email, prefillEmail])
+  }, [id, animal, user?.email, basePrefillEmail])
 
   const onCancelAdoption = useCallback(async () => {
     if (!animal) return
@@ -218,6 +201,7 @@ export default function AnimalDetail() {
       setLoading(true)
       fetchAnimal(animal.id).then(a => setAnimal(a as any)).finally(() => setLoading(false))
     } catch (e) {
+      // eslint-disable-next-line no-console
       console.error('Cancel adoption failed', e)
     }
   }, [animal])
@@ -424,9 +408,9 @@ export default function AnimalDetail() {
         open={showAfterPay}
         onClose={() => setShowAfterPay(false)}
         animalId={id}
-        defaultEmail={prefillEmail}
+        defaultEmail={dialogEmail || basePrefillEmail}
         onLoggedIn={() => {
-          if (id) grantAccess(id) // ensure unblur even if webhook is slow
+          if (id) grantAccess(id) // ensure unblur even if webhook slow
         }}
       />
     </Container>
