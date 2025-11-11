@@ -1,9 +1,10 @@
 import React from 'react'
 import {
-  Box, Grid, Card, CardActionArea, CardMedia, CardContent, Typography, Skeleton, Alert
+  Box, Grid, Card, CardActionArea, CardMedia, CardContent,
+  Typography, Skeleton, Alert
 } from '@mui/material'
 
-// ✅ Use the façade that’s meant for components
+// ✅ Use the façade that exports getAnimalsTeasers + Animal type
 import { getAnimalsTeasers, type Animal } from '../api'
 
 export default function AnimalTeasers() {
@@ -38,59 +39,29 @@ export default function AnimalTeasers() {
     )
   }
 
-  if (err) {
-    return (
-      <Box sx={{ mt: 3 }}>
-        <Alert severity="error">{err}</Alert>
-      </Box>
-    )
-  }
-
-  if (!items || items.length === 0) {
-    return (
-      <Box sx={{ mt: 3 }}>
-        <Typography color="text.secondary">Žádná zvířata k zobrazení.</Typography>
-      </Box>
-    )
-  }
+  if (err) return <Box sx={{ mt: 3 }}><Alert severity="error">{err}</Alert></Box>
+  if (!items?.length) return <Box sx={{ mt: 3 }}><Typography color="text.secondary">Žádná zvířata k zobrazení.</Typography></Box>
 
   return (
     <Box sx={{ mt: 3 }}>
       <Grid container spacing={2}>
         {items.map(a => {
           const title = a.jmeno || a.name || '—'
-          const mainUrl = (Array.isArray(a.galerie) && a.galerie.find(g => g?.url)?.url) || ''
-
+          const mainUrl = (a.galerie || []).find(g => g?.url)?.url || ''
           return (
             <Grid item xs={12} sm={4} key={a.id}>
               <Card variant="outlined" sx={{ height: '100%' }}>
                 <CardActionArea href={`/zvirata/${encodeURIComponent(a.id)}`}>
-                  {mainUrl ? (
-                    <CardMedia
-                      component="img"
-                      height="160"
-                      image={mainUrl}
-                      alt={title}
-                      sx={{ objectFit: 'cover' }}
-                    />
-                  ) : (
-                    <Box sx={{ height: 160, bgcolor: 'grey.100' }} />
-                  )}
+                  {mainUrl
+                    ? <CardMedia component="img" height="160" image={mainUrl} alt={title} sx={{ objectFit: 'cover' }} />
+                    : <Box sx={{ height: 160, bgcolor: 'grey.100' }} />
+                  }
                   <CardContent>
-                    <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
-                      {title}
-                    </Typography>
+                    <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>{title}</Typography>
                     {(a.popis || a.description) && (
                       <Typography
-                        variant="body2"
-                        color="text.secondary"
-                        sx={{
-                          display: '-webkit-box',
-                          WebkitLineClamp: 2,
-                          WebkitBoxOrient: 'vertical',
-                          overflow: 'hidden',
-                          mt: 0.5,
-                        }}
+                        variant="body2" color="text.secondary"
+                        sx={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', mt: 0.5 }}
                       >
                         {a.popis || a.description}
                       </Typography>
