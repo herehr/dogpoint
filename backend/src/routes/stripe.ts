@@ -199,10 +199,16 @@ jsonRouter.post('/checkout-session', async (req: Request, res: Response) => {
     })
 
     const FRONTEND_BASE = frontendBase()
-    const successUrl = `${FRONTEND_BASE}/zvirata/${encodeURIComponent(
+
+    // ✅ After payment (or pending) → go to /adopce/:id with sid + paid=1
+    const successUrl = `${FRONTEND_BASE}/adopce/${encodeURIComponent(
       animalId
     )}?paid=1&sid={CHECKOUT_SESSION_ID}`
-    const cancelUrl = `${FRONTEND_BASE}/zvirata/${encodeURIComponent(animalId)}?canceled=1`
+
+// ❌ User cancels payment → back to public detail (locked)
+const cancelUrl = `${FRONTEND_BASE}/zvire/${encodeURIComponent(
+  animalId
+)}?canceled=1`
 
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
