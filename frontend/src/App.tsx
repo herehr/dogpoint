@@ -1,9 +1,16 @@
 // frontend/src/App.tsx
 import React, { useEffect } from 'react'
-import { Routes, Route, Link, Outlet, useNavigate, useLocation } from 'react-router-dom'
+import {
+  Routes,
+  Route,
+  Link,
+  Outlet,
+  useNavigate,
+  useLocation,
+} from 'react-router-dom'
 import { Container, Typography, Button } from '@mui/material'
 
-/** Correct location of RequireRole */
+/** Route guard for roles */
 import RequireRole from './routes/RequireRole'
 
 /** Layout */
@@ -20,6 +27,7 @@ import AnimalsManager from './pages/AnimalsManager'
 import UXPrototype from './prototypes/UXPrototype'
 import Login from './pages/Login'
 import UserDashboard from './pages/UserDashboard'
+import AdoptionStart from './pages/AdoptionStart'
 import OchranaOsobnichUdaju from './pages/OchranaOsobnichUdaju'
 
 function AppLayout() {
@@ -51,28 +59,58 @@ export default function App() {
   const navigate = useNavigate()
   const location = useLocation()
 
-  // If Stripe ever lands you at /?paid=1&animal=XYZ (legacy), forward to the SPA route
-  useEffect(() => {
-    const params = new URLSearchParams(location.search)
-    const paid = params.get('paid')
-    const canceled = params.get('canceled')
-    const animal = params.get('animal')
-    if ((paid === '1' || canceled === '1') && animal) {
-      try { if (paid === '1') localStorage.setItem('dp:justPaid', '1') } catch {}
-      const to = `/zvirata/${encodeURIComponent(animal)}${paid === '1' ? '?paid=1' : '?canceled=1'}`
-      navigate(to, { replace: true })
-    }
-  }, [location.search, navigate])
+  // Legacy Stripe redirect handler:
+  // Handle Stripe redirects (success, cancel, pending)
+useEffect(() => {
+  const params = new URLSearchParams(location.search)
+  const paid = params.get('paid')
+  const canceled = params.get('canceled')
+  const pending = params.get('pending')
+  const animal = params.get('animal')
+
+  if (animal && (paid === '1' || pending === '1')) {
+    // SUCCESS or PENDING → treat both as unlocked
+    try {
+      localStorage.setItem('dp:justPaid', '1')
+      localStorage.setItem(`dp:unlock:${animal}`, '1')   // unlock animal fully
+    } catch {}
+
+    navigate(`/zvirata/${encodeURIComponent(animal)}?paid=1`, {
+      replace: true,
+    })
+    return
+  }
+
+  if (animal && canceled === '1') {
+    // User canceled payment → still redirect but locked
+    navigate(`/zvirata/${encodeURIComponent(animal)}?canceled=1`, {
+      replace: true,
+    })
+    return
+  }
+}, [location.search, navigate])
 
   return (
     <Routes>
+      {/* Absolute route for adoption start (bypasses layout if needed) */}
+      <Route path="/adopce/:id" element={<AdoptionStart />} />
+
+      {/* Root layout with header and nested pages */}
       <Route path="/" element={<AppLayout />}>
+        {/* Home */}
         <Route index element={<LandingPage />} />
 
         {/* Public */}
         <Route path="zvirata" element={<AnimalsPage />} />
+        <Route path="zvire/:id" element={<AnimalDetail />} />
+        {/* Backwards compatibility: still accept /zvirata/:id URLs */}
         <Route path="zvirata/:id" element={<AnimalDetail />} />
-        <Route path="ochrana-osobnich-udaju" element={<OchranaOsobnichUdaju />} />
+        {/* Also keep nested version, in case it’s used by internal navigation */}
+        <Route path="adopce/:id" element={<AdoptionStart />} />
+        <Route
+          path="ochrana-osobnich-udaju"
+          element={<OchranaOsobnichUdaju />}
+        />
 
         {/* Auth */}
         <Route path="login" element={<Login />} />
@@ -131,10 +169,10 @@ export default function App() {
           }
         />
 
-        {/* Prototype */}
+        {/* Prototype playground */}
         <Route path="proto/*" element={<UXPrototype />} />
 
-        {/* 404 */}
+        {/* 404 fallback (for everything under "/") */}
         <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>
