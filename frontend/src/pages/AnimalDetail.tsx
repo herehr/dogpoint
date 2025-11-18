@@ -120,44 +120,58 @@ export default function AnimalDetail() {
   }, [user?.email])
 
   // On return from Stripe: confirm session → (token? go to /user) : open password dialog
+    // On return from Stripe: confirm session → if token, go to /user
   useEffect(() => {
     if (!id || paid !== '1') return
+
     ;(async () => {
       try {
-        // unlock right away (optimistic)
+        // Optimistically unlock this animal locally
         grantAccess(id)
         setForceLocked(false)
 
+        let token = ''
         let confirmedEmail = ''
+
         if (sid) {
           try {
             const conf = await confirmStripeSession(sid)
+            if (conf?.token) token = conf.token
             if (conf?.email) confirmedEmail = conf.email
-            if (conf?.token) {
-              setAuthToken(conf.token)
-              try { await me() } catch {}
-              navigate('/user', { replace: true })
-              const p = new URLSearchParams(location.search)
-              p.delete('paid'); p.delete('sid')
-              const clean = `${window.location.pathname}${p.toString() ? `?${p}` : ''}`
-              window.history.replaceState({}, '', clean)
-              return
-            }
-          } catch {
-            // fall through to dialog
+          } catch (e) {
+            console.warn('[confirmStripeSession]', e)
           }
         }
 
-        const emailForDialog = confirmedEmail || prefillEmail || ''
-        setAfterPayEmail(emailForDialog)
-        setShowAfterPay(true)
+        // If backend returned a token → auto-login and go straight to /user
+        if (token) {
+          setAuthToken(token)
+          try {
+            await me()
+          } catch {
+            // ignore – dashboard will still work with token
+          }
 
+          // Clean URL so paid/sid do not re-trigger on refresh
+          const p = new URLSearchParams(location.search)
+          p.delete('paid')
+          p.delete('sid')
+          const clean = `${window.location.pathname}${p.toString() ? `?${p}` : ''}`
+          window.history.replaceState({}, '', clean)
+
+          navigate('/user', { replace: true })
+          return
+        }
+
+        // If no token (e.g. payment still processing), keep detail unlocked and just clean URL
+        setForceLocked(false)
         const p = new URLSearchParams(location.search)
-        p.delete('paid'); p.delete('sid')
+        p.delete('paid')
+        p.delete('sid')
         const clean = `${window.location.pathname}${p.toString() ? `?${p}` : ''}`
         window.history.replaceState({}, '', clean)
-      } catch {
-        setShowAfterPay(true)
+      } catch (e) {
+        console.warn('[after payment handler failed]', e)
       }
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
