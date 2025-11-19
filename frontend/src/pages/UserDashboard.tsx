@@ -1,4 +1,3 @@
-// frontend/src/pages/UserDashboard.tsx
 import React from 'react'
 import {
   Container,
@@ -14,17 +13,95 @@ import {
   Skeleton,
   Button,
 } from '@mui/material'
-import { Link as RouterLink } from 'react-router-dom'
-// NOTE: if in your project these come from "../api", adjust import accordingly.
-import { myAdoptedAnimals, markAnimalSeen, MyAdoptedItem } from '../services/api'
+import { Link as RouterLink, useLocation } from 'react-router-dom'
+import {
+  myAdoptedAnimals,
+  markAnimalSeen,
+  MyAdoptedItem,
+  setAuthToken,
+  me,
+} from '../services/api'
 import { useAuth } from '../context/AuthContext'
 
 export default function UserDashboard() {
   const { user } = useAuth()
+  const location = useLocation()
+
   const [items, setItems] = React.useState<MyAdoptedItem[] | null>(null)
   const [err, setErr] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(true)
 
+  /* ------------------------------------------------------------------
+   * 1) Handle Stripe return: ?paid=1&sid=cs_...
+   * ------------------------------------------------------------------ */
+  React.useEffect(() => {
+    let cancelled = false
+
+    const run = async () => {
+      try {
+        const params = new URLSearchParams(location.search)
+        const sid = params.get('sid')
+        const paid = params.get('paid')
+
+        if (!sid || paid !== '1') return
+
+        // Call backend confirm endpoint
+        const base = import.meta.env.VITE_API_BASE_URL || ''
+        const resp = await fetch(
+          `${base.replace(/\/+$/, '')}/api/stripe/confirm?sid=${encodeURIComponent(
+            sid
+          )}`,
+          {
+            method: 'GET',
+            credentials: 'include',
+          }
+        )
+
+        if (!resp.ok) {
+          console.warn('[UserDashboard] stripe/confirm failed', resp.status)
+          return
+        }
+
+        const data = await resp.json()
+        if (cancelled) return
+
+        const token = data?.token as string | undefined
+        if (data?.ok && token) {
+          // Save token and refresh user info
+          setAuthToken(token)
+          try {
+            await me()
+          } catch (e) {
+            console.warn('[UserDashboard] me() after confirm failed', e)
+          }
+        }
+      } catch (e) {
+        console.warn('[UserDashboard] Stripe confirm handler error', e)
+      } finally {
+        // Clean URL params (?paid=1&sid=...) to avoid re-trigger
+        try {
+          const p = new URLSearchParams(location.search)
+          p.delete('paid')
+          p.delete('sid')
+          const clean = `${window.location.pathname}${
+            p.toString() ? `?${p}` : ''
+          }`
+          window.history.replaceState({}, '', clean)
+        } catch {
+          // ignore
+        }
+      }
+    }
+
+    void run()
+    return () => {
+      cancelled = true
+    }
+  }, [location.search])
+
+  /* ------------------------------------------------------------------
+   * 2) Load "Moje adopce" whenever we have/refresh a user
+   * ------------------------------------------------------------------ */
   React.useEffect(() => {
     let alive = true
     setLoading(true)
@@ -54,7 +131,7 @@ export default function UserDashboard() {
     return () => {
       alive = false
     }
-  }, [])
+  }, [user]) // re-load when user changes (e.g. after Stripe confirm + me())
 
   const onSeen = async (animalId: string) => {
     try {
@@ -104,7 +181,11 @@ export default function UserDashboard() {
       {!loading && items && items.length > 0 && (
         <Grid container spacing={2}>
           {items.map((it) => {
-            const title = (it as any).title || (it as any).jmeno || (it as any).name || 'Zvíře'
+            const title =
+              (it as any).title ||
+              (it as any).jmeno ||
+              (it as any).name ||
+              'Zvíře'
             const main = (it as any).main
             const since = (it as any).since
             const status = (it as any).status
@@ -144,7 +225,7 @@ export default function UserDashboard() {
                           color="text.secondary"
                           sx={{ mt: 0.5 }}
                         >
-                          od:{' '}
+                          od{' '}
                           {new Date(since).toLocaleDateString('cs-CZ', {
                             day: '2-digit',
                             month: '2-digit',
