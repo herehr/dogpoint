@@ -61,13 +61,14 @@ export default function AdoptionStart() {
       // to create the user before Stripe.
       stashPendingEmail(email)
 
-      const session = await createCheckoutSession({
+       const session = await createCheckoutSession({
         animalId: id,
         amountCZK,
         name: firstName,
         email,
-        // paymentMethod, password could be added to payload when backend is ready
-      } as any)
+        password, // ✅ now we send the password to backend
+        // paymentMethod could be added to payload when backend is ready
+      })
 
       if (!session || !session.url) {
         throw new Error('Server nevrátil odkaz na platbu.')

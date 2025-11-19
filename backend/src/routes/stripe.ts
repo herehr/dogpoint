@@ -2,6 +2,7 @@
 import express, { Router, Request, Response } from 'express'
 import Stripe from 'stripe'
 import jwt, { Secret } from 'jsonwebtoken'
+import bcrypt from 'bcrypt'
 import { prisma } from '../prisma'
 import { linkPaidOrRecentPledgesToUser } from '../controllers/authExtra'
 
@@ -165,11 +166,12 @@ jsonRouter.get('/ping', (_req: Request, res: Response) => {
  */
 jsonRouter.post('/checkout-session', async (req: Request, res: Response) => {
   try {
-    const { animalId, amountCZK, email, name } = (req.body || {}) as {
+    const { animalId, amountCZK, email, name, password } = (req.body || {}) as {
       animalId?: string
       amountCZK?: number
       email?: string
       name?: string
+      password?: string
     }
 
     if (!animalId || typeof animalId !== 'string') {
@@ -182,6 +184,49 @@ jsonRouter.post('/checkout-session', async (req: Request, res: Response) => {
     }
 
     const safeEmail = normalizeEmail(email) ?? 'pending+unknown@local'
+
+     // -------------------------------------------------------------
+    // Create / update user right here (with password)
+    // -------------------------------------------------------------
+    let userId: string | undefined
+
+    // We only bother if the email is real (not the placeholder)
+    if (safeEmail && safeEmail !== 'pending+unknown@local') {
+      const pwd = typeof password === 'string' && password.length >= 6 ? password : undefined
+
+      if (pwd) {
+        const passwordHash = await bcrypt.hash(pwd, 10)
+
+        // NOTE: adjust 'passwordHash' if your User model uses a different field name
+        let existing = await prisma.user.findUnique({
+          where: { email: safeEmail },
+        })
+
+        if (!existing) {
+          const created = await prisma.user.create({
+            data: {
+              email: safeEmail,
+              role: 'USER',
+              passwordHash,
+            } as any,
+          })
+          userId = created.id
+        } else {
+          // If user exists but has no password yet → set it
+          // Again: adjust 'passwordHash' according to your Prisma schema.
+          if (!(existing as any).passwordHash) {
+            const updated = await prisma.user.update({
+              where: { id: existing.id },
+              data: { passwordHash } as any,
+            })
+            userId = updated.id
+          } else {
+            userId = existing.id
+          }
+        }
+      }
+    }
+
 
     // NB: Your Pledge model doesn't accept `provider`. We only set allowed fields.
     const pledge = await prisma.pledge.create({
@@ -207,7 +252,7 @@ jsonRouter.post('/checkout-session', async (req: Request, res: Response) => {
     const cancelUrl = `${FRONTEND_BASE}/zvire/${encodeURIComponent(
       animalId
     )}?canceled=1`
-    
+
 
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',

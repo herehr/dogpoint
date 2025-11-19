@@ -203,6 +203,7 @@ export async function createCheckoutSession(params: {
   amountCZK: number;
   email?: string;
   name?: string;
+  password?: string;
 }) {
   return postJSON<{ id?: string; url: string }>('/api/stripe/checkout-session', params);
 }
