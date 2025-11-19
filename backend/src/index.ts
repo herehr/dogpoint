@@ -52,16 +52,15 @@ app.use((req, _res, next) => {
 // ----- Routes -----
 app.use('/api/auth', authRoutes)
 app.use('/api/animals', animalRoutes)
+app.use('/api/stripe', stripeJsonRouter)
+app.use('/api/adoption', adoptionRouter)
 app.use('/api/upload', uploadRoutes)
 app.use('/api/posts', postsRoutes)
 app.use('/api/admin', adminModeratorsRoutes)
 app.use('/api/admin/stats', adminStatsRoutes)
 app.use('/api/subscriptions', subscriptionRoutes)
 app.use('/api/payments', paymentRouter)
-app.use('/api/adoption', adoptionRouter)
 
-// Stripe JSON routes AFTER JSON parser (includes /api/stripe/ping and /checkout-session)
-app.use('/api/stripe', stripeJsonRouter)
 
 // GP webpay (feature flag)
 const gpEnabled =
