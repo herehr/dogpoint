@@ -273,7 +273,7 @@ export type MyAdoptedItem = {
  */
 export async function myAdoptedAnimals(): Promise<MyAdoptedItem[]> {
   try {
-    return await getJSON<MyAdoptedItem[]>('/api/adoption/my', { autoLogoutOn401: true });
+    return await getJSON<MyAdoptedItem[]>('/api/adoption/my');
   } catch (e: any) {
     const msg = (e?.message || '').toString();
     if (/404/.test(msg)) {
