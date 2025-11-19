@@ -237,9 +237,8 @@ jsonRouter.post('/checkout-session', async (req: Request, res: Response) => {
 
     // -------------------------------------------------------------
     // Create / update user right here (with password)
+    // Uses Prisma field "passwordHash" (your actual schema)
     // -------------------------------------------------------------
-
-    // We only bother if the email is real (not the placeholder)
     if (safeEmail && safeEmail !== 'pending+unknown@local') {
       const pwd =
         typeof password === 'string' && password.length >= 6
@@ -249,7 +248,7 @@ jsonRouter.post('/checkout-session', async (req: Request, res: Response) => {
       if (pwd) {
         const passwordHash = await bcrypt.hash(pwd, 10)
 
-        // NOTE: User model uses "password" (hashed)
+        // NOTE: Prisma User model: passwordHash: string | null
         let existing = await prisma.user.findUnique({
           where: { email: safeEmail },
         })
@@ -259,13 +258,13 @@ jsonRouter.post('/checkout-session', async (req: Request, res: Response) => {
             data: {
               email: safeEmail,
               role: 'USER',
-              password: passwordHash,
+              passwordHash,
             },
           })
-        } else if (!existing.password) {
+        } else if (!existing.passwordHash) {
           await prisma.user.update({
             where: { id: existing.id },
-            data: { password: passwordHash },
+            data: { passwordHash },
           })
         }
       }
