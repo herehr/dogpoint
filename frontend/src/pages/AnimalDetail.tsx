@@ -119,17 +119,12 @@ export default function AnimalDetail() {
     return ''
   }, [user?.email])
 
-  // On return from Stripe: confirm session → (token? go to /user) : open password dialog
-    // On return from Stripe: confirm session → if token, go to /user
+  // On return from Stripe: confirm session → if token, go to /user, otherwise stay blurred
   useEffect(() => {
     if (!id || paid !== '1') return
 
     ;(async () => {
       try {
-        // Optimistically unlock this animal locally
-        grantAccess(id)
-        setForceLocked(false)
-
         let token = ''
         let confirmedEmail = ''
 
@@ -143,6 +138,13 @@ export default function AnimalDetail() {
           }
         }
 
+        // Clean URL so paid/sid do not re-trigger on refresh
+        const p = new URLSearchParams(location.search)
+        p.delete('paid')
+        p.delete('sid')
+        const clean = `${window.location.pathname}${p.toString() ? `?${p}` : ''}`
+        window.history.replaceState({}, '', clean)
+
         // If backend returned a token → auto-login and go straight to /user
         if (token) {
           setAuthToken(token)
@@ -152,24 +154,20 @@ export default function AnimalDetail() {
             // ignore – dashboard will still work with token
           }
 
-          // Clean URL so paid/sid do not re-trigger on refresh
-          const p = new URLSearchParams(location.search)
-          p.delete('paid')
-          p.delete('sid')
-          const clean = `${window.location.pathname}${p.toString() ? `?${p}` : ''}`
-          window.history.replaceState({}, '', clean)
-
           navigate('/user', { replace: true })
           return
         }
 
-        // If no token (e.g. payment still processing), keep detail unlocked and just clean URL
-        setForceLocked(false)
-        const p = new URLSearchParams(location.search)
-        p.delete('paid')
-        p.delete('sid')
-        const clean = `${window.location.pathname}${p.toString() ? `?${p}` : ''}`
-        window.history.replaceState({}, '', clean)
+        // IMPORTANT:
+        // - Do NOT grantAccess(id)
+        // - Do NOT setForceLocked(false)
+        // → animal remains blurred until user logs in manually
+
+        // Optional: show after-payment dialog so user can finish account setup
+        if (confirmedEmail) {
+          setAfterPayEmail(confirmedEmail)
+          setShowAfterPay(true)
+        }
       } catch (e) {
         console.warn('[after payment handler failed]', e)
       }
@@ -436,7 +434,7 @@ export default function AnimalDetail() {
         )}
       </Box>
 
-      {/* After-payment dialog (email + password) – keep for now */}
+      {/* After-payment dialog (email + password) */}
       <AfterPaymentPasswordDialog
         open={showAfterPay}
         onClose={() => setShowAfterPay(false)}

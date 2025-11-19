@@ -11,12 +11,16 @@ import { linkPaidOrRecentPledgesToUser } from '../controllers/authExtra'
 /* ------------------------------------------------------------------ */
 const stripeSecret =
   process.env.STRIPE_SECRET_KEY || process.env.STRIPE_SECRET || ''
+
 if (!stripeSecret) {
   console.warn(
     '[stripe] Missing STRIPE_SECRET_KEY. Checkout will fail until set.'
   )
 }
-const stripe = new Stripe(stripeSecret || 'sk_test_dummy')
+
+// You can optionally add apiVersion if your Stripe version requires it:
+// const stripe = new Stripe(stripeSecret, { apiVersion: '2024-06-20' })
+const stripe = new Stripe(stripeSecret)
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                            */
@@ -234,7 +238,6 @@ jsonRouter.post('/checkout-session', async (req: Request, res: Response) => {
     // -------------------------------------------------------------
     // Create / update user right here (with password)
     // -------------------------------------------------------------
-    let userId: string | undefined
 
     // We only bother if the email is real (not the placeholder)
     if (safeEmail && safeEmail !== 'pending+unknown@local') {
@@ -246,36 +249,28 @@ jsonRouter.post('/checkout-session', async (req: Request, res: Response) => {
       if (pwd) {
         const passwordHash = await bcrypt.hash(pwd, 10)
 
-        // NOTE: adjust 'passwordHash' if your User model uses a different field name
+        // NOTE: User model uses "password" (hashed)
         let existing = await prisma.user.findUnique({
           where: { email: safeEmail },
         })
 
         if (!existing) {
-          const created = await prisma.user.create({
+          await prisma.user.create({
             data: {
               email: safeEmail,
               role: 'USER',
-              passwordHash,
-            } as any,
+              password: passwordHash,
+            },
           })
-          userId = created.id
-        } else {
-          // If user exists but has no password yet → set it
-          if (!(existing as any).passwordHash) {
-            const updated = await prisma.user.update({
-              where: { id: existing.id },
-              data: { passwordHash } as any,
-            })
-            userId = updated.id
-          } else {
-            userId = existing.id
-          }
+        } else if (!existing.password) {
+          await prisma.user.update({
+            where: { id: existing.id },
+            data: { password: passwordHash },
+          })
         }
       }
     }
 
-    // NB: Your Pledge model doesn't accept `provider`. We only set allowed fields.
     const pledge = await prisma.pledge.create({
       data: {
         animalId,
@@ -292,8 +287,10 @@ jsonRouter.post('/checkout-session', async (req: Request, res: Response) => {
 
     const FRONTEND_BASE = frontendBase()
 
-    // ✅ After payment (or pending) → go to “Moje adopce” (/user) with sid + paid=1
-    const successUrl = `${FRONTEND_BASE}/user?paid=1&sid={CHECKOUT_SESSION_ID}`
+    // ✅ After payment → back to detail /zvire/:id with sid + paid=1
+    const successUrl = `${FRONTEND_BASE}/zvire/${encodeURIComponent(
+      animalId
+    )}?paid=1&sid={CHECKOUT_SESSION_ID}`
 
     // ❌ User cancels payment → back to public detail (locked)
     const cancelUrl = `${FRONTEND_BASE}/zvire/${encodeURIComponent(
@@ -443,7 +440,12 @@ jsonRouter.get('/confirm', async (req: Request, res: Response) => {
       returnedEmail = user.email // normalized from DB
     }
 
-    res.json({ ok: true, token, email: returnedEmail, status: isPaid ? 'PAID' : 'PENDING' })
+    res.json({
+      ok: true,
+      token,
+      email: returnedEmail,
+      status: isPaid ? 'PAID' : 'PENDING',
+    })
   } catch (e) {
     console.error('[stripe confirm] error:', e)
     res.status(500).json({ error: 'Failed to confirm session' })

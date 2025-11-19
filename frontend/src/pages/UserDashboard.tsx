@@ -1,3 +1,4 @@
+// frontend/src/pages/UserDashboard.tsx
 import React from 'react'
 import {
   Container,
@@ -196,7 +197,7 @@ export default function UserDashboard() {
                 <Card>
                   <CardActionArea
                     component={RouterLink}
-                    to={`/zvirata/${animalId}`}
+                    to={`/zvire/${animalId}`}
                     onClick={() => onSeen(animalId)}
                   >
                     {main && (
@@ -238,7 +239,7 @@ export default function UserDashboard() {
                         <Button
                           size="small"
                           component={RouterLink}
-                          to={`/zvirata/${animalId}`}
+                          to={`/zvire/${animalId}`}
                         >
                           Zobrazit detail
                         </Button>
