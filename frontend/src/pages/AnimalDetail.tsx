@@ -147,16 +147,13 @@ export default function AnimalDetail() {
 
         // If backend returned a token → auto-login and go straight to /user
         if (token) {
-          setAuthToken(token)
-          try {
-            await me()
-          } catch {
-            // ignore – dashboard will still work with token
-          }
+  setAuthToken(token)
 
-          navigate('/user', { replace: true })
-          return
-        }
+  // Do NOT call me() here – if it 401s with autoLogoutOn401,
+  // it will clear the token and immediately kick user back to /login.
+  navigate('/user', { replace: true })
+  return
+}
 
         // IMPORTANT:
         // - Do NOT grantAccess(id)
