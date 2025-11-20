@@ -168,7 +168,7 @@ rawRouter.post(
               data: { email: emailToUse, role: 'USER' },
             })
           }
-          await linkPaidOrRecentPledgesToUser(user.id, emailToUse)
+         await linkPaidOrRecentPledgesToUser(user.id, user.email)
         }
       }
 
@@ -429,7 +429,7 @@ jsonRouter.get('/confirm', async (req: Request, res: Response) => {
       }
 
       // This links both PAID and recent PENDING pledges to subscriptions
-      await linkPaidOrRecentPledgesToUser(user.id, resolvedEmail)
+        await linkPaidOrRecentPledgesToUser(user.id, user.email)
 
       token = signToken({
         id: user.id,
