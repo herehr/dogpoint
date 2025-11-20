@@ -14,8 +14,6 @@ import SafeMarkdown from '../components/SafeMarkdown'
 import AfterPaymentPasswordDialog from '../components/AfterPaymentPasswordDialog'
 import {
   confirmStripeSession,
-  setAuthToken,
-  me,
 } from '../services/api'
 
 type Media = { url: string; type?: 'image' | 'video' }
@@ -64,7 +62,7 @@ export default function AnimalDetail() {
   const navigate = useNavigate()
 
   const { hasAccess, grantAccess } = useAccess()
-  const { role, user } = useAuth()
+  const { role, user, login } = useAuth()
   const isStaff = role === 'ADMIN' || role === 'MODERATOR'
 
   const [animal, setAnimal] = useState<LocalAnimal | null>(null)
@@ -145,15 +143,14 @@ export default function AnimalDetail() {
         const clean = `${window.location.pathname}${p.toString() ? `?${p}` : ''}`
         window.history.replaceState({}, '', clean)
 
-        // If backend returned a token → auto-login and go straight to /user
+        // If backend returned a token → auto-login via AuthContext and go straight to /user
         if (token) {
-  setAuthToken(token)
+          // Use AuthContext so route guards see the logged-in state immediately
+          login(token, 'USER')
 
-  // Do NOT call me() here – if it 401s with autoLogoutOn401,
-  // it will clear the token and immediately kick user back to /login.
-  navigate('/user', { replace: true })
-  return
-}
+          navigate('/user', { replace: true })
+          return
+        }
 
         // IMPORTANT:
         // - Do NOT grantAccess(id)
