@@ -191,4 +191,38 @@ router.post('/debug-backfill-adoptions', async (req: Request, res: Response) => 
   }
 })
 
+/**
+ * POST /api/auth/debug-backfill-adoptions
+ * body: { email }
+ *
+ * One-time helper to backfill Subscriptions from existing Pledges
+ * for a given user email. REMOVE this route after you’ve used it.
+ */
+router.post('/debug-backfill-adoptions', async (req: Request, res: Response) => {
+  try {
+    const { email } = (req.body || {}) as { email?: string }
+    if (!email) {
+      return res.status(400).json({ error: 'Missing email' })
+    }
+
+    const user = await prisma.user.findUnique({ where: { email } })
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' })
+    }
+
+    // Big grace window so older pledges are included (approx 1 year)
+    const result = await linkPaidOrRecentPledgesToUser(user.id, user.email, {
+      graceMinutes: 60 * 24 * 365,
+    })
+
+    return res.json({
+      ok: true,
+      processed: result.processed,
+    })
+  } catch (e) {
+    console.error('[debug-backfill-adoptions] error:', e)
+    return res.status(500).json({ error: 'Internal error' })
+  }
+})
+
 export default router
