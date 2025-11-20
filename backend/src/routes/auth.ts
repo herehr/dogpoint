@@ -59,7 +59,8 @@ router.post('/login', async (req: Request, res: Response) => {
     const ok = await bcrypt.compare(password, user.passwordHash)
     if (!ok) return res.status(401).json({ error: 'Invalid credentials' })
 
-    await linkPaidOrRecentPledgesToUser(user.id, user.email) // link pledges
+    // Link pledges to subscriptions/payments for this user
+    await linkPaidOrRecentPledgesToUser(user.id, user.email)
 
     const token = signToken({ id: user.id, role: user.role, email: user.email })
     res.json({ token, role: user.role })
@@ -85,6 +86,7 @@ router.post('/set-password-first-time', async (req: Request, res: Response) => {
     const passwordHash = await bcrypt.hash(password, 10)
     const updated = await prisma.user.update({ where: { id: user.id }, data: { passwordHash } })
 
+    // Link pledges for this user
     await linkPaidOrRecentPledgesToUser(updated.id, updated.email)
 
     const token = signToken({ id: updated.id, role: updated.role, email: updated.email })
@@ -113,6 +115,7 @@ router.post('/register-after-payment', async (req: Request, res: Response) => {
       user = await prisma.user.update({ where: { id: user.id }, data: { passwordHash } })
     }
 
+    // Link pledges for this user
     await linkPaidOrRecentPledgesToUser(user.id, user.email)
 
     const token = signToken({ id: user.id, role: user.role, email: user.email })
@@ -140,14 +143,51 @@ router.post('/claim-paid', async (req: Request, res: Response) => {
     }
 
     let user = await prisma.user.findUnique({ where: { email } })
-    if (!user) user = await prisma.user.create({ data: { email, role: Role.USER } })
+    if (!user) {
+      user = await prisma.user.create({ data: { email, role: Role.USER } })
+    }
 
-    await linkPaidOrRecentPledgesToUser(user.id, email)
+    // IMPORTANT: use canonical DB email
+    await linkPaidOrRecentPledgesToUser(user.id, user.email)
 
     const token = signToken({ id: user.id, role: user.role, email: user.email })
     res.json({ ok: true, token, role: user.role })
   } catch (e) {
     res.status(500).json({ error: 'Internal error' })
+  }
+})
+
+/**
+ * POST /api/auth/debug-backfill-adoptions
+ * body: { email }
+ *
+ * One-time helper to backfill Subscriptions from existing Pledges
+ * for a given user email. REMOVE this route after you’ve used it.
+ */
+router.post('/debug-backfill-adoptions', async (req: Request, res: Response) => {
+  try {
+    const { email } = (req.body || {}) as { email?: string }
+    if (!email) {
+      return res.status(400).json({ error: 'Missing email' })
+    }
+
+    const user = await prisma.user.findUnique({ where: { email } })
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' })
+    }
+
+    // Big grace window so older pledges are included (approx 1 year)
+    const result = await linkPaidOrRecentPledgesToUser(user.id, user.email, {
+      graceMinutes: 60 * 24 * 365,
+    })
+
+    return res.json({
+      ok: true,
+      processed: result.processed,
+    })
+  } catch (e) {
+    console.error('[debug-backfill-adoptions] error:', e)
+    return res.status(500).json({ error: 'Internal error' })
   }
 })
 
