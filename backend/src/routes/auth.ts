@@ -33,9 +33,12 @@ router.get('/me', async (req: Request, res: Response) => {
     if (!user) return res.status(401).json({ error: 'Unauthorized' })
 
     const subs = await prisma.subscription.findMany({
-      where: { userId: user.id },
-      select: { animalId: true },
-    })
+  where: {
+    userId: user.id,
+    status: { in: ['ACTIVE', 'PENDING'] },
+  },
+  select: { animalId: true },
+})
 
     res.json({ ...user, animals: subs.map(s => s.animalId), subscriptions: subs })
   } catch (e) {
