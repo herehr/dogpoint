@@ -237,20 +237,11 @@ export default function UserDashboard() {
 
                       <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
                         <Button
-                          size="small"
-                          component={RouterLink}
-                          to={`/zvire/${animalId}`}
-                        >
-                          Zobrazit detail
-                        </Button>
-                        <Button
-                          size="small"
-                          onClick={(e) => {
-                            e.preventDefault()
-                            onSeen(animalId)
-                          }}
-                        >
-                          Označit jako shlédnuté
+                        size="small"
+                         component={RouterLink}
+                         to={`/zvire/${animalId}`}
+                         >
+                         Zobrazit detail
                         </Button>
                       </Stack>
                     </CardContent>

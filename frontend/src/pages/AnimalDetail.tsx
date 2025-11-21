@@ -61,7 +61,7 @@ export default function AnimalDetail() {
   const location = useLocation()
   const navigate = useNavigate()
 
-  const { hasAccess, grantAccess } = useAccess()
+  const { hasAccess, grantAccess, resetAccess } = useAccess()
   const { role, user, login } = useAuth()
   const isStaff = role === 'ADMIN' || role === 'MODERATOR'
 
@@ -186,23 +186,41 @@ export default function AnimalDetail() {
     navigate(`/adopce/${id}?${params.toString()}`)
   }, [id, animal, amount, navigate])
 
-  const onCancelAdoption = useCallback(async () => {
-    if (!animal) return
+const onCancelAdoption = useCallback(async () => {
+  if (!animal) return
+
+  const confirmed = window.confirm(
+    'Opravdu chcete zrušit adopci tohoto zvířete? Tím ukončíte pravidelnou podporu.'
+  )
+  if (!confirmed) return
+
+  try {
+    // 1) Tell backend to cancel the subscription
+    await cancelAdoption(animal.id)
+
+    // 2) Clear local unlock for this animal → detail will be locked again
+    resetAccess(animal.id)
+    setForceLocked(true)
+
+    // 3) Clean up any local flags / media
     try {
-      try {
-        localStorage.removeItem(`adopt:${animal.id}`)
-        sessionStorage.removeItem(`adopt:${animal.id}`)
-      } catch {}
-      document.querySelectorAll('video').forEach(v => {
-        try { v.pause(); v.removeAttribute('src'); v.load() } catch {}
-      })
-      setForceLocked(true)
-      setLoading(true)
-      fetchAnimal(animal.id).then(a => setAnimal(a as any)).finally(() => setLoading(false))
-    } catch (e) {
-      console.error('Cancel adoption failed', e)
-    }
-  }, [animal])
+      localStorage.removeItem(`adopt:${animal.id}`)
+      sessionStorage.removeItem(`adopt:${animal.id}`)
+    } catch {}
+    document.querySelectorAll('video').forEach(v => {
+      try { v.pause(); v.removeAttribute('src'); v.load() } catch {}
+    })
+
+    // 4) Optional: refresh animal or navigate
+    // setLoading(true)
+    // fetchAnimal(animal.id).then(a => setAnimal(a as any)).finally(() => setLoading(false))
+
+    alert('Adopce byla zrušena. Děkujeme za dosavadní podporu.')
+  } catch (e) {
+    console.error('Cancel adoption failed', e)
+    alert('Nepodařilo se zrušit adopci. Zkuste to prosím znovu nebo nás kontaktujte.')
+  }
+}, [animal, resetAccess])
 
   if (loading) {
     return (

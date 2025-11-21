@@ -310,6 +310,9 @@ export async function myAdoptedAnimals(): Promise<MyAdoptedItem[]> {
     throw e
   }
 }
+export async function cancelAdoption(animalId: string): Promise<{ ok: true }> {
+  return postJSON<{ ok: true }>('/api/adoption/cancel', { animalId })
+}
 
 /* ---------- NEW: getAdoptionMe for AccessContext ---------- */
 
