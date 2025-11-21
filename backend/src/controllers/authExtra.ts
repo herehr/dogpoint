@@ -62,7 +62,9 @@ export async function linkPaidOrRecentPledgesToUser(
       })
 
       if (!sub) {
-        // Try to use pledge info to satisfy required fields
+        // ⬇️ IMPORTANT: include monthlyAmount from pledge.amount
+        const monthlyAmount = pledge.amount ?? 0
+
         try {
           sub = await prisma.subscription.create({
             data: {
@@ -70,18 +72,23 @@ export async function linkPaidOrRecentPledgesToUser(
               animalId: pledge.animalId,
               status: pledge.status === 'PAID' ? ('ACTIVE' as any) : ('PENDING' as any),
               startedAt: new Date() as any,
-              // If your Subscription model has these fields, great; if not, they are ignored (because of `as any`)
-              amount: pledge.amount as any,
+              // Subscription-specific fields (adjust to your schema)
+              monthlyAmount: monthlyAmount as any,
               interval: pledge.interval as any,
             } as any,
           })
         } catch (err) {
-          // Fallback: minimal subscription if schema is simpler
-          console.error('[linkPaidOrRecentPledgesToUser] create subscription with pledge info failed, retrying minimal:', err)
+          console.error(
+            '[linkPaidOrRecentPledgesToUser] create subscription with pledge info failed, retrying minimal:',
+            err
+          )
+
+          // Fallback: still include monthlyAmount, but omit extras
           sub = await prisma.subscription.create({
             data: {
               userId,
               animalId: pledge.animalId,
+              monthlyAmount: monthlyAmount as any,
             } as any,
           })
         }
