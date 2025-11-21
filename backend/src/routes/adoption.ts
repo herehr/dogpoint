@@ -80,10 +80,7 @@ router.post('/cancel', checkAuth, async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Missing animalId' })
     }
 
-    // 👉 Be more tolerant:
-    // - search by userId + animalId
-    // - ignore already CANCELED
-    // - take the latest subscription (if multiple exist)
+    // Take the latest non-CANCELED subscription for this user+animal
     const sub = await prisma.subscription.findFirst({
       where: {
         userId,
@@ -108,7 +105,7 @@ router.post('/cancel', checkAuth, async (req: Request, res: Response) => {
       where: { id: sub.id },
       data: {
         status: 'CANCELED' as any,
-        endedAt: new Date() as any,
+        // no endedAt here – not in Prisma model
       },
     })
 
