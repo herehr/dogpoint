@@ -125,9 +125,8 @@ async function doFetch<T>(path: string, opts: FetchOpts = {}): Promise<T> {
           serverMsg = await res.text()
         }
       } catch {}
-      // IMPORTANT CHANGE:
+      // IMPORTANT:
       // We no longer clearToken() automatically on 401 here.
-      // Route guards / callers can decide what to do with a 401.
       const msg =
         (serverMsg || `HTTP ${res.status}`) +
         (serverDetail ? ` – ${serverDetail}` : '')
@@ -297,7 +296,7 @@ export type MyAdoptedItem = {
  */
 export async function myAdoptedAnimals(): Promise<MyAdoptedItem[]> {
   try {
-    // IMPORTANT CHANGE: no autoLogoutOn401 here.
+    // IMPORTANT: no autoLogoutOn401 here.
     return await getJSON<MyAdoptedItem[]>('/api/adoption/my')
   } catch (e: any) {
     const msg = (e?.message || '').toString()
@@ -310,6 +309,41 @@ export async function myAdoptedAnimals(): Promise<MyAdoptedItem[]> {
     }
     throw e
   }
+}
+
+/* ---------- NEW: getAdoptionMe for AccessContext ---------- */
+
+export type AdoptionMeResponse = {
+  ok: boolean
+  user?: { id: string; email: string; role?: string }
+  access?: Record<string, boolean>
+}
+
+/**
+ * Used by AccessContext to know which animals this user has access to.
+ * - Calls /api/adoption/my → builds access map { [animalId]: true }
+ * - Calls /api/auth/me → returns basic user object
+ */
+export async function getAdoptionMe(): Promise<AdoptionMeResponse> {
+  // Load adopted animals (Subscriptions) via /api/adoption/my
+  const list = await myAdoptedAnimals() // re-use logic above
+
+  const access: Record<string, boolean> = {}
+  for (const it of list) {
+    if (it && it.animalId) {
+      access[it.animalId] = true
+    }
+  }
+
+  // Optionally load user info from /api/auth/me
+  let user: any = undefined
+  try {
+    user = await me()
+  } catch {
+    // ignore – access map is still valid even if /me fails
+  }
+
+  return { ok: true, user, access }
 }
 
 export async function markAnimalSeen(animalId: string): Promise<{ ok: true }> {

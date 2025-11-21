@@ -3,7 +3,7 @@ import React, {
   createContext, useCallback, useContext, useEffect, useMemo, useRef, useState
 } from 'react'
 import { useAuth } from './AuthContext'
-import { getAdoptionMe } from '../api'
+import { getAdoptionMe } from '../services/api'
 
 // Local cache of unlocked animal IDs
 type AccessMap = Record<string, boolean>
