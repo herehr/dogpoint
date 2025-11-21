@@ -61,7 +61,7 @@ export default function Hero() {
                 },
               }}
             >
-              K psům
+              Ku psům
             </Button>
           </Grid>
 
