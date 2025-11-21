@@ -14,6 +14,7 @@ import SafeMarkdown from '../components/SafeMarkdown'
 import AfterPaymentPasswordDialog from '../components/AfterPaymentPasswordDialog'
 import {
   confirmStripeSession,
+  cancelAdoption,
 } from '../services/api'
 
 type Media = { url: string; type?: 'image' | 'video' }
@@ -202,7 +203,7 @@ const onCancelAdoption = useCallback(async () => {
     resetAccess(animal.id)
     setForceLocked(true)
 
-    // 3) Clean up any local flags / media
+    // 3) Clean up any local flags / media (optional)
     try {
       localStorage.removeItem(`adopt:${animal.id}`)
       sessionStorage.removeItem(`adopt:${animal.id}`)
@@ -211,14 +212,12 @@ const onCancelAdoption = useCallback(async () => {
       try { v.pause(); v.removeAttribute('src'); v.load() } catch {}
     })
 
-    // 4) Optional: refresh animal or navigate
-    // setLoading(true)
-    // fetchAnimal(animal.id).then(a => setAnimal(a as any)).finally(() => setLoading(false))
-
     alert('Adopce byla zrušena. Děkujeme za dosavadní podporu.')
-  } catch (e) {
+  } catch (e: any) {
     console.error('Cancel adoption failed', e)
-    alert('Nepodařilo se zrušit adopci. Zkuste to prosím znovu nebo nás kontaktujte.')
+    alert(
+      'Nepodařilo se zrušit adopci. Zkuste to prosím znovu nebo nás kontaktujte.'
+    )
   }
 }, [animal, resetAccess])
 
