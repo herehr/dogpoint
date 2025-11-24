@@ -296,16 +296,24 @@ export type MyAdoptedItem = {
  */
 export async function myAdoptedAnimals(): Promise<MyAdoptedItem[]> {
   try {
-    // IMPORTANT: no autoLogoutOn401 here.
-    return await getJSON<MyAdoptedItem[]>('/api/adoption/my')
+    // Prefer backend /api/adoption/my
+    const raw = await getJSON<MyAdoptedItem[]>('/api/adoption/my')
+    // Extra safety: never show CANCELED items even if backend accidentally returns them
+    return (raw || []).filter(it => it.status !== 'CANCELED')
   } catch (e: any) {
     const msg = (e?.message || '').toString()
     if (/404/.test(msg)) {
       const m = await me()
+      // Fallback: use only ACTIVE/PENDING subscriptions from /me
       const ids =
-        (m.myAdoptions && m.myAdoptions.length ? m.myAdoptions : m.animals) ||
-        []
-      return ids.map((id: string) => ({ animalId: id, status: 'ACTIVE' as const }))
+        (m.subscriptions || [])
+          .filter((s: any) => s.status === 'ACTIVE' || s.status === 'PENDING')
+          .map((s: any) => s.animalId) || []
+
+      return ids.map((id: string) => ({
+        animalId: id,
+        status: 'ACTIVE' as const,
+      }))
     }
     throw e
   }

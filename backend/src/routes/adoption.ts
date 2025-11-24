@@ -21,13 +21,11 @@ router.get('/my', checkAuth, async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Not authenticated' })
     }
 
-    // Find all ACTIVE or PENDING subscriptions for this user
+    // Only ACTIVE + PENDING subscriptions
     const subs = await prisma.subscription.findMany({
       where: {
         userId,
-        status: {
-          in: ['ACTIVE', 'PENDING'] as any,
-        },
+        status: { in: ['ACTIVE', 'PENDING'] as any },
       },
       include: {
         animal: {
@@ -49,7 +47,7 @@ router.get('/my', checkAuth, async (req: Request, res: Response) => {
       title: sub.animal?.jmeno || sub.animal?.name || 'Zvíře',
       main: sub.animal?.main || undefined,
       since: sub.startedAt,
-      status: sub.status as any, // 'ACTIVE' | 'PENDING' etc.
+      status: sub.status as any, // 'ACTIVE' | 'PENDING'
     }))
 
     return res.json(items)
@@ -63,8 +61,8 @@ router.get('/my', checkAuth, async (req: Request, res: Response) => {
  * POST /api/adoption/cancel
  * body: { animalId: string }
  *
- * Marks the user's subscription for this animal as CANCELED.
- * Existing Stripe payments remain (cannot be undone), but the
+ * Marks ALL user subscriptions for this animal as CANCELED.
+ * Existing Stripe payments remain (they are historic), but the
  * adoption disappears from "Moje adopce" and detail is locked again.
  */
 router.post('/cancel', checkAuth, async (req: Request, res: Response) => {
@@ -80,36 +78,28 @@ router.post('/cancel', checkAuth, async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Missing animalId' })
     }
 
-    // Take the latest non-CANCELED subscription for this user+animal
-    const sub = await prisma.subscription.findFirst({
+    // Cancel ALL ACTIVE/PENDING subscriptions for this user + animal
+    const result = await prisma.subscription.updateMany({
       where: {
         userId,
         animalId,
-        NOT: { status: 'CANCELED' as any },
+        status: { in: ['ACTIVE', 'PENDING'] as any },
       },
-      orderBy: {
-        startedAt: 'desc',
+      data: {
+        status: 'CANCELED' as any,
       },
     })
 
-    if (!sub) {
+    if (!result.count) {
       console.warn(
-        '[adoption/cancel] no active subscription found for user %s, animal %s',
+        '[adoption/cancel] no active/pending subscription found for user %s, animal %s',
         userId,
         animalId
       )
       return res.status(404).json({ error: 'Adoption not found' })
     }
 
-    await prisma.subscription.update({
-      where: { id: sub.id },
-      data: {
-        status: 'CANCELED' as any,
-        // no endedAt here – not in Prisma model
-      },
-    })
-
-    // We leave Pledge and Payment rows as they are (they describe past donations)
+    // We leave Pledge and Payment as they are (they describe past donations)
     return res.json({ ok: true })
   } catch (e) {
     console.error('[adoption/cancel] error:', e)
