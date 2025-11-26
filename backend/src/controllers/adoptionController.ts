@@ -22,9 +22,14 @@ export async function getAccess(req: Req, res: Response) {
   if (!auth) return res.json({ access: false })
 
   const sub = await prisma.subscription.findFirst({
-    where: { userId: auth.id, animalId, status: 'ACTIVE' },
-    select: { id: true }
+    where: {
+      userId: auth.id,
+      animalId,
+      status: SubscriptionStatus.ACTIVE, // use enum for clarity
+    },
+    select: { id: true },
   })
+
   return res.json({ access: !!sub })
 }
 
@@ -34,13 +39,21 @@ export async function getMe(req: Req, res: Response) {
   const auth = getAuth(req)
   if (!auth) return res.status(200).json({ ok: false, user: null, access: {} })
 
-  const user = await prisma.user.findUnique({ where: { id: auth.id }, select: { id: true, email: true, role: true } })
-  const subs = await prisma.subscription.findMany({
-    where: { userId: auth.id, status: 'ACTIVE' },
-    select: { animalId: true }
+  const user = await prisma.user.findUnique({
+    where: { id: auth.id },
+    select: { id: true, email: true, role: true },
   })
+
+  // only ACTIVE subscriptions are considered for access
+  const subs = await prisma.subscription.findMany({
+    where: { userId: auth.id, status: SubscriptionStatus.ACTIVE },
+    select: { animalId: true },
+  })
+
   const access: Record<string, boolean> = {}
-  subs.forEach(s => { access[s.animalId] = true })
+  subs.forEach((s) => {
+    access[s.animalId] = true
+  })
 
   return res.json({ ok: true, user, access })
 }
@@ -51,7 +64,10 @@ export async function getMe(req: Req, res: Response) {
 // Creates a Subscription: BANK -> ACTIVE; CARD via Stripe would be PENDING (wire later).
 export async function startAdoption(req: Req, res: Response) {
   const { animalId, email, name, monthly } = (req.body || {}) as {
-    animalId: string; email?: string; name?: string; monthly?: number
+    animalId: string
+    email?: string
+    name?: string
+    monthly?: number
   }
   if (!animalId) return res.status(400).json({ error: 'animalId required' })
 
@@ -61,31 +77,34 @@ export async function startAdoption(req: Req, res: Response) {
 
   if (!userId) {
     if (!email) return res.status(401).json({ error: 'email required when not logged in' })
+
     // find or create USER
     let user = await prisma.user.findUnique({ where: { email } })
     if (!user) {
       user = await prisma.user.create({
-        data: { email, role: 'USER', passwordHash: null }
+        data: { email, role: 'USER', passwordHash: null },
       })
     }
     userId = user.id
     const token = signToken({ id: user.id, role: user.role as any })
-    // Also create the subscription below and include token in response
+
+    // Create subscription as ACTIVE (BANK/FIO default)
     const sub = await prisma.subscription.create({
       data: {
         userId,
         animalId,
         monthlyAmount: monthly ?? 200,
         provider: PaymentProvider.FIO, // BANK by default; swap to STRIPE when integrating card flow
-        status: 'ACTIVE'
+        status: SubscriptionStatus.ACTIVE,
       },
-      select: { id: true, status: true }
+      select: { id: true, status: true },
     })
+
     return res.json({
       ok: true,
       token,
-      access: { [animalId]: sub.status === 'ACTIVE' },
-      userHasPassword: !!user.passwordHash
+      access: { [animalId]: sub.status === SubscriptionStatus.ACTIVE },
+      userHasPassword: !!user.passwordHash,
     })
   }
 
@@ -96,31 +115,43 @@ export async function startAdoption(req: Req, res: Response) {
       animalId,
       monthlyAmount: monthly ?? 200,
       provider: PaymentProvider.FIO, // BANK default
-      status: 'ACTIVE'
+      status: SubscriptionStatus.ACTIVE,
     },
-    select: { id: true, status: true }
+    select: { id: true, status: true },
   })
-  return res.json({ ok: true, access: { [animalId]: sub.status === 'ACTIVE' } })
+
+  return res.json({
+    ok: true,
+    access: { [animalId]: sub.status === SubscriptionStatus.ACTIVE },
+  })
 }
 
 // POST /api/adoption/end
 // body: { animalId }
+// Cancel *all* ACTIVE subscriptions for this user+animal
 export async function endAdoption(req: Req, res: Response) {
   const auth = getAuth(req)
   if (!auth) return res.status(401).json({ error: 'Unauthorized' })
+
   const { animalId } = (req.body || {}) as { animalId: string }
   if (!animalId) return res.status(400).json({ error: 'animalId required' })
 
-  const sub = await prisma.subscription.findFirst({
-    where: { userId: auth.id, animalId, status: 'ACTIVE' },
-    select: { id: true }
+  // Cancel ALL active subs for this user & animal (avoid duplicates staying ACTIVE)
+  const result = await prisma.subscription.updateMany({
+    where: {
+      userId: auth.id,
+      animalId,
+      status: SubscriptionStatus.ACTIVE,
+    },
+    data: {
+      status: SubscriptionStatus.CANCELED,
+      canceledAt: new Date(),
+    },
   })
-  if (!sub) return res.status(404).json({ error: 'Aktivní adopce nenalezena' })
 
-  await prisma.subscription.update({
-    where: { id: sub.id },
-    data: { status: SubscriptionStatus.CANCELED, canceledAt: new Date() }
-  })
+  if (result.count === 0) {
+    return res.status(404).json({ error: 'Aktivní adopce nenalezena' })
+  }
 
-  return res.json({ ok: true })
+  return res.json({ ok: true, canceledCount: result.count })
 }
