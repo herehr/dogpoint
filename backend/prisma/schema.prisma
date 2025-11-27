@@ -20,6 +20,7 @@ model User {
   passwordHash  String?
   posts         Post[]
   subscriptions Subscription[]
+  notifications Notification[]
 }
 
 model Animal {
@@ -149,6 +150,18 @@ model Payment {
 
   @@index([subscriptionId])
   @@index([status])
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+
+  type      String   // e.g. 'ADOPTION_CREATED', 'ADOPTION_CANCELLED'
+  title     String
+  message   String
+  readAt    DateTime?    // null = unread
+  createdAt DateTime @default(now())
 }
 
 model WebhookEvent {

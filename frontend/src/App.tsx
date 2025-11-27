@@ -29,6 +29,7 @@ import Login from './pages/Login'
 import UserDashboard from './pages/UserDashboard'
 import AdoptionStart from './pages/AdoptionStart'
 import OchranaOsobnichUdaju from './pages/OchranaOsobnichUdaju'
+import NotificationsPage from './pages/NotificationsPage'
 
 function AppLayout() {
   return (
@@ -111,6 +112,7 @@ useEffect(() => {
           path="ochrana-osobnich-udaju"
           element={<OchranaOsobnichUdaju />}
         />
+        <Route path="/notifikace" element={<NotificationsPage />} />
 
         {/* Auth */}
         <Route path="login" element={<Login />} />

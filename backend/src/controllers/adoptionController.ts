@@ -1,6 +1,7 @@
 import { Request, Response } from 'express'
 import { PrismaClient, SubscriptionStatus, PaymentProvider } from '@prisma/client'
 import { signToken, verifyToken, JwtPayload } from '../utils/jwt'
+import { notifyUser } from './notificationController'   // ✅ NEW
 
 const prisma = new PrismaClient()
 
@@ -75,6 +76,9 @@ export async function startAdoption(req: Req, res: Response) {
   let auth = getAuth(req)
   let userId = auth?.id
 
+  // ───────────────────────────────────────────
+  // Not logged in → identify / create user
+  // ───────────────────────────────────────────
   if (!userId) {
     if (!email) return res.status(401).json({ error: 'email required when not logged in' })
 
@@ -100,6 +104,13 @@ export async function startAdoption(req: Req, res: Response) {
       select: { id: true, status: true },
     })
 
+    // ✅ NEW: create notification + e-mail
+    await notifyUser(userId, {
+      type: 'ADOPTION_CREATED',
+      title: 'Nová adopce byla založena',
+      message: `Děkujeme za vaši podporu. Vaše adopce byla založena pro zvíře ${animalId}.`,
+    })
+
     return res.json({
       ok: true,
       token,
@@ -108,7 +119,9 @@ export async function startAdoption(req: Req, res: Response) {
     })
   }
 
-  // logged in: create/activate subscription
+  // ───────────────────────────────────────────
+  // Logged in: create/activate subscription
+  // ───────────────────────────────────────────
   const sub = await prisma.subscription.create({
     data: {
       userId,
@@ -118,6 +131,13 @@ export async function startAdoption(req: Req, res: Response) {
       status: SubscriptionStatus.ACTIVE,
     },
     select: { id: true, status: true },
+  })
+
+  // ✅ NEW: notify logged-in user
+  await notifyUser(userId, {
+    type: 'ADOPTION_CREATED',
+    title: 'Nová adopce byla založena',
+    message: `Děkujeme za vaši podporu. Vaše adopce byla založena pro zvíře ${animalId}.`,
   })
 
   return res.json({
@@ -152,6 +172,13 @@ export async function endAdoption(req: Req, res: Response) {
   if (result.count === 0) {
     return res.status(404).json({ error: 'Aktivní adopce nenalezena' })
   }
+
+  // ✅ NEW: notify user about cancellation
+  await notifyUser(auth.id, {
+    type: 'ADOPTION_CANCELLED',
+    title: 'Adopce byla zrušena',
+    message: `Vaše adopce pro zvíře ${animalId} byla zrušena. Mrzí nás to – kdykoliv se k nám můžete vrátit.`,
+  })
 
   return res.json({ ok: true, canceledCount: result.count })
 }

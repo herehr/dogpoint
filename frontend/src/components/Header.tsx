@@ -124,6 +124,17 @@ export default function Header({
                 </Button>
               )}
 
+              {isUser && (
+  <Button component={RouterLink} to="/user" variant="outlined" sx={pillBtn}>
+    Moje&nbsp;adopce
+  </Button>
+)}
+{token && (
+  <Button component={RouterLink} to="/notifikace" variant="outlined" sx={pillBtn}>
+    Notifikace
+  </Button>
+)}
+
               {/* Primary account/dashboard button (only for Admin / Moderator) */}
               {accountLabel && dashboardHref && (
                 <Button
