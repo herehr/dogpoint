@@ -21,17 +21,17 @@ export default function Header({
   const isUser  = role === 'USER'
 
   // Destination for the primary account button
-  const dashboardHref =
-  !token ? '/login'
-  : isAdmin ? '/admin'
-  : isMod   ? '/moderator'
-  : null;   // ❗ no dashboard for regular users
+  const dashboardHref: string | undefined =
+    !token ? '/login'
+    : isAdmin ? '/admin'
+    : isMod   ? '/moderator'
+    : undefined   // ❗ no dashboard for regular users
 
-const accountLabel =
-  !token ? 'Přihlášení'
-  : isAdmin ? 'Admin'
-  : isMod   ? 'Moderátor'
-  : null;   // ❗ no label for regular users
+  const accountLabel: string | undefined =
+    !token ? 'Přihlášení'
+    : isAdmin ? 'Admin'
+    : isMod   ? 'Moderátor'
+    : undefined   // ❗ no label for regular users
 
   const handleLogout = () => {
     logout()
@@ -124,10 +124,17 @@ const accountLabel =
                 </Button>
               )}
 
-              {/* Primary account/dashboard button (roles keep their targets) */}
-              <Button component={RouterLink} to={dashboardHref} variant="outlined" sx={pillBtn}>
-                {accountLabel}
-              </Button>
+              {/* Primary account/dashboard button (only for Admin / Moderator) */}
+              {accountLabel && dashboardHref && (
+                <Button
+                  component={RouterLink}
+                  to={dashboardHref}
+                  variant="outlined"
+                  sx={pillBtn}
+                >
+                  {accountLabel}
+                </Button>
+              )}
 
               {/* Logout */}
               <Button onClick={handleLogout} variant="text" sx={textBtn}>
