@@ -1,68 +1,80 @@
 // backend/src/controllers/notificationController.ts
 import { Request, Response } from 'express'
-import { prisma } from '../prisma'
-import { AuthRequest } from '../types/express'
+import { PrismaClient } from '@prisma/client'
+import { verifyToken, JwtPayload } from '../utils/jwt'
 
-// You probably already have some mail util – adapt this stub:
-async function sendEmail(to: string, subject: string, text: string) {
-  console.log('[sendEmail stub]', { to, subject, text })
-  // TODO: integrate with your real mail service / nodemailer
+const prisma = new PrismaClient()
+
+type Req = Request & { user?: JwtPayload }
+
+// --- helper to read JWT from Authorization header ---
+function getAuth(req: Request): JwtPayload | null {
+  const h = req.headers.authorization || ''
+  const token = h.startsWith('Bearer ') ? h.slice(7) : null
+  if (!token) return null
+  return verifyToken(token)
 }
 
-// --- API: list notifications for logged-in user ---
-export async function getMyNotifications(req: AuthRequest, res: Response) {
-  if (!req.user) return res.status(401).json({ error: 'Unauthenticated' })
+// Shape for notifications we create from other controllers
+export type NotifyPayload = {
+  type: string
+  title: string
+  message: string
+}
 
-  const items = await prisma.notification.findMany({
-    where: { userId: req.user.id },
+/**
+ * Helper used from other controllers (adoption, stripe, etc.)
+ * - creates DB notification
+ * - later we can extend it to also send e-mail
+ */
+export async function notifyUser(userId: string, payload: NotifyPayload) {
+  const notif = await prisma.notification.create({
+    data: {
+      userId,
+      type: payload.type,
+      title: payload.title,
+      message: payload.message,
+      // read: false, createdAt: now() → handled by defaults in Prisma
+    },
+  })
+
+  // TODO: add e-mail sending here (using your mail service) if desired
+  // e.g. await sendNotificationEmail(userId, payload)
+
+  return notif
+}
+
+// GET /api/notifications
+// -> { ok: true, notifications: [...] }
+export async function listMyNotifications(req: Req, res: Response) {
+  const auth = getAuth(req)
+  if (!auth) return res.status(401).json({ error: 'Unauthorized' })
+
+  const notifications = await prisma.notification.findMany({
+    where: { userId: auth.id },
     orderBy: { createdAt: 'desc' },
-    take: 50,
   })
 
-  return res.json({ items })
+  return res.json({ ok: true, notifications })
 }
 
-// --- API: mark single notification as read ---
-export async function markNotificationRead(req: AuthRequest, res: Response) {
-  if (!req.user) return res.status(401).json({ error: 'Unauthenticated' })
-  const { id } = req.params
+// POST /api/notifications/:id/read
+// marks a notification as read
+export async function markNotificationRead(req: Req, res: Response) {
+  const auth = getAuth(req)
+  if (!auth) return res.status(401).json({ error: 'Unauthorized' })
 
-  const updated = await prisma.notification.updateMany({
-    where: { id, userId: req.user.id },
-    data: { readAt: new Date() },
+  const { id } = req.params
+  if (!id) return res.status(400).json({ error: 'notification id required' })
+
+  const result = await prisma.notification.updateMany({
+    where: { id, userId: auth.id },
+    data: { read: true },
   })
 
-  if (updated.count === 0) {
+  if (result.count === 0) {
     return res.status(404).json({ error: 'Notifikace nenalezena' })
   }
 
   return res.json({ ok: true })
-}
-
-// --- Helper: create notification + email user ---
-export async function notifyUser(
-  userId: string,
-  opts: { type: string; title: string; message: string }
-) {
-  // 1) create in DB
-  const notif = await prisma.notification.create({
-    data: {
-      userId,
-      type: opts.type,
-      title: opts.title,
-      message: opts.message,
-    },
-  })
-
-  // 2) send email if user has email
-  const user = await prisma.user.findUnique({ where: { id: userId } })
-  if (user?.email) {
-    await sendEmail(
-      user.email,
-      opts.title,
-      opts.message,
-    )
-  }
-
-  return notif
 }
