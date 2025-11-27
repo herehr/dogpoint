@@ -1,19 +1,73 @@
+/* ====================================================================== */
+/*  FONT-FACES                                                            */
+/* ====================================================================== */
+
+/* --- Blogger Sans (body font) ----------------------------------------- */
+@font-face {
+  font-family: 'Blogger Sans';
+  src: url('/fonts/BloggerSans-Regular.woff') format('woff');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Blogger Sans';
+  src: url('/fonts/BloggerSans-Bold.woff') format('woff');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* --- Open Sans (heading font) ----------------------------------------- */
+@font-face {
+  font-family: 'Open Sans';
+  src: url('/fonts/OpenSans-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Open Sans';
+  src: url('/fonts/OpenSans-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ====================================================================== */
+/*  GLOBAL DEFAULTS                                                       */
+/* ====================================================================== */
+
 body {
   margin: 0;
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-family: 'Blogger Sans', -apple-system, BlinkMacSystemFont,
+    'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   background-color: #f9f9f9;
 }
 
-html { scroll-behavior: smooth; }
+html {
+  scroll-behavior: smooth;
+}
 
-/* --- add: mobile-safe locked media blur --- */
+/* Use Open Sans for all headings */
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Open Sans', 'Blogger Sans', -apple-system, BlinkMacSystemFont,
+    'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+/* ====================================================================== */
+/*  LOCKED MEDIA (BLUR EFFECT)                                            */
+/* ====================================================================== */
+
 .lockedMedia {
   position: relative;
   overflow: hidden;
 }
 
 .lockedMedia img,
-.lockedMedia video {
+.locklockedMedia video {
   filter: blur(14px);
   transform: scale(1.05); /* avoid edge bleeding */
   pointer-events: none;
@@ -26,5 +80,9 @@ html { scroll-behavior: smooth; }
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(to bottom, rgba(255,255,255,0.6), rgba(255,255,255,0.85));
+  background: linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.6),
+    rgba(255, 255, 255, 0.85)
+  );
 }
