@@ -1,5 +1,6 @@
 // backend/src/controllers/authExtra.ts
 import { prisma } from '../prisma'
+import { SubscriptionStatus } from '@prisma/client'
 
 function appendNote(note: string | null, msg: string): string {
   const base = note?.trim() ? `${note.trim()}\n` : ''
@@ -64,18 +65,19 @@ export async function linkPaidOrRecentPledgesToUser(
       const monthlyAmount = pledge.amount ?? 0
 
       if (!sub) {
+        // no subscription yet -> create one
         try {
           sub = await prisma.subscription.create({
-  data: {
-    userId,
-    animalId: pledge.animalId,
-    monthlyAmount: monthlyAmount as any,
-    provider: 'STRIPE' as any,
-    status: pledge.status === 'PAID' ? ('ACTIVE' as any) : ('PENDING' as any),
-    startedAt: new Date() as any,
-    interval: pledge.interval as any,
-  } as any,
-})
+            data: {
+              userId,
+              animalId: pledge.animalId,
+              monthlyAmount: monthlyAmount as any,
+              provider: 'STRIPE' as any,
+              status: pledge.status === 'PAID' ? ('ACTIVE' as any) : ('PENDING' as any),
+              startedAt: new Date() as any,
+              interval: pledge.interval as any,
+            } as any,
+          })
         } catch (err) {
           console.error(
             '[linkPaidOrRecentPledgesToUser] create subscription with pledge info failed, retrying minimal:',
@@ -88,19 +90,27 @@ export async function linkPaidOrRecentPledgesToUser(
               userId,
               animalId: pledge.animalId,
               monthlyAmount: monthlyAmount as any,
-              provider: 'STRIPE' as any, // ✅ required
+              provider: 'STRIPE' as any, // required
             } as any,
           })
         }
       } else if (pledge.status === 'PAID' && (sub as any).status && (sub as any).status !== 'ACTIVE') {
         // 3) If we already have a subscription but payment is now PAID → set ACTIVE
-        try {
-          sub = await prisma.subscription.update({
-            where: { id: sub.id },
-            data: { status: 'ACTIVE' as any },
-          })
-        } catch (err) {
-          console.error('[linkPaidOrRecentPledgesToUser] update subscription status failed:', err)
+        //    BUT: never re-activate a user-canceled subscription.
+        if ((sub as any).status === SubscriptionStatus.CANCELED || (sub as any).status === 'CANCELED') {
+          console.log(
+            '[linkPaidOrRecentPledgesToUser] skip re-activating canceled subscription',
+            sub.id
+          )
+        } else {
+          try {
+            sub = await prisma.subscription.update({
+              where: { id: sub.id },
+              data: { status: 'ACTIVE' as any },
+            })
+          } catch (err) {
+            console.error('[linkPaidOrRecentPledgesToUser] update subscription status failed:', err)
+          }
         }
       }
 
@@ -145,11 +155,23 @@ export async function linkPaidOrRecentPledgesToUser(
       } else {
         // PENDING within grace period
         try {
-          if ((sub as any).status && (sub as any).status !== 'ACTIVE') {
+          // Only move to PENDING if it's not ACTIVE and not CANCELED
+          const currentStatus = (sub as any).status
+          if (
+            currentStatus &&
+            currentStatus !== 'ACTIVE' &&
+            currentStatus !== SubscriptionStatus.CANCELED &&
+            currentStatus !== 'CANCELED'
+          ) {
             await prisma.subscription.update({
               where: { id: sub.id },
               data: { status: 'PENDING' as any },
             })
+          } else if (currentStatus === SubscriptionStatus.CANCELED || currentStatus === 'CANCELED') {
+            console.log(
+              '[linkPaidOrRecentPledgesToUser] skip updating status to PENDING for canceled subscription',
+              sub.id
+            )
           }
         } catch (err) {
           console.error('[linkPaidOrRecentPledgesToUser] update subscription (PENDING) failed:', err)
