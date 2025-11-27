@@ -43,7 +43,7 @@ export default function Header({
       component="header"
       sx={{
         position: 'relative',
-        backgroundColor: '#23D3DF',
+        backgroundColor: '#26E6EA',
         color: '#000',
         overflow: 'hidden',
       }}
@@ -171,7 +171,7 @@ export default function Header({
           <path
             d="M0,66 C260,116 520,30 780,40 C1040,50 1300,94 1440,82"
             fill="none"
-            stroke="#ffffff"
+            stroke="#26E6EA"
             strokeWidth="10"
           />
         </svg>

@@ -47,7 +47,7 @@ export default function Hero() {
               variant="contained"
               onClick={scrollToAnimals}
               sx={{
-                backgroundColor: '#23D3DF',
+                backgroundColor: '#26E6EA',
                 color: '#fff',
                 fontWeight: 700,
                 fontSize: 16,
