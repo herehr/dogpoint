@@ -1,16 +1,35 @@
-/* ====================================================================== */
-/*  FONT-FACES                                                            */
-/* ====================================================================== */
+/* ============================
+   Custom fonts
+   ============================ */
 
-/* --- Blogger Sans (body font) ----------------------------------------- */
+/* Blogger Sans – regular */
 @font-face {
   font-family: 'Blogger Sans';
-  src: url('/fonts/BloggerSans-Regular.woff') format('woff');
+  src: url('/fonts/BloggerSans.woff') format('woff');
   font-weight: 400;
   font-style: normal;
   font-display: swap;
 }
 
+/* Blogger Sans – light */
+@font-face {
+  font-family: 'Blogger Sans';
+  src: url('/fonts/BloggerSans-Light.woff') format('woff');
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Blogger Sans – medium */
+@font-face {
+  font-family: 'Blogger Sans';
+  src: url('/fonts/BloggerSans-Medium.woff') format('woff');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Blogger Sans – bold */
 @font-face {
   font-family: 'Blogger Sans';
   src: url('/fonts/BloggerSans-Bold.woff') format('woff');
@@ -19,7 +38,16 @@
   font-display: swap;
 }
 
-/* --- Open Sans (heading font) ----------------------------------------- */
+/* Blogger Sans – italic (fallback for all italic weights) */
+@font-face {
+  font-family: 'Blogger Sans';
+  src: url('/fonts/BloggerSans-Italic.woff') format('woff');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
+/* Open Sans – regular */
 @font-face {
   font-family: 'Open Sans';
   src: url('/fonts/OpenSans-Regular.woff2') format('woff2');
@@ -28,6 +56,7 @@
   font-display: swap;
 }
 
+/* Open Sans – bold */
 @font-face {
   font-family: 'Open Sans';
   src: url('/fonts/OpenSans-Bold.woff2') format('woff2');
@@ -36,9 +65,13 @@
   font-display: swap;
 }
 
-/* ====================================================================== */
-/*  GLOBAL DEFAULTS                                                       */
-/* ====================================================================== */
+/* ============================
+   Global base styles
+   ============================ */
+
+html {
+  scroll-behavior: smooth;
+}
 
 body {
   margin: 0;
@@ -47,19 +80,27 @@ body {
   background-color: #f9f9f9;
 }
 
-html {
-  scroll-behavior: smooth;
+/* All MUI text by default = Blogger Sans */
+.MuiTypography-root {
+  font-family: 'Blogger Sans', -apple-system, BlinkMacSystemFont,
+    'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
 
-/* Use Open Sans for all headings */
-h1, h2, h3, h4, h5, h6 {
+/* Headings (HTML + MUI variants) = Open Sans */
+h1, h2, h3, h4, h5, h6,
+.MuiTypography-h1,
+.MuiTypography-h2,
+.MuiTypography-h3,
+.MuiTypography-h4,
+.MuiTypography-h5,
+.MuiTypography-h6 {
   font-family: 'Open Sans', 'Blogger Sans', -apple-system, BlinkMacSystemFont,
     'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
 
-/* ====================================================================== */
-/*  LOCKED MEDIA (BLUR EFFECT)                                            */
-/* ====================================================================== */
+/* ============================
+   Locked media blur
+   ============================ */
 
 .lockedMedia {
   position: relative;
@@ -67,7 +108,7 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .lockedMedia img,
-.locklockedMedia video {
+.lockedMedia video {
   filter: blur(14px);
   transform: scale(1.05); /* avoid edge bleeding */
   pointer-events: none;
