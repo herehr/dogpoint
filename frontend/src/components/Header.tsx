@@ -22,16 +22,16 @@ export default function Header({
 
   // Destination for the primary account button
   const dashboardHref =
-    isAdmin ? '/admin'
-    : isMod  ? '/moderator'
-    : isUser ? '/user'
-    : '/login'
+  !token ? '/login'
+  : isAdmin ? '/admin'
+  : isMod   ? '/moderator'
+  : null;   // ❗ no dashboard for regular users
 
-  const accountLabel =
-    !token ? 'Přihlášení'
-    : isAdmin ? 'Admin'
-    : isMod   ? 'Moderátor'
-    : 'Můj účet'
+const accountLabel =
+  !token ? 'Přihlášení'
+  : isAdmin ? 'Admin'
+  : isMod   ? 'Moderátor'
+  : null;   // ❗ no label for regular users
 
   const handleLogout = () => {
     logout()
