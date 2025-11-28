@@ -26,7 +26,6 @@ import AfterPaymentPasswordDialog from '../components/AfterPaymentPasswordDialog
 import {
   confirmStripeSession,
   cancelAdoption,
-  api, // 👈 NEW: use shared axios instance for polling posts
 } from '../services/api'
 
 type Media = { url: string; type?: 'image' | 'video' }
@@ -59,6 +58,8 @@ interface AnimalPost {
     typ: string
   }[]
 }
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api'
 
 function asUrl(x: string | Media | undefined | null): string | null {
   if (!x) return null
@@ -140,17 +141,27 @@ export default function AnimalDetail() {
     }
   }, [id])
 
+  // helper: load posts via fetch
+  const loadPosts = useCallback(
+    async (animalId: string) => {
+      const url = `${API_BASE}/posts/public?animalId=${encodeURIComponent(animalId)}`
+      const res = await fetch(url)
+      if (!res.ok) throw new Error(`Posts fetch failed: ${res.status}`)
+      const data: AnimalPost[] = await res.json()
+      return data
+    },
+    []
+  )
+
   // initial load of posts for this animal (for notification tracking)
   useEffect(() => {
     if (!id) return
 
     let canceled = false
 
-    const loadPosts = async () => {
+    const run = async () => {
       try {
-        const res = await api.get('/posts/public', { params: { animalId: id } })
-        const data: AnimalPost[] = res.data || []
-
+        const data = await loadPosts(id)
         if (canceled) return
 
         setPosts(data)
@@ -165,12 +176,12 @@ export default function AnimalDetail() {
       }
     }
 
-    loadPosts()
+    run()
 
     return () => {
       canceled = true
     }
-  }, [id])
+  }, [id, loadPosts])
 
   // Poll every 30 s for new posts
   useEffect(() => {
@@ -178,8 +189,7 @@ export default function AnimalDetail() {
 
     const interval = setInterval(async () => {
       try {
-        const res = await api.get('/posts/public', { params: { animalId: id } })
-        const data: AnimalPost[] = res.data || []
+        const data = await loadPosts(id)
         if (data.length === 0) return
 
         const newest = data[0]
@@ -209,7 +219,7 @@ export default function AnimalDetail() {
     }, 30000)
 
     return () => clearInterval(interval)
-  }, [id, lastPostId])
+  }, [id, lastPostId, loadPosts])
 
   // Prefill email for after-payment (prefer logged-in, else stashed)
   const prefillEmail = useMemo(() => {
