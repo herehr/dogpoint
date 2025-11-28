@@ -2,8 +2,19 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react'
 import { useParams, useLocation, useNavigate } from 'react-router-dom'
 import {
-  Container, Typography, Box, Stack, Chip, Alert, Skeleton, Grid, Button, Divider, TextField
+  Container,
+  Typography,
+  Box,
+  Stack,
+  Chip,
+  Alert,
+  Skeleton,
+  Grid,
+  Button,
+  Divider,
+  TextField,
 } from '@mui/material'
+import NotificationsIcon from '@mui/icons-material/Notifications'
 
 import { fetchAnimal } from '../api'
 import { useAccess } from '../context/AccessContext'
@@ -15,6 +26,7 @@ import AfterPaymentPasswordDialog from '../components/AfterPaymentPasswordDialog
 import {
   confirmStripeSession,
   cancelAdoption,
+  api, // 👈 NEW: use shared axios instance for polling posts
 } from '../services/api'
 
 type Media = { url: string; type?: 'image' | 'video' }
@@ -33,7 +45,7 @@ type LocalAnimal = {
   bornYear?: number | null
 }
 
-// STEP 1 – NEW: type for posts used by notifications / polling
+// type for posts used by notifications / polling
 interface AnimalPost {
   id: string
   title: string
@@ -91,7 +103,7 @@ export default function AnimalDetail() {
   // amount picker
   const [amount, setAmount] = useState<number>(200)
 
-  // STEP 1 – NEW: state for posts + notification tracking
+  // state for posts + notification tracking
   const [posts, setPosts] = useState<AnimalPost[]>([])
   const [hasNewPosts, setHasNewPosts] = useState(false)
   const [lastPostId, setLastPostId] = useState<string | null>(null)
@@ -102,7 +114,7 @@ export default function AnimalDetail() {
     const p = new URLSearchParams(location.search)
     return {
       paid: p.get('paid'),
-      sid : p.get('sid') || undefined
+      sid: p.get('sid') || undefined,
     }
   }, [location.search])
 
@@ -111,18 +123,93 @@ export default function AnimalDetail() {
     return !!(id && hasAccess(id)) && !forceLocked
   }, [isStaff, id, hasAccess, forceLocked])
 
-  // initial load
+  // initial load of animal
   useEffect(() => {
     let alive = true
     if (!id) return
     setLoading(true)
     setErr(null)
     fetchAnimal(id)
-      .then(a => { if (alive) setAnimal(a as any) })
-      .catch(e => alive && setErr(e?.message || 'Chyba načítání detailu'))
+      .then((a) => {
+        if (alive) setAnimal(a as any)
+      })
+      .catch((e) => alive && setErr(e?.message || 'Chyba načítání detailu'))
       .finally(() => alive && setLoading(false))
-    return () => { alive = false }
+    return () => {
+      alive = false
+    }
   }, [id])
+
+  // initial load of posts for this animal (for notification tracking)
+  useEffect(() => {
+    if (!id) return
+
+    let canceled = false
+
+    const loadPosts = async () => {
+      try {
+        const res = await api.get('/posts/public', { params: { animalId: id } })
+        const data: AnimalPost[] = res.data || []
+
+        if (canceled) return
+
+        setPosts(data)
+        if (data.length > 0) {
+          setLastPostId(data[0].id) // newest first (backend orders by publishedAt desc)
+        }
+        setLastCheckAt(new Date().toISOString())
+      } catch (e) {
+        if (!canceled) {
+          console.warn('[AnimalDetail] Nepodařilo se načíst příspěvky pro notifikace', e)
+        }
+      }
+    }
+
+    loadPosts()
+
+    return () => {
+      canceled = true
+    }
+  }, [id])
+
+  // Poll every 30 s for new posts
+  useEffect(() => {
+    if (!id) return
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await api.get('/posts/public', { params: { animalId: id } })
+        const data: AnimalPost[] = res.data || []
+        if (data.length === 0) return
+
+        const newest = data[0]
+
+        // first time → just initialize state
+        if (!lastPostId) {
+          setLastPostId(newest.id)
+          setPosts(data)
+          setLastCheckAt(new Date().toISOString())
+          return
+        }
+
+        // NEW POST detected
+        if (newest.id !== lastPostId) {
+          setHasNewPosts(true)
+          setPosts(data)
+          setLastPostId(newest.id)
+          setLastCheckAt(new Date().toISOString())
+
+          triggerBrowserNotification('Nový příspěvek u vašeho adoptovaného zvířete', {
+            body: newest.title || 'Podívejte se na nový příspěvek.',
+          })
+        }
+      } catch (e) {
+        console.warn('[AnimalDetail] Polling příspěvků selhalo', e)
+      }
+    }, 30000)
+
+    return () => clearInterval(interval)
+  }, [id, lastPostId])
 
   // Prefill email for after-payment (prefer logged-in, else stashed)
   const prefillEmail = useMemo(() => {
@@ -194,7 +281,7 @@ export default function AnimalDetail() {
   // amount quick presets
   const pickAmount = (v: number) => setAmount(v)
 
-  // NEW: go to pre-checkout page instead of Stripe directly
+  // go to pre-checkout page instead of Stripe directly
   const handleAdoptNow = useCallback(() => {
     if (!id || !animal) {
       alert('Zkuste stránku znovu načíst (chybí ID zvířete).')
@@ -229,16 +316,18 @@ export default function AnimalDetail() {
         localStorage.removeItem(`adopt:${animal.id}`)
         sessionStorage.removeItem(`adopt:${animal.id}`)
       } catch {}
-      document.querySelectorAll('video').forEach(v => {
-        try { v.pause(); v.removeAttribute('src'); v.load() } catch {}
+      document.querySelectorAll('video').forEach((v) => {
+        try {
+          v.pause()
+          v.removeAttribute('src')
+          v.load()
+        } catch {}
       })
 
       alert('Adopce byla zrušena. Děkujeme za dosavadní podporu.')
     } catch (e: any) {
       console.error('Cancel adoption failed', e)
-      alert(
-        'Nepodařilo se zrušit adopci. Zkuste to prosím znovu nebo nás kontaktujte.'
-      )
+      alert('Nepodařilo se zrušit adopci. Zkuste to prosím znovu nebo nás kontaktujte.')
     }
   }, [animal, resetAccess])
 
@@ -266,7 +355,7 @@ export default function AnimalDetail() {
   const urls = Array.from(
     new Set([
       asUrl(animal.main) || undefined,
-      ...((animal.galerie || []).map(g => asUrl(g) || undefined)),
+      ...((animal.galerie || []).map((g) => asUrl(g) || undefined)),
     ].filter(Boolean))
   ) as string[]
 
@@ -280,9 +369,23 @@ export default function AnimalDetail() {
     <Container sx={{ py: 4 }}>
       {/* Header */}
       <Stack spacing={1.25}>
-        <Typography variant="h4" sx={{ fontWeight: 900 }}>
-          {title}
-        </Typography>
+        <Stack direction="row" spacing={1} alignItems="center">
+          <Typography variant="h4" sx={{ fontWeight: 900, flexGrow: 1 }}>
+            {title}
+          </Typography>
+
+          {/* Notification icon – blinks when hasNewPosts === true */}
+          <NotificationsIcon
+            className={hasNewPosts ? 'notification-icon blink' : 'notification-icon'}
+            titleAccess={hasNewPosts ? 'Nový příspěvek' : 'Příspěvky'}
+            onClick={() => {
+              // scroll to posts section and reset flag
+              const el = document.getElementById('posts')
+              if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+              setHasNewPosts(false)
+            }}
+          />
+        </Stack>
 
         {animal.charakteristik && (
           <div
@@ -365,7 +468,7 @@ export default function AnimalDetail() {
                   </Typography>
 
                   <Stack direction="row" spacing={1} sx={{ mb: 1 }}>
-                    {[200, 500, 1000].map(v => (
+                    {[200, 500, 1000].map((v) => (
                       <Button
                         key={v}
                         variant={amount === v ? 'contained' : 'outlined'}
@@ -381,7 +484,9 @@ export default function AnimalDetail() {
                       type="number"
                       label="Částka (Kč)"
                       value={amount}
-                      onChange={e => setAmount(Math.max(0, parseInt(e.target.value || '0', 10)))}
+                      onChange={(e) =>
+                        setAmount(Math.max(0, parseInt(e.target.value || '0', 10)))
+                      }
                       inputProps={{ min: 50, step: 10 }}
                       sx={{ width: 160 }}
                     />
@@ -419,7 +524,9 @@ export default function AnimalDetail() {
                   <Grid item xs={6} sm={4} md={3} key={`${i}-${lockTag}`}>
                     <Box
                       component={isUnlocked ? 'a' : 'div'}
-                      {...(isUnlocked ? { href: u, target: '_blank', rel: 'noreferrer' } : {})}
+                      {...(isUnlocked
+                        ? { href: u, target: '_blank', rel: 'noreferrer' }
+                        : {})}
                       sx={{
                         display: 'block',
                         width: '100%',
@@ -479,4 +586,20 @@ export default function AnimalDetail() {
       />
     </Container>
   )
+}
+
+// Browser notification helper
+function triggerBrowserNotification(title: string, options?: NotificationOptions) {
+  if (typeof window === 'undefined') return
+  if (!('Notification' in window)) return
+
+  if (Notification.permission === 'granted') {
+    new Notification(title, options)
+  } else if (Notification.permission !== 'denied') {
+    Notification.requestPermission().then((permission) => {
+      if (permission === 'granted') {
+        new Notification(title, options)
+      }
+    })
+  }
 }
