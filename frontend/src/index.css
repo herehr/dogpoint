@@ -140,3 +140,26 @@ h1, h2, h3, h4, h5, h6,
     opacity: 1;
   }
 }
+.notification-icon {
+  cursor: pointer;
+}
+
+/* blinking animation when there is a new post */
+.notification-icon.blink {
+  animation: notification-blink 1s infinite;
+}
+
+@keyframes notification-blink {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.3;
+    transform: scale(1.1);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}

@@ -33,6 +33,21 @@ type LocalAnimal = {
   bornYear?: number | null
 }
 
+// STEP 1 – NEW: type for posts used by notifications / polling
+interface AnimalPost {
+  id: string
+  title: string
+  body?: string | null
+  publishedAt: string
+  createdAt: string
+  active: boolean
+  media: {
+    id: string
+    url: string
+    typ: string
+  }[]
+}
+
 function asUrl(x: string | Media | undefined | null): string | null {
   if (!x) return null
   if (typeof x === 'string') return x
@@ -75,6 +90,12 @@ export default function AnimalDetail() {
 
   // amount picker
   const [amount, setAmount] = useState<number>(200)
+
+  // STEP 1 – NEW: state for posts + notification tracking
+  const [posts, setPosts] = useState<AnimalPost[]>([])
+  const [hasNewPosts, setHasNewPosts] = useState(false)
+  const [lastPostId, setLastPostId] = useState<string | null>(null)
+  const [lastCheckAt, setLastCheckAt] = useState<string | null>(null)
 
   // Read Stripe return flags ONCE
   const { paid, sid } = useMemo(() => {
@@ -187,39 +208,39 @@ export default function AnimalDetail() {
     navigate(`/adopce/${id}?${params.toString()}`)
   }, [id, animal, amount, navigate])
 
-const onCancelAdoption = useCallback(async () => {
-  if (!animal) return
+  const onCancelAdoption = useCallback(async () => {
+    if (!animal) return
 
-  const confirmed = window.confirm(
-    'Opravdu chcete zrušit adopci tohoto zvířete? Tím ukončíte pravidelnou podporu.'
-  )
-  if (!confirmed) return
-
-  try {
-    // 1) Tell backend to cancel the subscription
-    await cancelAdoption(animal.id)
-
-    // 2) Clear local unlock for this animal → detail will be locked again
-    resetAccess(animal.id)
-    setForceLocked(true)
-
-    // 3) Clean up any local flags / media (optional)
-    try {
-      localStorage.removeItem(`adopt:${animal.id}`)
-      sessionStorage.removeItem(`adopt:${animal.id}`)
-    } catch {}
-    document.querySelectorAll('video').forEach(v => {
-      try { v.pause(); v.removeAttribute('src'); v.load() } catch {}
-    })
-
-    alert('Adopce byla zrušena. Děkujeme za dosavadní podporu.')
-  } catch (e: any) {
-    console.error('Cancel adoption failed', e)
-    alert(
-      'Nepodařilo se zrušit adopci. Zkuste to prosím znovu nebo nás kontaktujte.'
+    const confirmed = window.confirm(
+      'Opravdu chcete zrušit adopci tohoto zvířete? Tím ukončíte pravidelnou podporu.'
     )
-  }
-}, [animal, resetAccess])
+    if (!confirmed) return
+
+    try {
+      // 1) Tell backend to cancel the subscription
+      await cancelAdoption(animal.id)
+
+      // 2) Clear local unlock for this animal → detail will be locked again
+      resetAccess(animal.id)
+      setForceLocked(true)
+
+      // 3) Clean up any local flags / media (optional)
+      try {
+        localStorage.removeItem(`adopt:${animal.id}`)
+        sessionStorage.removeItem(`adopt:${animal.id}`)
+      } catch {}
+      document.querySelectorAll('video').forEach(v => {
+        try { v.pause(); v.removeAttribute('src'); v.load() } catch {}
+      })
+
+      alert('Adopce byla zrušena. Děkujeme za dosavadní podporu.')
+    } catch (e: any) {
+      console.error('Cancel adoption failed', e)
+      alert(
+        'Nepodařilo se zrušit adopci. Zkuste to prosím znovu nebo nás kontaktujte.'
+      )
+    }
+  }, [animal, resetAccess])
 
   if (loading) {
     return (
