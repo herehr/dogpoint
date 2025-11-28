@@ -1,8 +1,10 @@
 // frontend/src/components/Header.tsx
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import { Link as RouterLink, useNavigate } from 'react-router-dom'
-import { Box, Container, Stack, Button, Typography } from '@mui/material'
+import { Box, Container, Stack, Button, Typography, IconButton } from '@mui/material'
+import NotificationsNoneIcon from '@mui/icons-material/NotificationsNone'
 import { useAuth } from '../context/AuthContext'
+import api from '../services/api'
 
 type Props = {
   logoSrc?: string
@@ -20,23 +22,49 @@ export default function Header({
   const isMod   = role === 'MODERATOR'
   const isUser  = role === 'USER'
 
-  // Destination for the primary account button
-  const dashboardHref: string | undefined =
-    !token ? '/login'
-    : isAdmin ? '/admin'
-    : isMod   ? '/moderator'
-    : undefined   // ❗ no dashboard for regular users
+  const [hasUnread, setHasUnread] = useState(false)
 
-  const accountLabel: string | undefined =
-    !token ? 'Přihlášení'
+  // Destination for account button (admin/mod only)
+  const dashboardHref =
+    isAdmin ? '/admin'
+    : isMod  ? '/moderator'
+    : '/login'
+
+  const accountLabel =
+    !token   ? 'Přihlášení'
     : isAdmin ? 'Admin'
     : isMod   ? 'Moderátor'
-    : undefined   // ❗ no label for regular users
+    : '' // user will not see this button at all
 
   const handleLogout = () => {
     logout()
     navigate('/') // return to homepage after logout
   }
+
+  // --- load unread notifications once per login ---
+  useEffect(() => {
+    if (!token) {
+      setHasUnread(false)
+      return
+    }
+
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await api.get('/notifications/unread-count')
+        if (!cancelled) {
+          const count = (res.data && typeof res.data.count === 'number')
+            ? res.data.count
+            : 0
+          setHasUnread(count > 0)
+        }
+      } catch {
+        if (!cancelled) setHasUnread(false)
+      }
+    })()
+
+    return () => { cancelled = true }
+  }, [token])
 
   return (
     <Box
@@ -100,7 +128,7 @@ export default function Header({
             </Button>
           ) : (
             <Stack direction="row" spacing={1} alignItems="center">
-              {/* Show user email (trimmed) when logged in */}
+              {/* user email */}
               {user?.email && (
                 <Typography
                   variant="body2"
@@ -117,35 +145,50 @@ export default function Header({
                 </Typography>
               )}
 
-              {/* For USER role, offer direct “Moje adopce” */}
+              {/* USER: Moje adopce button */}
               {isUser && (
                 <Button component={RouterLink} to="/user" variant="outlined" sx={pillBtn}>
                   Moje&nbsp;adopce
                 </Button>
               )}
 
-              {isUser && (
-  <Button component={RouterLink} to="/user" variant="outlined" sx={pillBtn}>
-    Moje&nbsp;adopce
-  </Button>
-)}
-{token && (
-  <Button component={RouterLink} to="/notifikace" variant="outlined" sx={pillBtn}>
-    Notifikace
-  </Button>
-)}
-
-              {/* Primary account/dashboard button (only for Admin / Moderator) */}
-              {accountLabel && dashboardHref && (
-                <Button
-                  component={RouterLink}
-                  to={dashboardHref}
-                  variant="outlined"
-                  sx={pillBtn}
-                >
+              {/* ADMIN / MOD: dashboard button */}
+              {(isAdmin || isMod) && (
+                <Button component={RouterLink} to={dashboardHref} variant="outlined" sx={pillBtn}>
                   {accountLabel}
                 </Button>
               )}
+
+              {/* Notifications bell for all logged-in roles */}
+              <IconButton
+                component={RouterLink}
+                to="/notifikace"
+                sx={{
+                  position: 'relative',
+                  borderRadius: '50%',
+                  border: '1px solid rgba(0,0,0,0.35)',
+                  width: 36,
+                  height: 36,
+                  '&:hover': { backgroundColor: 'rgba(255,255,255,0.35)' },
+                }}
+                aria-label="Notifikace"
+              >
+                <NotificationsNoneIcon />
+                {hasUnread && (
+                  <Box
+                    sx={{
+                      position: 'absolute',
+                      top: 5,
+                      right: 5,
+                      width: 8,
+                      height: 8,
+                      borderRadius: '50%',
+                      backgroundColor: '#ff1744',
+                      animation: 'notifPulse 1.2s ease-in-out infinite',
+                    }}
+                  />
+                )}
+              </IconButton>
 
               {/* Logout */}
               <Button onClick={handleLogout} variant="text" sx={textBtn}>
@@ -182,7 +225,7 @@ export default function Header({
           <path
             d="M0,66 C260,116 520,30 780,40 C1040,50 1300,94 1440,82"
             fill="none"
-            stroke="#26E6EA"
+            stroke="#ffffff"
             strokeWidth="10"
           />
         </svg>
