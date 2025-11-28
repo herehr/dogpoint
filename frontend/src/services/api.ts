@@ -381,3 +381,35 @@ export async function uploadMedia(file: File) {
 export function logout() {
   clearToken()
 }
+
+// ---------- Optional: default export for legacy imports ----------
+const api = {
+  apiUrl,
+  setToken,
+  getToken,
+  clearToken,
+  authHeader,
+  qs,
+  getJSON,
+  postJSON,
+  patchJSON,
+  delJSON,
+  me,
+  login,
+  registerAfterPayment,
+  setPasswordFirstTime,
+  claimPaid,
+  confirmStripeSession,
+  createCheckoutSession,
+  stashPendingEmail,
+  popPendingEmail,
+  fetchAnimal,
+  myAdoptedAnimals,
+  cancelAdoption,
+  getAdoptionMe,
+  markAnimalSeen,
+  uploadMedia,
+  logout,
+}
+
+export default api
