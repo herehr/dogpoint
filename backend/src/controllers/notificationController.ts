@@ -34,11 +34,11 @@ export async function notifyUser(userId: string, payload: NotifyPayload) {
       type: payload.type,
       title: payload.title,
       message: payload.message,
-      // read: false, createdAt: now() → handled by defaults in Prisma
+      // createdAt is handled by @default(now()) in Prisma
     },
   })
 
-  // TODO: add e-mail sending here (using your mail service) if desired
+  // TODO: add e-mail sending here if needed
   // e.g. await sendNotificationEmail(userId, payload)
 
   return notif
@@ -59,7 +59,7 @@ export async function listMyNotifications(req: Req, res: Response) {
 }
 
 // POST /api/notifications/:id/read
-// marks a notification as read
+// For now: mark as handled by DELETING the notification
 export async function markNotificationRead(req: Req, res: Response) {
   const auth = getAuth(req)
   if (!auth) return res.status(401).json({ error: 'Unauthorized' })
@@ -67,14 +67,13 @@ export async function markNotificationRead(req: Req, res: Response) {
   const { id } = req.params
   if (!id) return res.status(400).json({ error: 'notification id required' })
 
-  const result = await prisma.notification.updateMany({
+  const result = await prisma.notification.deleteMany({
     where: { id, userId: auth.id },
-    data: { read: true },
   })
 
   if (result.count === 0) {
     return res.status(404).json({ error: 'Notifikace nenalezena' })
   }
 
-  return res.json({ ok: true })
+  return res.json({ ok: true, deletedCount: result.count })
 }
