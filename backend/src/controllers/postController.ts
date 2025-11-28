@@ -1,7 +1,18 @@
 // backend/src/controllers/postController.ts
 import { Request, Response } from 'express'
 import { prisma } from '../prisma'
-import { AuthRequest } from '../types/express'
+
+/**
+ * If you have global Express augmentation (req.user),
+ * this local type just makes TypeScript happy in this file.
+ */
+interface AuthUserPayload {
+  id: string
+  role: string
+  email?: string
+}
+
+type ReqWithUser = Request & { user?: AuthUserPayload }
 
 /* ------------------------------------------------------------------ */
 /* Helper types                                                       */
@@ -17,7 +28,7 @@ interface CreatePostBody {
 /* POST /api/posts                                                    */
 /* Create post (ADMIN / MODERATOR)                                    */
 /* ------------------------------------------------------------------ */
-export const createPost = async (req: AuthRequest, res: Response) => {
+export const createPost = async (req: ReqWithUser, res: Response) => {
   try {
     const { animalId, title, body, mediaUrls }: CreatePostBody = req.body || {}
 
@@ -27,7 +38,7 @@ export const createPost = async (req: AuthRequest, res: Response) => {
       })
     }
 
-    // optional: check that animal exists and is active
+    // optional: check that animal exists
     const animal = await prisma.animal.findUnique({
       where: { id: animalId },
     })
@@ -117,7 +128,7 @@ export const getPublicPosts = async (req: Request, res: Response) => {
 
 /* ------------------------------------------------------------------ */
 /* GET /api/posts/count-new?animalId=...&since=ISO_DATE               */
-/* optional helper endpoint (not required if using simple polling)    */
+/* optional helper endpoint                                           */
 /* ------------------------------------------------------------------ */
 export const countNewPostsSince = async (req: Request, res: Response) => {
   try {
