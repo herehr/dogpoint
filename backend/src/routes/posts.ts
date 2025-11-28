@@ -43,10 +43,10 @@ function isStaff(role?: string): boolean {
 }
 
 /* ──────────────────────────────────────────────────────────
-   GET /api/posts  (public)
+   GET /api/posts + /api/posts/public (public)
    Optional: ?animalId=...
 ─────────────────────────────────────────────────────────── */
-router.get('/', tryAttachUser, async (req: Request, res: Response): Promise<void> => {
+router.get(['/', '/public'], tryAttachUser, async (req: Request, res: Response): Promise<void> => {
   try {
     const animalId = req.query.animalId ? String(req.query.animalId) : undefined
     const posts = await prisma.post.findMany({
