@@ -16,6 +16,7 @@ import LogoutIcon from '@mui/icons-material/Logout'
 import PostAddIcon from '@mui/icons-material/PostAdd'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import { useNavigate } from 'react-router-dom'
+import RichTextEditor from '../components/RichTextEditor'
 
 import {
   fetchAnimals, type Animal, createAnimal, updateAnimal, deleteAnimal,
@@ -440,25 +441,29 @@ export default function AnimalsManager() {
               {/* Basic fields */}
               <Stack spacing={2}>
                 <TextField
-                  label="Jméno"
-                  value={form.jmeno || ''}
-                  onChange={(e) => setForm(f => ({ ...f, jmeno: e.target.value }))}
-                  required
-                  fullWidth
-                />
-                <TextField
-                  label="Popis"
-                  value={form.popis || ''}
-                  onChange={(e) => setForm(f => ({ ...f, popis: e.target.value }))}
-                  multiline minRows={3}
-                  fullWidth
-                />
-                <TextField
-                  label="Charakteristika (krátká věta na kartě)"
-                  value={form.charakteristik || ''}
-                  onChange={(e) => setForm(f => ({ ...f, charakteristik: e.target.value }))}
-                  fullWidth
-                />
+  label="Jméno"
+  value={form.jmeno || ''}
+  onChange={(e) => setForm(f => ({ ...f, jmeno: e.target.value }))}
+  required
+  fullWidth
+/>
+
+{/* POPIS – dlouhý text s formátováním */}
+<RichTextEditor
+  label="Popis"
+  value={form.popis || ''}
+  onChange={(val) => setForm(f => ({ ...f, popis: val }))}
+  helperText="Delší text o zvířeti – můžete použít tučné, kurzívu, podtržení a barvy."
+/>
+
+{/* CHARAKTERISTIKA – krátká věta na kartě */}
+<RichTextEditor
+  label="Charakteristika (krátká věta na kartě)"
+  value={form.charakteristik || ''}
+  onChange={(val) => setForm(f => ({ ...f, charakteristik: val }))}
+  helperText="Krátká věta, kterou můžete zvýraznit formátováním."
+/>
+               
 
                 {/* Birth info row */}
                 <Grid container spacing={2}>

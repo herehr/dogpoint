@@ -21,12 +21,9 @@ import { useAccess } from '../context/AccessContext'
 import PostsSection from '../components/PostsSection'
 import BlurBox from '../components/BlurBox'
 import { useAuth } from '../context/AuthContext'
-import SafeMarkdown from '../components/SafeMarkdown'
+import SafeHTML from '../components/SafeHTML'
 import AfterPaymentPasswordDialog from '../components/AfterPaymentPasswordDialog'
-import {
-  confirmStripeSession,
-  cancelAdoption,
-} from '../services/api'
+import { confirmStripeSession, cancelAdoption } from '../services/api'
 
 type Media = { url: string; type?: 'image' | 'video' }
 type LocalAnimal = {
@@ -59,6 +56,7 @@ interface AnimalPost {
   }[]
 }
 
+// Base URL for backend (same as other places in your app)
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api'
 
 function asUrl(x: string | Media | undefined | null): string | null {
@@ -107,8 +105,7 @@ export default function AnimalDetail() {
   // state for posts + notification tracking
   const [posts, setPosts] = useState<AnimalPost[]>([])
   const [hasNewPosts, setHasNewPosts] = useState(false)
-  const [lastPostId, setLastPostId] = useState<string | null>(null)
-  const [lastCheckAt, setLastCheckAt] = useState<string | null>(null)
+  const [lastPostCount, setLastPostCount] = useState<number>(0)
 
   // Read Stripe return flags ONCE
   const { paid, sid } = useMemo(() => {
@@ -145,9 +142,14 @@ export default function AnimalDetail() {
   const loadPosts = useCallback(
     async (animalId: string) => {
       const url = `${API_BASE}/posts/public?animalId=${encodeURIComponent(animalId)}`
+      console.log('[notify] fetch posts from', url)
       const res = await fetch(url)
-      if (!res.ok) throw new Error(`Posts fetch failed: ${res.status}`)
+      if (!res.ok) {
+        console.warn('[notify] posts fetch failed', res.status, res.statusText)
+        throw new Error(`Posts fetch failed: ${res.status}`)
+      }
       const data: AnimalPost[] = await res.json()
+      console.log('[notify] received posts', data.length)
       return data
     },
     []
@@ -165,10 +167,8 @@ export default function AnimalDetail() {
         if (canceled) return
 
         setPosts(data)
-        if (data.length > 0) {
-          setLastPostId(data[0].id) // newest first (backend orders by publishedAt desc)
-        }
-        setLastCheckAt(new Date().toISOString())
+        setLastPostCount(data.length)
+        console.log('[notify] initial posts count', data.length)
       } catch (e) {
         if (!canceled) {
           console.warn('[AnimalDetail] Nepodařilo se načíst příspěvky pro notifikace', e)
@@ -183,34 +183,33 @@ export default function AnimalDetail() {
     }
   }, [id, loadPosts])
 
-  // Poll every 30 s for new posts
+  // Poll every 30 s for new posts – based on COUNT difference
   useEffect(() => {
     if (!id) return
 
     const interval = setInterval(async () => {
       try {
         const data = await loadPosts(id)
-        if (data.length === 0) return
+        const newCount = data.length
+        console.log('[notify] poll: oldCount=', lastPostCount, 'newCount=', newCount)
 
-        const newest = data[0]
-
-        // first time → just initialize state
-        if (!lastPostId) {
-          setLastPostId(newest.id)
+        // First time after mount – initialize and do nothing
+        if (lastPostCount === 0) {
           setPosts(data)
-          setLastCheckAt(new Date().toISOString())
+          setLastPostCount(newCount)
           return
         }
 
-        // NEW POST detected
-        if (newest.id !== lastPostId) {
+        // NEW POSTS detected
+        if (newCount > lastPostCount) {
+          console.log('[notify] NEW posts detected!')
           setHasNewPosts(true)
           setPosts(data)
-          setLastPostId(newest.id)
-          setLastCheckAt(new Date().toISOString())
+          setLastPostCount(newCount)
 
+          const newest = data[0] || data[data.length - 1]
           triggerBrowserNotification('Nový příspěvek u vašeho adoptovaného zvířete', {
-            body: newest.title || 'Podívejte se na nový příspěvek.',
+            body: newest?.title || 'Podívejte se na nový příspěvek.',
           })
         }
       } catch (e) {
@@ -219,7 +218,7 @@ export default function AnimalDetail() {
     }, 30000)
 
     return () => clearInterval(interval)
-  }, [id, lastPostId, loadPosts])
+  }, [id, lastPostCount, loadPosts])
 
   // Prefill email for after-payment (prefer logged-in, else stashed)
   const prefillEmail = useMemo(() => {
@@ -264,17 +263,10 @@ export default function AnimalDetail() {
 
         // If backend returned a token → auto-login via AuthContext and go straight to /user
         if (token) {
-          // Use AuthContext so route guards see the logged-in state immediately
           login(token, 'USER')
-
           navigate('/user', { replace: true })
           return
         }
-
-        // IMPORTANT:
-        // - Do NOT grantAccess(id)
-        // - Do NOT setForceLocked(false)
-        // → animal remains blurred until user logs in manually
 
         // Optional: show after-payment dialog so user can finish account setup
         if (confirmedEmail) {
@@ -287,9 +279,6 @@ export default function AnimalDetail() {
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, paid, sid])
-
-  // amount quick presets
-  const pickAmount = (v: number) => setAmount(v)
 
   // go to pre-checkout page instead of Stripe directly
   const handleAdoptNow = useCallback(() => {
@@ -384,12 +373,20 @@ export default function AnimalDetail() {
             {title}
           </Typography>
 
+          {/* Small counter so we SEE that polling reads posts */}
+          <Chip
+            size="small"
+            label={posts.length}
+            variant="outlined"
+            color={hasNewPosts ? 'primary' : 'default'}
+            sx={{ mr: 0.5 }}
+          />
+
           {/* Notification icon – blinks when hasNewPosts === true */}
           <NotificationsIcon
             className={hasNewPosts ? 'notification-icon blink' : 'notification-icon'}
             titleAccess={hasNewPosts ? 'Nový příspěvek' : 'Příspěvky'}
             onClick={() => {
-              // scroll to posts section and reset flag
               const el = document.getElementById('posts')
               if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
               setHasNewPosts(false)
@@ -398,21 +395,21 @@ export default function AnimalDetail() {
         </Stack>
 
         {animal.charakteristik && (
-          <div
-            style={{
-              fontWeight: 700,
-              padding: '6px 10px',
-              borderRadius: 12,
-              display: 'inline-block',
-              background: '#00bcd4',
-              color: 'white',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
-              maxWidth: '100%',
-              wordBreak: 'break-word',
-            }}
-          >
-            <SafeMarkdown>{animal.charakteristik}</SafeMarkdown>
-          </div>
+           <div
+          style={{
+          fontWeight: 700,
+          padding: '6px 10px',
+          borderRadius: 12,
+          display: 'inline-block',
+          background: '#e0f7fa', // světle tyrkysové pozadí
+          // ❌ remove color: 'white'
+          boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
+          maxWidth: '100%',
+          wordBreak: 'break-word',
+          }}
+         >
+           <SafeHTML>{animal.charakteristik}</SafeHTML>
+         </div>
         )}
 
         <Stack direction="row" spacing={1} alignItems="center">
@@ -460,7 +457,7 @@ export default function AnimalDetail() {
               Popis
             </Typography>
             <div style={{ lineHeight: 1.6 }}>
-              <SafeMarkdown>{desc}</SafeMarkdown>
+              <SafeHTML>{desc}</SafeHTML>
             </div>
 
             <Divider sx={{ my: 2 }} />

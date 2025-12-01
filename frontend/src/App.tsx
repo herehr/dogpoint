@@ -30,6 +30,8 @@ import UserDashboard from './pages/UserDashboard'
 import AdoptionStart from './pages/AdoptionStart'
 import OchranaOsobnichUdaju from './pages/OchranaOsobnichUdaju'
 import NotificationsPage from './pages/NotificationsPage'
+import 'react-quill/dist/quill.snow.css'
+import ModeratorNewPost from './pages/ModeratorNewPost'
 
 function AppLayout() {
   return (
@@ -160,6 +162,7 @@ useEffect(() => {
             </RequireRole>
           }
         />
+        <Route path="/moderator/posts/novy" element={<ModeratorNewPost />} />
 
         {/* User */}
         <Route

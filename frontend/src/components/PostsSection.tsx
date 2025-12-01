@@ -1,8 +1,16 @@
 // frontend/src/components/PostsSection.tsx
 import React, { useEffect, useState, useRef } from 'react'
 import {
-  Alert, Box, Button, Stack, TextField, Typography, IconButton,
-  LinearProgress, Grid, Tooltip
+  Alert,
+  Box,
+  Button,
+  Stack,
+  TextField,
+  Typography,
+  IconButton,
+  LinearProgress,
+  Grid,
+  Tooltip,
 } from '@mui/material'
 import UploadIcon from '@mui/icons-material/UploadFile'
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera'
@@ -11,8 +19,10 @@ import DeleteIcon from '@mui/icons-material/Delete'
 import { createPost, listPostsPublic, uploadMediaMany } from '../api'
 import { useAccess } from '../context/AccessContext'
 import { useAuth } from '../context/AuthContext'
+import RichTextEditor from '../components/RichTextEditor'
+import SafeHTML from '../components/SafeHTML'
 
-type Media = { url: string; type?: 'image'|'video' }
+type Media = { url: string; type?: 'image' | 'video' }
 type Post = {
   id: string
   animalId: string
@@ -24,7 +34,7 @@ type Post = {
   active?: boolean
 }
 
-const EMOJIS = ['🐾','❤️','😊','🥰','👏','🎉','😍','🤗','🌟','👍']
+const EMOJIS = ['🐾', '❤️', '😊', '🥰', '👏', '🎉', '😍', '🤗', '🌟', '👍']
 
 export default function PostsSection({ animalId }: { animalId: string }) {
   const { hasAccess } = useAccess()
@@ -65,7 +75,9 @@ export default function PostsSection({ animalId }: { animalId: string }) {
     }
   }
 
-  useEffect(() => { refresh() }, [animalId])
+  useEffect(() => {
+    refresh()
+  }, [animalId])
 
   function addEmoji(emoji: string) {
     setBody((prev) => (prev ? prev + ' ' + emoji : emoji))
@@ -75,12 +87,13 @@ export default function PostsSection({ animalId }: { animalId: string }) {
     e.preventDefault()
     if (!canWrite) return
     if (!title.trim() && !body.trim() && media.length === 0) return
-    setSaving(true); setErr(null)
+    setSaving(true)
+    setErr(null)
     try {
       await createPost({
         animalId,
         title: title.trim() || 'Bez názvu',
-        body: body.trim() || undefined,
+        body: body.trim() || undefined, // HTML from RichTextEditor
         media: media.length ? media : undefined,
       })
       setTitle('')
@@ -95,7 +108,7 @@ export default function PostsSection({ animalId }: { animalId: string }) {
   }
 
   async function handleFiles(files: FileList | File[]) {
-    const arr = Array.from(files).filter(f => f && f.size > 0)
+    const arr = Array.from(files).filter((f) => f && f.size > 0)
     if (arr.length === 0) return
     setUploading(true)
     setErr(null)
@@ -104,13 +117,13 @@ export default function PostsSection({ animalId }: { animalId: string }) {
         setUploadNote(`Nahrávám ${index + 1} / ${total}…`)
       })
       const now = Date.now()
-      setMedia((m) => ([
+      setMedia((m) => [
         ...m,
-        ...urls.map(u => ({
+        ...urls.map((u) => ({
           url: `${u}${u.includes('?') ? '&' : '?'}v=${now}`,
-          type: guessTypeFromUrl(u)
-        }))
-      ]))
+          type: guessTypeFromUrl(u),
+        })),
+      ])
     } catch (e: any) {
       setErr(e?.message || 'Nahrání selhalo')
     } finally {
@@ -123,22 +136,26 @@ export default function PostsSection({ animalId }: { animalId: string }) {
     if (e.target.files) handleFiles(e.target.files)
     e.target.value = ''
   }
+
   function onPickCamera(e: React.ChangeEvent<HTMLInputElement>) {
     if (e.target.files) handleFiles(e.target.files)
     e.target.value = ''
   }
+
   function onDrop(e: React.DragEvent<HTMLDivElement>) {
     e.preventDefault()
     e.stopPropagation()
     const files = e.dataTransfer?.files
     if (files && files.length) handleFiles(files)
   }
+
   function onDragOver(e: React.DragEvent<HTMLDivElement>) {
     e.preventDefault()
     e.stopPropagation()
   }
+
   function removeMediaIndex(i: number) {
-    setMedia(list => list.filter((_, idx) => idx !== i))
+    setMedia((list) => list.filter((_, idx) => idx !== i))
   }
 
   return (
@@ -147,7 +164,11 @@ export default function PostsSection({ animalId }: { animalId: string }) {
         Příspěvky
       </Typography>
 
-      {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
+      {err && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {err}
+        </Alert>
+      )}
 
       {!unlocked && (
         <Alert severity="info" sx={{ mb: 2 }}>
@@ -161,9 +182,18 @@ export default function PostsSection({ animalId }: { animalId: string }) {
         <Typography color="text.secondary">Zatím žádné příspěvky.</Typography>
       ) : (
         <Stack spacing={1.5} sx={{ mb: 3 }}>
-          {posts.map(p => (
-            <Box key={p.id} sx={{ p: 1.5, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
+          {posts.map((p) => (
+            <Box
+              key={p.id}
+              sx={{
+                p: 1.5,
+                border: '1px solid',
+                borderColor: 'divider',
+                borderRadius: 2,
+              }}
+            >
               <Typography sx={{ fontWeight: 700, mb: 0.5 }}>{p.title}</Typography>
+
               {p.media && p.media.length > 0 && (
                 <Grid container spacing={1} sx={{ mb: 1 }}>
                   {p.media.map((m, i) => (
@@ -173,20 +203,42 @@ export default function PostsSection({ animalId }: { animalId: string }) {
                         href={m.url}
                         target="_blank"
                         rel="noreferrer"
-                        sx={{ display: 'block', width: '100%', height: 140, borderRadius: 2, overflow: 'hidden', border: '1px solid', borderColor: 'divider' }}
+                        sx={{
+                          display: 'block',
+                          width: '100%',
+                          height: 140,
+                          borderRadius: 2,
+                          overflow: 'hidden',
+                          border: '1px solid',
+                          borderColor: 'divider',
+                        }}
                       >
                         <img
                           src={m.url}
                           alt={`post-media-${i}`}
-                          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                          style={{
+                            width: '100%',
+                            height: '100%',
+                            objectFit: 'cover',
+                          }}
                         />
                       </Box>
                     </Grid>
                   ))}
                 </Grid>
               )}
-              {p.body && <Typography color="text.secondary" sx={{ whiteSpace: 'pre-line' }}>{p.body}</Typography>}
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+
+              {p.body && (
+                <Box sx={{ color: 'text.secondary', mt: 0.5 }}>
+                  <SafeHTML>{p.body}</SafeHTML>
+                </Box>
+              )}
+
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ display: 'block', mt: 0.5 }}
+              >
                 {new Date(p.createdAt).toLocaleString()}
               </Typography>
             </Box>
@@ -203,8 +255,16 @@ export default function PostsSection({ animalId }: { animalId: string }) {
               <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
                 Fotky / Videa
               </Typography>
-              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center">
-                <Button onClick={() => fileInputRef.current?.click()} startIcon={<UploadIcon />} variant="outlined">
+              <Stack
+                direction={{ xs: 'column', sm: 'row' }}
+                spacing={2}
+                alignItems="center"
+              >
+                <Button
+                  onClick={() => fileInputRef.current?.click()}
+                  startIcon={<UploadIcon />}
+                  variant="outlined"
+                >
                   Vybrat soubory
                 </Button>
                 <input
@@ -215,7 +275,11 @@ export default function PostsSection({ animalId }: { animalId: string }) {
                   accept="image/*,video/*"
                   onChange={onPickFiles}
                 />
-                <Button onClick={() => cameraInputRef.current?.click()} startIcon={<PhotoCameraIcon />} variant="outlined">
+                <Button
+                  onClick={() => cameraInputRef.current?.click()}
+                  startIcon={<PhotoCameraIcon />}
+                  variant="outlined"
+                >
                   Vyfotit (telefon)
                 </Button>
                 <input
@@ -240,7 +304,7 @@ export default function PostsSection({ animalId }: { animalId: string }) {
                   textAlign: 'center',
                   color: 'text.secondary',
                   cursor: 'copy',
-                  userSelect: 'none'
+                  userSelect: 'none',
                 }}
               >
                 Přetáhněte sem fotografie nebo videa
@@ -249,7 +313,9 @@ export default function PostsSection({ animalId }: { animalId: string }) {
               {uploading && (
                 <Stack spacing={1} sx={{ mt: 1 }}>
                   <LinearProgress />
-                  <Typography variant="caption" color="text.secondary">{uploadNote}</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {uploadNote}
+                  </Typography>
                 </Stack>
               )}
 
@@ -257,17 +323,35 @@ export default function PostsSection({ animalId }: { animalId: string }) {
                 <Grid container spacing={1.5} sx={{ mt: 0.5 }}>
                   {media.map((m, i) => (
                     <Grid item xs={6} sm={4} md={3} key={`${m.url}-${i}`}>
-                      <Box sx={{ position: 'relative', border: '1px solid', borderColor: 'divider', borderRadius: 2, overflow: 'hidden' }}>
+                      <Box
+                        sx={{
+                          position: 'relative',
+                          border: '1px solid',
+                          borderColor: 'divider',
+                          borderRadius: 2,
+                          overflow: 'hidden',
+                        }}
+                      >
                         <img
                           src={m.url}
                           alt={`new-media-${i}`}
-                          style={{ width: '100%', height: 140, objectFit: 'cover', display: 'block' }}
+                          style={{
+                            width: '100%',
+                            height: 140,
+                            objectFit: 'cover',
+                            display: 'block',
+                          }}
                         />
                         <Tooltip title="Odebrat">
                           <IconButton
                             size="small"
                             onClick={() => removeMediaIndex(i)}
-                            sx={{ position: 'absolute', top: 6, right: 6, bgcolor: 'rgba(255,255,255,0.9)' }}
+                            sx={{
+                              position: 'absolute',
+                              top: 6,
+                              right: 6,
+                              bgcolor: 'rgba(255,255,255,0.9)',
+                            }}
                           >
                             <DeleteIcon fontSize="small" />
                           </IconButton>
@@ -283,15 +367,15 @@ export default function PostsSection({ animalId }: { animalId: string }) {
             <TextField
               label="Titulek"
               value={title}
-              onChange={e => setTitle(e.target.value)}
+              onChange={(e) => setTitle(e.target.value)}
               required={!body && media.length === 0}
             />
-            <TextField
+
+            <RichTextEditor
               label="Text"
               value={body}
-              onChange={e => setBody(e.target.value)}
-              multiline
-              minRows={3}
+              onChange={setBody}
+              helperText="Můžete použít tučné, kurzívu, podtržení a barvu (tyrkysová)."
             />
 
             {/* Emoji row */}
