@@ -80,8 +80,19 @@ export default function PostsSection({ animalId }: { animalId: string }) {
   }, [animalId])
 
   function addEmoji(emoji: string) {
-    setBody((prev) => (prev ? prev + ' ' + emoji : emoji))
-  }
+  setBody(prev => {
+    if (!prev) return emoji
+
+    // Try to put the emoji inside the last </p>, so it stays on the same line
+    const endP = prev.lastIndexOf('</p>')
+    if (endP !== -1) {
+      return prev.slice(0, endP) + ' ' + emoji + prev.slice(endP)
+    }
+
+    // Fallback if there is no <p>…</p> yet
+    return prev + ' ' + emoji
+  })
+}
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()

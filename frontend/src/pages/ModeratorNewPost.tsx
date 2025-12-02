@@ -1,128 +1,145 @@
 // frontend/src/pages/ModeratorNewPost.tsx
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useCallback } from 'react'
 import {
   Container,
   Typography,
-  TextField,
   Stack,
+  TextField,
   Button,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
   Alert,
   Box,
-  MenuItem,
-  CircularProgress,
 } from '@mui/material'
 import { useNavigate } from 'react-router-dom'
 import RichTextEditor from '../components/RichTextEditor'
-import { fetchAnimals } from '../api' // 👈 use same helper as /zvirata
+import { createPost } from '../api'
+import { useAuth } from '../context/AuthContext'
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api'
+// Read staff token from the SAME place as AuthContext (sessionStorage['accessToken'])
+function getStaffToken() {
+  try {
+    return sessionStorage.getItem('accessToken') || ''
+  } catch {
+    return ''
+  }
+}
 
-type Animal = {
+type AnimalOption = {
   id: string
   jmeno?: string
   name?: string
-  active?: boolean
 }
 
+const EMOJIS = ['🐾', '❤️', '😊', '🥰', '👏', '🎉', '😍', '🤗', '🌟', '👍']
+
 export default function ModeratorNewPost() {
+  const navigate = useNavigate()
+
+  const [animals, setAnimals] = useState<AnimalOption[]>([])
+  const [loadingAnimals, setLoadingAnimals] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const { token } = useAuth()
+
   const [animalId, setAnimalId] = useState('')
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
 
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
 
-  const [animals, setAnimals] = useState<Animal[]>([])
-  const [animalsLoading, setAnimalsLoading] = useState(true)
-  const [animalsError, setAnimalsError] = useState<string | null>(null)
+  const loadAnimals = useCallback(async () => {
+    try {
+      setLoadingAnimals(true)
+      setError(null)
 
-  const navigate = useNavigate()
-
-  // Load animals for dropdown using the same API helper as /zvirata
-  useEffect(() => {
-    let cancelled = false
-
-    const loadAnimals = async () => {
-      setAnimalsLoading(true)
-      setAnimalsError(null)
-
-      try {
-        const data = (await fetchAnimals()) as Animal[]
-
-        if (cancelled) return
-
-        const activeAnimals = (data || []).filter((a) => a.active !== false)
-        setAnimals(activeAnimals)
-
-        if (activeAnimals.length > 0 && !animalId) {
-          setAnimalId(activeAnimals[0].id)
-        }
-      } catch (err: any) {
-        if (!cancelled) {
-          console.error('[ModeratorNewPost] loadAnimals failed', err)
-          setAnimalsError(err?.message || 'Nepodařilo se načíst zvířata.')
-        }
-      } finally {
-        if (!cancelled) setAnimalsLoading(false)
+      const token = getStaffToken()
+      if (!token) {
+        setError('Nejste přihlášen jako moderátor nebo admin.')
+        return
       }
-    }
 
-    loadAnimals()
+      const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api'
+      const res = await fetch(`${API_BASE}/api/animals?active=true`, {
+  headers: {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${token}`,
+  },
+})
 
-    return () => {
-      cancelled = true
+      if (!res.ok) {
+        throw new Error(`Načtení zvířat selhalo: ${res.status}`)
+      }
+
+      const data = await res.json()
+      setAnimals(data || [])
+    } catch (e: any) {
+      console.error('[ModeratorNewPost] loadAnimals error', e)
+      setError(e?.message || 'Nepodařilo se načíst zvířata.')
+    } finally {
+      setLoadingAnimals(false)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  useEffect(() => {
+    loadAnimals()
+  }, [loadAnimals])
+
+  const addEmoji = (emoji: string) => {
+  setBody(prev => {
+    if (!prev) return emoji
+
+    const endP = prev.lastIndexOf('</p>')
+    if (endP !== -1) {
+      return prev.slice(0, endP) + ' ' + emoji + prev.slice(endP)
+    }
+
+    return prev + ' ' + emoji
+  })
+}
+
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
-    setSuccess(null)
+    setSuccessMessage(null)
 
-    if (!animalId || !title || !body) {
-      setError('Vyplňte prosím zvíře, titulek a text příspěvku.')
+    if (!animalId) {
+      setError('Vyberte prosím zvíře.')
+      return
+    }
+    if (!title.trim()) {
+      setError('Zadejte prosím titulek příspěvku.')
+      return
+    }
+    if (!body.trim()) {
+      setError('Text příspěvku nesmí být prázdný.')
       return
     }
 
-    setLoading(true)
     try {
-      const token =
-        sessionStorage.getItem('moderatorToken') ||
-        localStorage.getItem('moderatorToken') ||
-        localStorage.getItem('token') ||
-        ''
+      setSaving(true)
 
-      const res = await fetch(`${API_BASE}/posts`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({ animalId, title, body }),
+      await createPost({
+        animalId,
+        title: title.trim(),
+        body, // HTML z RichTextEditoru
       })
 
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        throw new Error(data?.message || `Chyba ${res.status}`)
-      }
-
-      setSuccess('Příspěvek byl úspěšně uložen.')
+      setSuccessMessage('Příspěvek byl uložen.')
+      setTitle('')
       setBody('')
-      // animalId & title necháme pro další příspěvky
-    } catch (err: any) {
-      console.error('[ModeratorNewPost] create post failed', err)
-      setError(err?.message || 'Nepodařilo se uložit příspěvek.')
+    } catch (e: any) {
+      console.error('[ModeratorNewPost] createPost error', e)
+      setError(e?.message || 'Nepodařilo se uložit příspěvek.')
     } finally {
-      setLoading(false)
+      setSaving(false)
     }
   }
 
-  const selectedAnimal = animals.find((a) => a.id === animalId) || null
-
   return (
-    <Container maxWidth="md" sx={{ py: 6 }}>
+    <Container maxWidth="md" sx={{ py: 4 }}>
       <Stack
         direction="row"
         justifyContent="space-between"
@@ -137,69 +154,85 @@ export default function ModeratorNewPost() {
         </Button>
       </Stack>
 
-      <Box component="form" onSubmit={handleSubmit}>
-        <Stack spacing={2}>
-          {error && <Alert severity="error">{error}</Alert>}
-          {success && <Alert severity="success">{success}</Alert>}
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
+      {successMessage && (
+        <Alert severity="success" sx={{ mb: 2 }}>
+          {successMessage}
+        </Alert>
+      )}
 
-          {/* Zvíře – dropdown aktivních zvířat */}
-          <TextField
-            select
-            fullWidth
+      <Box component="form" onSubmit={handleSave}>
+        <FormControl fullWidth margin="normal" disabled={loadingAnimals}>
+          <InputLabel id="animal-select-label">Zvíře</InputLabel>
+          <Select
+            labelId="animal-select-label"
             label="Zvíře"
             value={animalId}
-            onChange={(e) => setAnimalId(e.target.value)}
-            disabled={animalsLoading || !!animalsError}
-            helperText={
-              animalsError
-                ? animalsError
-                : selectedAnimal
-                ? `Vybráno: ${selectedAnimal.jmeno || selectedAnimal.name || selectedAnimal.id}`
-                : 'Vyberte zvíře, ke kterému chcete přidat příspěvek.'
-            }
+            onChange={e => setAnimalId(e.target.value)}
           >
-            {animalsLoading && (
-              <MenuItem value="" disabled>
-                <CircularProgress size={20} sx={{ mr: 1 }} /> Načítám zvířata…
+            {animals.map(a => (
+              <MenuItem key={a.id} value={a.id}>
+                {a.jmeno || a.name || a.id}
               </MenuItem>
-            )}
+            ))}
+          </Select>
+        </FormControl>
 
-            {!animalsLoading && animals.length === 0 && !animalsError && (
-              <MenuItem value="" disabled>
-                Žádná aktivní zvířata.
-              </MenuItem>
-            )}
+        <TextField
+          label="Titulek"
+          fullWidth
+          margin="normal"
+          value={title}
+          onChange={e => setTitle(e.target.value)}
+        />
 
-            {animals.map((a) => {
-              const label = a.jmeno || a.name || a.id
-              return (
-                <MenuItem key={a.id} value={a.id}>
-                  {label} 
-                </MenuItem>
-              )
-            })}
-          </TextField>
-
-          {/* Titulek */}
-          <TextField
-            label="Titulek"
-            fullWidth
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-          />
-
-          {/* Rich text – tučné, kurzíva, podtržení, tyrkysová */}
+        <Box sx={{ mt: 2 }}>
           <RichTextEditor
             label="Text příspěvku"
             value={body}
             onChange={setBody}
-            helperText="Můžete použít tučné, kurzívu, podtržení a barvu (např. tyrkysová)."
+            helperText="Můžete použít tučné, kurzívu, podtržení a barvu (tyrkysová)."
           />
+        </Box>
 
-          <Button type="submit" variant="contained" disabled={loading}>
-            {loading ? 'Ukládám…' : 'Uložit příspěvek'}
-          </Button>
-        </Stack>
+        {/* Emoji row */}
+       <Box
+  sx={{
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: 1,
+    mt: 1,
+  }}
+>
+  {EMOJIS.map((emo) => (
+    <Button
+      key={emo}
+      size="small"
+      variant="text"
+      onClick={() => addEmoji(emo)}
+      sx={{
+        minWidth: 36,
+        px: 1,
+        py: 0.5,
+        lineHeight: 1,
+      }}
+    >
+      {emo}
+    </Button>
+  ))}
+</Box>
+        <Button
+          type="submit"
+          variant="contained"
+          sx={{ mt: 3 }}
+          disabled={saving}
+        >
+          {saving ? 'Ukládám...' : 'Uložit příspěvek'}
+        </Button>
       </Box>
     </Container>
   )
