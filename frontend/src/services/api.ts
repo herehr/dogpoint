@@ -412,4 +412,108 @@ const api = {
   logout,
 }
 
+// === Notifications for "my" adopted animals ====================
+
+/** Use same API_BASE as above (do NOT redeclare) */
+const NOTIF_API_BASE = API_BASE || '/api'
+
+export type MyNotificationItem = {
+  id: string
+  title: string
+  body?: string | null
+  publishedAt: string
+  animalId: string
+  animalName: string
+}
+
+/** Fetch my active adoptions */
+export async function fetchMyAdoptions(): Promise<any[]> {
+  const token = sessionStorage.getItem('accessToken')
+  if (!token) throw new Error('Nejste přihlášen.')
+
+  const res = await fetch(`${NOTIF_API_BASE}/api/adoption/my`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+  if (!res.ok) {
+    throw new Error(`Načtení adopcí selhalo: ${res.status}`)
+  }
+  return await res.json()
+}
+
+/** Fetch posts for one animal */
+export async function fetchPostsForAnimal(animalId: string): Promise<any[]> {
+  const res = await fetch(
+    `${NOTIF_API_BASE}/api/posts/public?animalId=${encodeURIComponent(animalId)}`
+  )
+  if (!res.ok) {
+    throw new Error(`Načtení příspěvků selhalo: ${res.status}`)
+  }
+  return await res.json()
+}
+
+/** Load the real animal name via backend */
+export async function fetchAnimalName(animalId: string): Promise<string> {
+  try {
+    const a = await fetchAnimal(animalId)
+    return a.jmeno || a.name || 'Zvíře'
+  } catch {
+    return 'Zvíře'
+  }
+}
+
+/**
+ * Build notification list:
+ * 1. load my adoptions
+ * 2. for each animal load posts
+ * 3. attach real animal name
+ */
+export async function fetchMyNotifications(): Promise<MyNotificationItem[]> {
+  const adoptions = await fetchMyAdoptions()
+
+  // keep only active / valid subscriptions
+  const active = (adoptions || []).filter(
+    (a: any) =>
+      !a.status ||
+      a.status === 'ACTIVE' ||
+      a.status === 'ACTIVE_ADOPTION' ||
+      a.status === 'ACTIVE_ADOPT'
+  )
+
+  const allPostsPerAnimal = await Promise.all(
+    active.map(async (ad: any) => {
+      const animalId = ad.animalId
+      if (!animalId) return []
+
+      // fetch real animal name
+      const animalName = await fetchAnimalName(animalId)
+
+      // fetch all posts for this animal
+      const posts = await fetchPostsForAnimal(animalId)
+
+      return (posts || []).map((p: any) => ({
+        id: p.id,
+        title: p.title,
+        body: p.body,
+        publishedAt: p.publishedAt || p.createdAt,
+        animalId,
+        animalName,
+      })) as MyNotificationItem[]
+    })
+  )
+
+  const flat = allPostsPerAnimal.flat()
+
+  // sort by newest first
+  flat.sort((a, b) => {
+    const ta = new Date(a.publishedAt).getTime()
+    const tb = new Date(b.publishedAt).getTime()
+    return tb - ta
+  })
+
+  return flat
+}
+
+// keep default at bottom
 export default api

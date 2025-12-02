@@ -1,15 +1,25 @@
 // frontend/src/components/Header.tsx
 import React, { useEffect, useState } from 'react'
 import { Link as RouterLink, useNavigate } from 'react-router-dom'
-import { Box, Container, Stack, Button, Typography, IconButton } from '@mui/material'
+import {
+  Box,
+  Container,
+  Stack,
+  Button,
+  Typography,
+  IconButton,
+} from '@mui/material'
 import NotificationsNoneIcon from '@mui/icons-material/NotificationsNone'
+import NotificationsIcon from '@mui/icons-material/Notifications'
 import { useAuth } from '../context/AuthContext'
-import api from '../services/api'
+import { fetchMyNotifications } from '../services/api'
 
 type Props = {
   logoSrc?: string
   subtitle?: string
 }
+
+const LAST_SEEN_KEY = 'dp:lastSeenNotificationTs'
 
 export default function Header({
   logoSrc = '/logo1.png',
@@ -19,52 +29,62 @@ export default function Header({
   const { token, role, user, logout } = useAuth()
 
   const isAdmin = role === 'ADMIN'
-  const isMod   = role === 'MODERATOR'
-  const isUser  = role === 'USER'
+  const isMod = role === 'MODERATOR'
+  const isUser = role === 'USER'
 
-  const [hasUnread, setHasUnread] = useState(false)
+  const [hasNewNotifications, setHasNewNotifications] = useState(false)
 
   // Destination for account button (admin/mod only)
   const dashboardHref =
     isAdmin ? '/admin'
-    : isMod  ? '/moderator'
-    : '/login'
+      : isMod ? '/moderator'
+        : '/login'
 
   const accountLabel =
-    !token   ? 'Přihlášení'
-    : isAdmin ? 'Admin'
-    : isMod   ? 'Moderátor'
-    : '' // user will not see this button at all
+    !token ? 'Přihlášení'
+      : isAdmin ? 'Admin'
+        : isMod ? 'Moderátor'
+          : ''
 
   const handleLogout = () => {
     logout()
     navigate('/') // return to homepage after logout
   }
 
-  // --- load unread notifications once per login ---
+  // Check if there are new notifications for USER
   useEffect(() => {
-    if (!token) {
-      setHasUnread(false)
+    if (!token || role !== 'USER') {
+      setHasNewNotifications(false)
       return
     }
 
-    let cancelled = false
+    let alive = true
+
     ;(async () => {
       try {
-        const res = await api.get('/notifications/unread-count')
-        if (!cancelled) {
-          const count = (res.data && typeof res.data.count === 'number')
-            ? res.data.count
-            : 0
-          setHasUnread(count > 0)
+        const items = await fetchMyNotifications()
+        if (!alive || items.length === 0) return
+
+        const lastSeenRaw = localStorage.getItem(LAST_SEEN_KEY)
+        const lastSeen = lastSeenRaw ? new Date(lastSeenRaw) : null
+        const newestTs = items[0]?.publishedAt
+          ? new Date(items[0].publishedAt)
+          : null
+
+        if (newestTs && (!lastSeen || newestTs > lastSeen)) {
+          setHasNewNotifications(true)
+        } else {
+          setHasNewNotifications(false)
         }
-      } catch {
-        if (!cancelled) setHasUnread(false)
+      } catch (e) {
+        console.warn('[Header] notifications check failed', e)
       }
     })()
 
-    return () => { cancelled = true }
-  }, [token])
+    return () => {
+      alive = false
+    }
+  }, [token, role])
 
   return (
     <Box
@@ -85,13 +105,22 @@ export default function Header({
           zIndex: 2,
         }}
       >
-        <Stack direction="row" alignItems="center" justifyContent="space-between" gap={2}>
+        <Stack
+          direction="row"
+          alignItems="center"
+          justifyContent="space-between"
+          gap={2}
+        >
           {/* Logo + subtitle */}
           <Button
             component={RouterLink}
             to="/"
             color="inherit"
-            sx={{ px: 0, minWidth: 'auto', '&:hover': { bgcolor: 'transparent' } }}
+            sx={{
+              px: 0,
+              minWidth: 'auto',
+              '&:hover': { bgcolor: 'transparent' },
+            }}
             aria-label="Domů"
           >
             <Stack direction="column" spacing={0} alignItems="flex-start">
@@ -123,7 +152,12 @@ export default function Header({
 
           {/* Account area */}
           {!token ? (
-            <Button component={RouterLink} to="/login" variant="outlined" sx={pillBtn}>
+            <Button
+              component={RouterLink}
+              to="/login"
+              variant="outlined"
+              sx={pillBtn}
+            >
               PŘIHLÁŠENÍ
             </Button>
           ) : (
@@ -147,19 +181,29 @@ export default function Header({
 
               {/* USER: Moje adopce button */}
               {isUser && (
-                <Button component={RouterLink} to="/user" variant="outlined" sx={pillBtn}>
+                <Button
+                  component={RouterLink}
+                  to="/user"
+                  variant="outlined"
+                  sx={pillBtn}
+                >
                   Moje&nbsp;adopce
                 </Button>
               )}
 
               {/* ADMIN / MOD: dashboard button */}
               {(isAdmin || isMod) && (
-                <Button component={RouterLink} to={dashboardHref} variant="outlined" sx={pillBtn}>
+                <Button
+                  component={RouterLink}
+                  to={dashboardHref}
+                  variant="outlined"
+                  sx={pillBtn}
+                >
                   {accountLabel}
                 </Button>
               )}
 
-              {/* Notifications bell for all logged-in roles */}
+              {/* Notifications bell */}
               <IconButton
                 component={RouterLink}
                 to="/notifikace"
@@ -169,12 +213,25 @@ export default function Header({
                   border: '1px solid rgba(0,0,0,0.35)',
                   width: 36,
                   height: 36,
-                  '&:hover': { backgroundColor: 'rgba(255,255,255,0.35)' },
+                  '&:hover': {
+                    backgroundColor: 'rgba(255,255,255,0.35)',
+                  },
                 }}
                 aria-label="Notifikace"
+                onClick={() => {
+                  // stop blinking when user opens notifications
+                  setHasNewNotifications(false)
+                }}
               >
-                <NotificationsNoneIcon />
-                {hasUnread && (
+                {hasNewNotifications ? (
+                  <NotificationsIcon
+                    className="notification-icon blink"
+                  />
+                ) : (
+                  <NotificationsNoneIcon />
+                )}
+
+                {hasNewNotifications && (
                   <Box
                     sx={{
                       position: 'absolute',
