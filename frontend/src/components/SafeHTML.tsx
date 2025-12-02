@@ -7,32 +7,29 @@ import rehypeSanitize from 'rehype-sanitize'
 import { defaultSchema } from 'hast-util-sanitize'
 
 /**
- * Extend the default sanitize schema:
- * - allow <span style="..."> for colored text
- * - allow <u> for underline
+ * Allow inline color on <span>, <strong> and <em>.
+ * Everything else stays as in the default safe schema.
  */
-const schema: any = {
+const schema = {
   ...defaultSchema,
-  tagNames: [
-    ...(defaultSchema.tagNames || []),
-    'span',
-    'u',
-  ],
   attributes: {
     ...defaultSchema.attributes,
     span: [
       ...(defaultSchema.attributes?.span || []),
-      ['style'], // only styles on <span> allowed
+      ['style'], // <span style="color:#00bcd4">
+    ],
+    strong: [
+      ...(defaultSchema.attributes?.strong || []),
+      ['style'], // <strong style="color:#00bcd4">
+    ],
+    em: [
+      ...(defaultSchema.attributes?.em || []),
+      ['style'], // <em style="color:#00bcd4">
     ],
   },
 }
 
-/**
- * Our tiny color shortcodes:
- * [turq]text[/turq]  -> <span style="color:#00bcd4">text</span>
- * [red]text[/red]    -> <span style="color:#e53935">text</span>
- * [gray]text[/gray]  -> <span style="color:#607d8b">text</span>
- */
+/** Optional shortcodes, keep if you still use [turq]..[/turq] etc. */
 export function applyShortcodes(md: string) {
   return md
     .replace(/\[turq\]([\s\S]*?)\[\/turq\]/g, '<span style="color:#00bcd4">$1</span>')
@@ -40,13 +37,17 @@ export function applyShortcodes(md: string) {
     .replace(/\[gray\]([\s\S]*?)\[\/gray\]/g, '<span style="color:#607d8b">$1</span>')
 }
 
+type Props = {
+  children?: string | null
+}
+
 /**
- * SafeHTML:
- * - Markdown: **bold**, *italic*, lists, links, etc.
- * - Raw HTML allowed but sanitized (via rehype-sanitize)
- * - Shortcodes [turq]...[/turq] etc.
+ * SafeHTML: renders Quill HTML + markdown with:
+ * - GFM markdown
+ * - inline HTML (rehypeRaw)
+ * - sanitization (rehype-sanitize + tweaked schema)
  */
-export default function SafeHTML({ children }: { children?: string | null }) {
+export default function SafeHTML({ children }: Props) {
   const text = applyShortcodes(children || '')
 
   return (
@@ -54,7 +55,6 @@ export default function SafeHTML({ children }: { children?: string | null }) {
       remarkPlugins={[remarkGfm]}
       rehypePlugins={[rehypeRaw, [rehypeSanitize, schema]]}
       components={{
-        // Optional: tighter typography
         p: ({ node, ...props }) => <p style={{ margin: 0 }} {...props} />,
       }}
     >

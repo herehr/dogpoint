@@ -1,12 +1,21 @@
 // frontend/src/sections/AnimalTeasers.tsx
 import React from 'react'
 import {
-  Box, Button, Card, CardActions, CardContent, CardMedia,
-  Container, Grid, Skeleton, Typography
+  Box,
+  Button,
+  Card,
+  CardActions,
+  CardContent,
+  CardMedia,
+  Container,
+  Grid,
+  Skeleton,
+  Typography,
 } from '@mui/material'
 import { Link as RouterLink, useNavigate } from 'react-router-dom'
 import { getJSON } from '../services/api' // unified API helper
 import type { Animal } from '../types/animal'
+import SafeHTML from '../components/SafeHTML'   // 👈 FIXED PATH
 
 const FALLBACK_IMG = '/no-image.jpg'
 const SPACE_CDN = 'https://dogpoint.fra1.digitaloceanspaces.com' // only if server returns S3 key w/o full URL
@@ -56,7 +65,9 @@ export default function AnimalTeasers() {
           setItems([]) // render “no items” state
         }
       })
-    return () => { alive = false }
+    return () => {
+      alive = false
+    }
   }, [])
 
   const loading = items === null
@@ -67,7 +78,6 @@ export default function AnimalTeasers() {
       sx={{
         py: { xs: 6, md: 8 },
         background: 'linear-gradient(180deg, #fff 0%, #F4FEFE 100%)',
-        // if you have a sticky header, this prevents it from covering the anchor
         scrollMarginTop: { xs: 72, md: 96 },
       }}
     >
@@ -90,84 +100,114 @@ export default function AnimalTeasers() {
               </Grid>
             ))}
 
-          {!loading && items?.map((a) => {
-            const name = displayName(a)
-            const img = mediaUrl(a)
-            const goDetail = () => navigate(`/zvirata/${a.id}`)
+          {!loading &&
+            items?.map((a) => {
+              const name = displayName(a)
+              const img = mediaUrl(a)
+              const goDetail = () => navigate(`/zvirata/${a.id}`)
 
-            return (
-              <Grid item xs={12} md={4} key={a.id}>
-                <Card variant="outlined" sx={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'visible' }}>
-                  {/* Image with overlaid Name button */}
-                  <Box sx={{ position: 'relative', height: 220, overflow: 'visible', cursor: 'pointer' }} onClick={goDetail}>
-                    <CardMedia component="img" height="220" image={img} alt={name} sx={{ objectFit: 'cover' }} />
-                    <Button
+              return (
+                <Grid item xs={12} md={4} key={a.id}>
+                  <Card
+                    variant="outlined"
+                    sx={{
+                      height: '100%',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      overflow: 'visible',
+                    }}
+                  >
+                    {/* Image with overlaid Name button */}
+                    <Box
+                      sx={{
+                        position: 'relative',
+                        height: 220,
+                        overflow: 'visible',
+                        cursor: 'pointer',
+                      }}
                       onClick={goDetail}
-                      variant="contained"
-                      sx={{
-                        position: 'absolute',
-                        left: '50%',
-                        bottom: 0,
-                        transform: 'translate(-50%, 50%)',
-                        borderRadius: 1.5,
-                        fontWeight: 900,
-                        letterSpacing: 1,
-                        px: 3,
-                        py: 1,
-                        boxShadow: 3,
-                        bgcolor: 'secondary.main',
-                        '&:hover': { bgcolor: 'secondary.dark' },
-                      }}
                     >
-                      {name}
-                    </Button>
-                  </Box>
+                      <CardMedia
+                        component="img"
+                        height="220"
+                        image={img}
+                        alt={name}
+                        sx={{ objectFit: 'cover' }}
+                      />
+                      <Button
+                        onClick={goDetail}
+                        variant="contained"
+                        sx={{
+                          position: 'absolute',
+                          left: '50%',
+                          bottom: 0,
+                          transform: 'translate(-50%, 50%)',
+                          borderRadius: 1.5,
+                          fontWeight: 900,
+                          letterSpacing: 1,
+                          px: 3,
+                          py: 1,
+                          boxShadow: 3,
+                          bgcolor: 'secondary.main',
+                          '&:hover': { bgcolor: 'secondary.dark' },
+                        }}
+                      >
+                        {name}
+                      </Button>
+                    </Box>
 
-                  {/* Text area */}
-                  <CardContent sx={{ flexGrow: 1, pt: 5 }}>
-                    {/* charakteristik (accent colored short line) */}
-                    <Typography
-                      sx={{
-                        color: 'secondary.main',
-                        fontWeight: 700,
-                        fontSize: 14,
-                        textTransform: 'uppercase',
-                        mb: 1,
-                      }}
-                    >
-                      {shortLine(a)}
-                    </Typography>
+                    {/* Text area */}
+                    <CardContent sx={{ flexGrow: 1, pt: 5 }}>
+                      {/* charakteristik (accent colored short line, with HTML formatting) */}
+                      <Box
+                        sx={{
+                          color: 'secondary.main',
+                          fontWeight: 700,
+                          fontSize: 14,
+                          textTransform: 'uppercase',
+                          mb: 1,
+                        }}
+                      >
+                        <SafeHTML>{shortLine(a)}</SafeHTML>
+                      </Box>
 
-                    {/* 8-line clamp of description */}
-                    <Typography
-                      color="text.secondary"
-                      sx={{
-                        display: '-webkit-box',
-                        WebkitLineClamp: 8,
-                        WebkitBoxOrient: 'vertical',
-                        overflow: 'hidden',
-                        mb: 1.5,
-                        lineHeight: 1.6,
-                      }}
-                    >
-                      {longText(a)}
-                    </Typography>
-                  </CardContent>
+                      {/* 8-line clamp of description, with HTML formatting */}
+                      <Box
+                        sx={{
+                          color: 'text.secondary',
+                          display: '-webkit-box',
+                          WebkitLineClamp: 8,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden',
+                          mb: 1.5,
+                          lineHeight: 1.6,
+                        }}
+                      >
+                        <SafeHTML>{longText(a)}</SafeHTML>
+                      </Box>
+                    </CardContent>
 
-                  {/* Adoption CTA */}
-                  <CardActions sx={{ px: 2, pb: 2 }}>
-                    <Button component={RouterLink} to={`/zvirata/${a.id}`} variant="contained" fullWidth>
-                      Mám zájem
-                    </Button>
-                  </CardActions>
-                </Card>
-              </Grid>
-            )
-          })}
+                    {/* Adoption CTA */}
+                    <CardActions sx={{ px: 2, pb: 2 }}>
+                      <Button
+                        component={RouterLink}
+                        to={`/zvirata/${a.id}`}
+                        variant="contained"
+                        fullWidth
+                      >
+                        Mám zájem
+                      </Button>
+                    </CardActions>
+                  </Card>
+                </Grid>
+              )
+            })}
 
           {!loading && items?.length === 0 && (
             <Grid item xs={12}>
-              <Typography color="text.secondary">{error || 'Žádná zvířata k zobrazení.'}</Typography>
+              <Typography color="text.secondary">
+                {error || 'Žádná zvířata k zobrazení.'}
+              </Typography>
             </Grid>
           )}
         </Grid>
