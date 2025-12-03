@@ -1,35 +1,28 @@
 // frontend/src/pages/NotificationsPage.tsx
-import React, { useEffect, useState } from 'react'
+import React from 'react'
 import {
   Alert,
   Box,
-  Chip,
   Container,
-  List,
-  ListItem,
-  ListItemText,
+  Grid,
+  Paper,
   Stack,
   Typography,
 } from '@mui/material'
+import { MyNotificationItem, fetchMyNotifications } from '../services/api'
 import { useAuth } from '../context/AuthContext'
-import {
-  fetchMyNotifications,
-  MyNotificationItem,
-} from '../services/api'
-import SafeHTML from '../components/SafeHTML'
 
 const LAST_SEEN_KEY = 'dp:lastSeenNotificationTs'
 
 export default function NotificationsPage() {
   const { token, role } = useAuth()
+  const [items, setItems] = React.useState<MyNotificationItem[]>([])
+  const [loading, setLoading] = React.useState(true)
+  const [error, setError] = React.useState<string | null>(null)
 
-  const [items, setItems] = useState<MyNotificationItem[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [newCount, setNewCount] = useState(0)
-
-  useEffect(() => {
-    if (!token || !role) {
+  React.useEffect(() => {
+    if (!token || role !== 'USER') {
+      setItems([])
       setLoading(false)
       return
     }
@@ -38,32 +31,15 @@ export default function NotificationsPage() {
 
     ;(async () => {
       try {
-        setLoading(true)
-        setError(null)
-
         const data = await fetchMyNotifications()
         if (!alive) return
+        setItems(data || [])
+        setError(null)
 
-        setItems(data)
-
-        const lastSeenRaw = localStorage.getItem(LAST_SEEN_KEY)
-        const lastSeen = lastSeenRaw ? new Date(lastSeenRaw) : null
-
-        const newestTs = data[0]?.publishedAt
-          ? new Date(data[0].publishedAt)
-          : null
-
-        // spočítat, kolik je "nových"
-        const cnt = data.filter((n) => {
-          if (!lastSeen) return true
-          return new Date(n.publishedAt) > lastSeen
-        }).length
-        setNewCount(cnt)
-
-        // a hned označit jako "viděno" (můžeme i až při odchodu ze stránky)
-        if (newestTs) {
-          localStorage.setItem(LAST_SEEN_KEY, newestTs.toISOString())
-        }
+        // mark all as seen NOW → Header bell stops blinking
+        try {
+          localStorage.setItem(LAST_SEEN_KEY, new Date().toISOString())
+        } catch {}
       } catch (e: any) {
         if (!alive) return
         console.error('[NotificationsPage] load error', e)
@@ -78,39 +54,24 @@ export default function NotificationsPage() {
     }
   }, [token, role])
 
-  if (!token) {
+  if (!token || role !== 'USER') {
     return (
-      <Container maxWidth="sm" sx={{ py: 4 }}>
+      <Container maxWidth="sm" sx={{ py: 6 }}>
+        <Typography variant="h5" sx={{ fontWeight: 900, mb: 2 }}>
+          Notifikace
+        </Typography>
         <Alert severity="info">
-          Pro zobrazení notifikací se prosím přihlaste.
+          Pro zobrazení notifikací se prosím přihlaste jako uživatel.
         </Alert>
       </Container>
     )
   }
 
   return (
-    <Container maxWidth="md" sx={{ py: 4 }}>
-      <Stack
-        direction="row"
-        justifyContent="space-between"
-        alignItems="center"
-        sx={{ mb: 3 }}
-      >
-        <Typography variant="h5" sx={{ fontWeight: 900 }}>
-          Notifikace
-        </Typography>
-        {newCount > 0 && (
-          <Chip
-            color="primary"
-            label={`${newCount} nových`}
-            size="small"
-          />
-        )}
-      </Stack>
-
-      {loading && (
-        <Typography color="text.secondary">Načítám notifikace…</Typography>
-      )}
+    <Container maxWidth="md" sx={{ py: 6 }}>
+      <Typography variant="h5" sx={{ fontWeight: 900, mb: 2 }}>
+        Notifikace
+      </Typography>
 
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
@@ -118,61 +79,126 @@ export default function NotificationsPage() {
         </Alert>
       )}
 
-      {!loading && !error && items.length === 0 && (
+      {loading ? (
+        <Typography color="text.secondary">Načítám…</Typography>
+      ) : items.length === 0 ? (
         <Typography color="text.secondary">
-          Nemáte žádné notifikace.
+          Zatím nemáte žádné notifikace.
         </Typography>
-      )}
-
-      {!loading && items.length > 0 && (
-        <List>
+      ) : (
+        <Stack spacing={2}>
           {items.map((n) => (
-            <ListItem
-              key={n.id + n.animalId}
-              alignItems="flex-start"
-              sx={{
-                borderBottom: '1px solid',
-                borderColor: 'divider',
-                py: 1.5,
-              }}
+            <Paper
+              key={`${n.animalId}-${n.id}-${n.publishedAt}`}
+              variant="outlined"
+              sx={{ p: 2, borderRadius: 2 }}
             >
-              <ListItemText
-                primary={
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <Typography sx={{ fontWeight: 700 }}>
-                      {n.animalName}
-                    </Typography>
-                    <Typography
-                      variant="body2"
-                      sx={{ fontWeight: 500 }}
-                    >
-                      – {n.title}
-                    </Typography>
-                  </Stack>
-                }
-                secondary={
-                  <Box sx={{ mt: 0.5 }}>
-                    {n.body && (
-                      <Typography
-                        variant="body2"
-                        color="text.secondary"
-                        sx={{ mb: 0.5 }}
-                      >
-                        <SafeHTML>{n.body}</SafeHTML>
-                      </Typography>
-                    )}
-                    <Typography
-                      variant="caption"
-                      color="text.secondary"
-                    >
-                      {new Date(n.publishedAt).toLocaleString('cs-CZ')}
-                    </Typography>
-                  </Box>
-                }
-              />
-            </ListItem>
+              {/* Header: animal name + title + date */}
+              <Stack
+                direction="row"
+                justifyContent="space-between"
+                alignItems="baseline"
+                spacing={1}
+                sx={{ mb: 1 }}
+              >
+                <Typography
+                  variant="subtitle2"
+                  sx={{ fontWeight: 800, textTransform: 'uppercase' }}
+                >
+                  {n.animalName}
+                </Typography>
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{ whiteSpace: 'nowrap' }}
+                >
+                  {new Date(n.publishedAt).toLocaleString()}
+                </Typography>
+              </Stack>
+
+              <Typography
+                variant="subtitle1"
+                sx={{ fontWeight: 700, mb: 0.5 }}
+              >
+                {n.title}
+              </Typography>
+
+              {/* Body text (HTML from RichTextEditor in posts) */}
+              {n.body && (
+                <Typography
+                  color="text.secondary"
+                  sx={{ mb: n.media && n.media.length > 0 ? 1.5 : 0.5 }}
+                  dangerouslySetInnerHTML={{ __html: n.body }}
+                />
+              )}
+
+              {/* Media thumbnails (images or videos) */}
+              {n.media && n.media.length > 0 && (
+                <Grid container spacing={1}>
+                  {n.media.map((m, idx) => {
+                    const url = m.url
+                    const isVideo =
+                      (m.typ || '').toLowerCase() === 'video' ||
+                      /\.(mp4|webm|mov|m4v)(\?|$)/.test(
+                        (url || '').toLowerCase()
+                      )
+
+                    return (
+                      <Grid item xs={6} sm={4} md={3} key={`${n.id}-media-${idx}`}>
+                        {isVideo ? (
+                          <Box
+                            sx={{
+                              borderRadius: 2,
+                              overflow: 'hidden',
+                              border: '1px solid',
+                              borderColor: 'divider',
+                            }}
+                          >
+                            <video
+                              src={url}
+                              controls
+                              style={{
+                                width: '100%',
+                                height: 140,
+                                objectFit: 'cover',
+                                display: 'block',
+                              }}
+                            />
+                          </Box>
+                        ) : (
+                          <Box
+                            component="a"
+                            href={url}
+                            target="_blank"
+                            rel="noreferrer"
+                            sx={{
+                              display: 'block',
+                              borderRadius: 2,
+                              overflow: 'hidden',
+                              border: '1px solid',
+                              borderColor: 'divider',
+                            }}
+                          >
+                            <img
+                              src={url}
+                              alt={`media-${idx}`}
+                              style={{
+                                width: '100%',
+                                height: 140,
+                                objectFit: 'cover',
+                                display: 'block',
+                              }}
+                            />
+                          </Box>
+                        )}
+                      </Grid>
+                    )
+                  })}
+                </Grid>
+              )}
+            </Paper>
           ))}
-        </List>
+        </Stack>
       )}
     </Container>
   )

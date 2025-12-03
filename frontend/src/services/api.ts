@@ -424,6 +424,7 @@ export type MyNotificationItem = {
   publishedAt: string
   animalId: string
   animalName: string
+  media?: { url: string; typ?: string }[]
 }
 
 /** Fetch my active adoptions */
@@ -472,7 +473,7 @@ export async function fetchAnimalName(animalId: string): Promise<string> {
 export async function fetchMyNotifications(): Promise<MyNotificationItem[]> {
   const adoptions = await fetchMyAdoptions()
 
-  // keep only active / valid subscriptions
+  // jen aktivní adopce
   const active = (adoptions || []).filter(
     (a: any) =>
       !a.status ||
@@ -481,16 +482,15 @@ export async function fetchMyNotifications(): Promise<MyNotificationItem[]> {
       a.status === 'ACTIVE_ADOPT'
   )
 
+  // pro každé zvíře dotáhnout příspěvky
   const allPostsPerAnimal = await Promise.all(
     active.map(async (ad: any) => {
-      const animalId = ad.animalId
+      const animal = ad.animal || {}
+      const animalId = ad.animalId || animal.id
       if (!animalId) return []
 
-      // fetch real animal name
-      const animalName = await fetchAnimalName(animalId)
-
-      // fetch all posts for this animal
       const posts = await fetchPostsForAnimal(animalId)
+      const animalName = animal.jmeno || animal.name || 'Zvíře'
 
       return (posts || []).map((p: any) => ({
         id: p.id,
@@ -499,13 +499,14 @@ export async function fetchMyNotifications(): Promise<MyNotificationItem[]> {
         publishedAt: p.publishedAt || p.createdAt,
         animalId,
         animalName,
+        media: p.media || [],      // 👈 TADY POSÍLÁME MEDIA DÁL
       })) as MyNotificationItem[]
     })
   )
 
   const flat = allPostsPerAnimal.flat()
 
-  // sort by newest first
+  // seřadit podle času
   flat.sort((a, b) => {
     const ta = new Date(a.publishedAt).getTime()
     const tb = new Date(b.publishedAt).getTime()
