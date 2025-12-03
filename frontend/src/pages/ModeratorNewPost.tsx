@@ -71,7 +71,8 @@ export default function ModeratorNewPost() {
         return
       }
 
-      const res = await fetch(`${API_BASE}/animals?active=true`, {
+      // ⬇️ FIXED: add /api here
+      const res = await fetch(`${API_BASE}/api/animals?active=true`, {
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
@@ -124,7 +125,6 @@ export default function ModeratorNewPost() {
         const res = await fetch(`${API_BASE}/upload`, {
           method: 'POST',
           headers: {
-            // necháme Content-Type na browseru (FormData)
             Authorization: token ? `Bearer ${token}` : '',
           },
           body: fd,
