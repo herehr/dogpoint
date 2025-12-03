@@ -296,26 +296,31 @@ jsonRouter.post('/checkout-session', async (req: Request, res: Response) => {
       animalId
     )}?canceled=1`
 
-    const session = await stripe.checkout.sessions.create({
-      mode: 'payment',
+        const session = await stripe.checkout.sessions.create({
+      mode: 'subscription',                       // ⬅️ recurring
+      payment_method_types: ['card'],
       locale: 'cs',
       success_url: successUrl,
       cancel_url: cancelUrl,
-      currency: 'czk',
       customer_email: normalizeEmail(email),
       metadata: {
         animalId,
         pledgeId: pledge.id,
+        interval: 'MONTHLY',
+        type: 'DONATION',
       },
       line_items: [
         {
           price_data: {
             currency: 'czk',
             product_data: {
-              name: name ? `Adopce: ${name}` : 'Adopce zvířete',
-              description: `Měsíční dar pro zvíře (${animalId})`,
+              name: name ? `Měsíční dar: ${name}` : 'Měsíční dar na péči o psa',
+              description: `Pravidelný měsíční příspěvek pro zvíře (${animalId})`,
             },
             unit_amount: Math.round(amountCZK * 100),
+            recurring: {
+              interval: 'month',                 // ⬅️ monthly
+            },
           },
           quantity: 1,
         },
