@@ -241,9 +241,12 @@ router.delete('/:id', requireAuth, async (req: Request, res: Response): Promise<
     const id = String(req.params.id)
 
     await prisma.$transaction(async (tx) => {
-      await tx.postMedia.deleteMany({ where: { postId: id } })
-      await tx.post.delete({ where: { id } })
-    })
+  await tx.postMedia.deleteMany({ where: { postId: id } })
+  await tx.post.update({
+    where: { id },
+    data: { active: false },
+  })
+})
 
     res.status(204).end()
   } catch (e: any) {

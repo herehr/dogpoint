@@ -126,6 +126,35 @@ export const getPublicPosts = async (req: Request, res: Response) => {
   }
 }
 
+/**
+ * DELETE /api/posts/:id
+ * Only for ADMIN / MODERATOR (enforced in routes via middleware).
+ */
+export async function deletePost(req: Request, res: Response) {
+  const { id } = req.params
+
+  if (!id) {
+    return res.status(400).json({ error: 'Missing post id' })
+  }
+
+  try {
+    await prisma.post.delete({
+      where: { id },
+    })
+    // PostMedia will be deleted automatically thanks to onDelete: Cascade
+    return res.json({ ok: true })
+  } catch (e: any) {
+    console.error('[deletePost] error', e)
+
+    // Prisma "record not found"
+    if (e?.code === 'P2025') {
+      return res.status(404).json({ error: 'Post not found' })
+    }
+
+    return res.status(500).json({ error: 'Failed to delete post' })
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /* GET /api/posts/count-new?animalId=...&since=ISO_DATE               */
 /* optional helper endpoint                                           */

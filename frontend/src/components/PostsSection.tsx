@@ -16,13 +16,17 @@ import UploadIcon from '@mui/icons-material/UploadFile'
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera'
 import DeleteIcon from '@mui/icons-material/Delete'
 
-import { createPost, listPostsPublic, uploadMediaMany } from '../api'
 import { useAccess } from '../context/AccessContext'
 import { useAuth } from '../context/AuthContext'
-import RichTextEditor from '../components/RichTextEditor'
-import SafeHTML from '../components/SafeHTML'
+import RichTextEditor from './RichTextEditor'
+import {
+  getJSON,
+  postJSON,
+  delJSON,
+} from '../services/api'
 
 type Media = { url: string; type?: 'image' | 'video' }
+
 type Post = {
   id: string
   animalId: string
@@ -44,7 +48,7 @@ export default function PostsSection({ animalId }: { animalId: string }) {
   const isStaff = role === 'ADMIN' || role === 'MODERATOR'
   const unlocked = isStaff || hasAccess(animalId)
 
-  // 🔒 Only staff are allowed to WRITE
+  // Only staff are allowed to WRITE (add / delete posts)
   const canWrite = isStaff
 
   const [posts, setPosts] = useState<Post[]>([])
@@ -66,9 +70,10 @@ export default function PostsSection({ animalId }: { animalId: string }) {
   async function refresh() {
     setErr(null)
     try {
-      const list = await listPostsPublic({ animalId })
-      setPosts(list)
+      const list = await getJSON<Post[]>(`/api/posts/public?animalId=${encodeURIComponent(animalId)}`)
+      setPosts(list || [])
     } catch (e: any) {
+      console.error('[PostsSection] list error', e)
       setErr(e?.message || 'Načítání příspěvků selhalo')
     } finally {
       setLoading(false)
@@ -76,23 +81,14 @@ export default function PostsSection({ animalId }: { animalId: string }) {
   }
 
   useEffect(() => {
+    setLoading(true)
     refresh()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [animalId])
 
   function addEmoji(emoji: string) {
-  setBody(prev => {
-    if (!prev) return emoji
-
-    // Try to put the emoji inside the last </p>, so it stays on the same line
-    const endP = prev.lastIndexOf('</p>')
-    if (endP !== -1) {
-      return prev.slice(0, endP) + ' ' + emoji + prev.slice(endP)
-    }
-
-    // Fallback if there is no <p>…</p> yet
-    return prev + ' ' + emoji
-  })
-}
+    setBody(prev => (prev ? `${prev} ${emoji}` : emoji))
+  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -101,17 +97,18 @@ export default function PostsSection({ animalId }: { animalId: string }) {
     setSaving(true)
     setErr(null)
     try {
-      await createPost({
+      await postJSON('/api/posts', {
         animalId,
         title: title.trim() || 'Bez názvu',
-        body: body.trim() || undefined, // HTML from RichTextEditor
-        media: media.length ? media : undefined,
+        body: body.trim() || undefined, // HTML string from RichTextEditor
+        media: media.length ? media.map(m => ({ url: m.url, typ: m.type || 'image' })) : undefined,
       })
       setTitle('')
       setBody('')
       setMedia([])
-      refresh()
+      await refresh()
     } catch (e: any) {
+      console.error('[PostsSection] create error', e)
       setErr(e?.message || 'Uložení selhalo')
     } finally {
       setSaving(false)
@@ -119,23 +116,42 @@ export default function PostsSection({ animalId }: { animalId: string }) {
   }
 
   async function handleFiles(files: FileList | File[]) {
-    const arr = Array.from(files).filter((f) => f && f.size > 0)
+    const arr = Array.from(files).filter(f => f && f.size > 0)
     if (arr.length === 0) return
     setUploading(true)
     setErr(null)
     try {
-      const urls = await uploadMediaMany(arr, (index, total) => {
-        setUploadNote(`Nahrávám ${index + 1} / ${total}…`)
-      })
+      // Single-file uploads, one by one, to reuse /api/upload
       const now = Date.now()
-      setMedia((m) => [
-        ...m,
-        ...urls.map((u) => ({
-          url: `${u}${u.includes('?') ? '&' : '?'}v=${now}`,
-          type: guessTypeFromUrl(u),
-        })),
-      ])
+      for (let i = 0; i < arr.length; i += 1) {
+        const f = arr[i]
+        setUploadNote(`Nahrávám ${i + 1} / ${arr.length}…`)
+        const fd = new FormData()
+        fd.append('file', f)
+        const res = await fetch(
+          (import.meta.env.VITE_API_BASE_URL || '') + '/api/upload',
+          {
+            method: 'POST',
+            body: fd,
+          }
+        )
+        if (!res.ok) {
+          const txt = await res.text()
+          console.error('[upload] failed', res.status, txt)
+          throw new Error('Nahrání selhalo')
+        }
+        const json = await res.json()
+        const url = String(json.url)
+        setMedia(m => ([
+          ...m,
+          {
+            url: `${url}${url.includes('?') ? '&' : '?'}v=${now}`,
+            type: guessTypeFromUrl(url),
+          },
+        ]))
+      }
     } catch (e: any) {
+      console.error('[PostsSection] upload error', e)
       setErr(e?.message || 'Nahrání selhalo')
     } finally {
       setUploading(false)
@@ -166,7 +182,23 @@ export default function PostsSection({ animalId }: { animalId: string }) {
   }
 
   function removeMediaIndex(i: number) {
-    setMedia((list) => list.filter((_, idx) => idx !== i))
+    setMedia(list => list.filter((_, idx) => idx !== i))
+  }
+
+  async function handleDelete(postId: string) {
+    if (!canWrite) return
+    const ok = window.confirm('Opravdu chcete tento příspěvek smazat?')
+    if (!ok) return
+
+    try {
+      // 204 No Content on success – delJSON handles that correctly
+      await delJSON<void>(`/api/posts/${encodeURIComponent(postId)}`)
+      // Optimistic update
+      setPosts(prev => prev.filter(p => p.id !== postId))
+    } catch (e: any) {
+      console.error('[PostsSection] delete error', e)
+      setErr(e?.message || 'Smazání příspěvku selhalo.')
+    }
   }
 
   return (
@@ -193,7 +225,7 @@ export default function PostsSection({ animalId }: { animalId: string }) {
         <Typography color="text.secondary">Zatím žádné příspěvky.</Typography>
       ) : (
         <Stack spacing={1.5} sx={{ mb: 3 }}>
-          {posts.map((p) => (
+          {posts.map(p => (
             <Box
               key={p.id}
               sx={{
@@ -201,9 +233,30 @@ export default function PostsSection({ animalId }: { animalId: string }) {
                 border: '1px solid',
                 borderColor: 'divider',
                 borderRadius: 2,
+                position: 'relative',
               }}
             >
-              <Typography sx={{ fontWeight: 700, mb: 0.5 }}>{p.title}</Typography>
+              {/* Delete button for staff */}
+              {canWrite && (
+                <IconButton
+                  size="small"
+                  onClick={() => handleDelete(p.id)}
+                  sx={{
+                    position: 'absolute',
+                    top: 6,
+                    right: 6,
+                    bgcolor: 'rgba(255,255,255,0.9)',
+                    '&:hover': { bgcolor: 'rgba(255,255,255,1)' },
+                  }}
+                  aria-label="Smazat příspěvek"
+                >
+                  <DeleteIcon fontSize="small" />
+                </IconButton>
+              )}
+
+              <Typography sx={{ fontWeight: 700, mb: 0.5 }}>
+                {p.title}
+              </Typography>
 
               {p.media && p.media.length > 0 && (
                 <Grid container spacing={1} sx={{ mb: 1 }}>
@@ -239,10 +292,13 @@ export default function PostsSection({ animalId }: { animalId: string }) {
                 </Grid>
               )}
 
+              {/* body is HTML from RichTextEditor – render as-is */}
               {p.body && (
-                <Box sx={{ color: 'text.secondary', mt: 0.5 }}>
-                  <SafeHTML>{p.body}</SafeHTML>
-                </Box>
+                <Typography
+                  color="text.secondary"
+                  sx={{ whiteSpace: 'pre-line' }}
+                  dangerouslySetInnerHTML={{ __html: p.body }}
+                />
               )}
 
               <Typography
@@ -378,10 +434,9 @@ export default function PostsSection({ animalId }: { animalId: string }) {
             <TextField
               label="Titulek"
               value={title}
-              onChange={(e) => setTitle(e.target.value)}
+              onChange={e => setTitle(e.target.value)}
               required={!body && media.length === 0}
             />
-
             <RichTextEditor
               label="Text"
               value={body}
@@ -389,9 +444,13 @@ export default function PostsSection({ animalId }: { animalId: string }) {
               helperText="Můžete použít tučné, kurzívu, podtržení a barvu (tyrkysová)."
             />
 
-            {/* Emoji row */}
-            <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-              {EMOJIS.map((emo) => (
+            {/* Emoji row (inline append) */}
+            <Stack
+              direction="row"
+              spacing={1}
+              sx={{ flexWrap: 'wrap', mt: 1 }}
+            >
+              {EMOJIS.map(emo => (
                 <Button
                   key={emo}
                   size="small"
@@ -404,7 +463,11 @@ export default function PostsSection({ animalId }: { animalId: string }) {
               ))}
             </Stack>
 
-            <Button type="submit" variant="contained" disabled={saving || uploading}>
+            <Button
+              type="submit"
+              variant="contained"
+              disabled={saving || uploading}
+            >
               {saving ? 'Ukládám…' : 'Přidat příspěvek'}
             </Button>
           </Stack>
