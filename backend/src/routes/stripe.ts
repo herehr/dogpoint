@@ -18,9 +18,8 @@ if (!stripeSecret) {
   )
 }
 
-// You can optionally add apiVersion if your Stripe version requires it:
-// const stripe = new Stripe(stripeSecret, { apiVersion: '2024-06-20' })
-const stripe = new Stripe(stripeSecret)
+// Stripe client is optional; routes must check it before use
+const stripe = stripeSecret ? new Stripe(stripeSecret) : null
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                            */
@@ -62,8 +61,9 @@ rawRouter.post(
       const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
 
       let event: Stripe.Event
-      if (!webhookSecret || !sig) {
-        // Dev/preview fallback (unverified)
+
+      // If we don't have a webhook secret, signature, or stripe client → dev/preview fallback
+      if (!webhookSecret || !sig || !stripe) {
         try {
           event = JSON.parse(req.body.toString() || '{}') as Stripe.Event
         } catch {
@@ -168,7 +168,7 @@ rawRouter.post(
               data: { email: emailToUse, role: 'USER' },
             })
           }
-         await linkPaidOrRecentPledgesToUser(user.id, user.email)
+          await linkPaidOrRecentPledgesToUser(user.id, user.email)
         }
       }
 
@@ -215,6 +215,12 @@ jsonRouter.get('/ping', (_req: Request, res: Response) => {
  */
 jsonRouter.post('/checkout-session', async (req: Request, res: Response) => {
   try {
+    if (!stripe) {
+      console.error('[stripe] checkout-session called but Stripe client not configured')
+      res.status(500).json({ error: 'Stripe is not configured on server' })
+      return
+    }
+
     const { animalId, amountCZK, email, name, password } = (req.body ||
       {}) as {
       animalId?: string
@@ -296,8 +302,8 @@ jsonRouter.post('/checkout-session', async (req: Request, res: Response) => {
       animalId
     )}?canceled=1`
 
-        const session = await stripe.checkout.sessions.create({
-      mode: 'subscription',                       // ⬅️ recurring
+    const session = await stripe.checkout.sessions.create({
+      mode: 'subscription', // recurring
       payment_method_types: ['card'],
       locale: 'cs',
       success_url: successUrl,
@@ -314,12 +320,14 @@ jsonRouter.post('/checkout-session', async (req: Request, res: Response) => {
           price_data: {
             currency: 'czk',
             product_data: {
-              name: name ? `Měsíční dar: ${name}` : 'Měsíční dar na péči o psa',
+              name: name
+                ? `Měsíční dar: ${name}`
+                : 'Měsíční dar na péči o psa',
               description: `Pravidelný měsíční příspěvek pro zvíře (${animalId})`,
             },
             unit_amount: Math.round(amountCZK * 100),
             recurring: {
-              interval: 'month',                 // ⬅️ monthly
+              interval: 'month',
             },
           },
           quantity: 1,
@@ -350,6 +358,12 @@ jsonRouter.post('/checkout-session', async (req: Request, res: Response) => {
  */
 jsonRouter.get('/confirm', async (req: Request, res: Response) => {
   try {
+    if (!stripe) {
+      console.error('[stripe] confirm called but Stripe client not configured')
+      res.status(500).json({ error: 'Stripe is not configured on server' })
+      return
+    }
+
     const sid = String(req.query.sid || '')
     if (!sid) {
       res.status(400).json({ error: 'Missing sid' })
@@ -434,7 +448,7 @@ jsonRouter.get('/confirm', async (req: Request, res: Response) => {
       }
 
       // This links both PAID and recent PENDING pledges to subscriptions
-        await linkPaidOrRecentPledgesToUser(user.id, user.email)
+      await linkPaidOrRecentPledgesToUser(user.id, user.email)
 
       token = signToken({
         id: user.id,

@@ -2,7 +2,8 @@
 import 'dotenv/config' // load env early
 
 import express, { Request, Response, NextFunction } from 'express'
-import cors, { type CorsOptions } from 'cors'
+import cors from 'cors'
+import type { CorsOptions } from 'cors'
 
 import stripeJsonRouter, { rawRouter as stripeRawRouter } from './routes/stripe'
 import authRoutes from './routes/auth'
@@ -32,10 +33,7 @@ const allowedOrigins: string[] = (process.env.CORS_ORIGIN || '')
   .filter(Boolean)
 
 const corsOptions: CorsOptions = {
-  origin(
-    origin: string | undefined,
-    callback: (err: Error | null, allow?: boolean) => void
-  ): void {
+  origin(origin, callback) {
     // No origin (e.g. curl, health checks) -> allow
     if (!origin) {
       callback(null, true)
