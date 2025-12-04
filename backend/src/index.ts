@@ -2,7 +2,7 @@
 import 'dotenv/config' // load env early
 
 import express, { Request, Response, NextFunction } from 'express'
-import cors from 'cors'
+import cors, { type CorsOptions } from 'cors'
 
 import stripeJsonRouter, { rawRouter as stripeRawRouter } from './routes/stripe'
 import authRoutes from './routes/auth'
@@ -26,23 +26,30 @@ import { prisma } from './prisma'
  * CORS_ORIGIN="https://sea-lion-app-6pdrc.ondigitalocean.app,https://pomaham.dog-point.cz"
  * ──────────────────────────────────────────── */
 
-const allowedOrigins = (process.env.CORS_ORIGIN || '')
+const allowedOrigins: string[] = (process.env.CORS_ORIGIN || '')
   .split(',')
   .map(s => s.trim())
   .filter(Boolean)
 
-const corsOptions: cors.CorsOptions = {
-  origin(origin, callback) {
+const corsOptions: CorsOptions = {
+  origin(
+    origin: string | undefined,
+    callback: (err: Error | null, allow?: boolean) => void
+  ): void {
     // No origin (e.g. curl, health checks) -> allow
-    if (!origin) return callback(null, true)
+    if (!origin) {
+      callback(null, true)
+      return
+    }
 
     // If nothing configured, allow all (dev fallback)
     if (allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
-      return callback(null, true)
+      callback(null, true)
+      return
     }
 
     console.warn('[CORS] blocked origin:', origin)
-    return callback(new Error('Not allowed by CORS'))
+    callback(new Error('Not allowed by CORS'))
   },
   credentials: true,
 }
