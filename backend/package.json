@@ -36,6 +36,7 @@
     "jsonwebtoken": "^9.0.2",
     "mime-types": "^2.1.35",
     "multer": "^2.0.2",
+    "nodemailer": "^7.0.11",
     "sharp": "^0.34.4",
     "stripe": "^18.5.0",
     "tmp-promise": "^3.0.3"
@@ -45,6 +46,7 @@
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.5",
     "@types/fluent-ffmpeg": "^2.1.27",
+    "@types/nodemailer": "^7.0.4",
     "cross-env": "^10.0.0",
     "dotenv-cli": "^11.0.0",
     "prisma": "^6.16.2",
