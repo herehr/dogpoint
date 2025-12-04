@@ -20,15 +20,32 @@ import notificationRoutes from './routes/notification'
 
 import { prisma } from './prisma'
 
-// ----- CORS -----
-const allowed = (process.env.CORS_ALLOWED_ORIGINS || '')
+/* ──────────────────────────────────────────────
+ * CORS
+ * CORS_ORIGIN can be a comma-separated list, e.g.
+ * CORS_ORIGIN="https://sea-lion-app-6pdrc.ondigitalocean.app,https://pomaham.dog-point.cz"
+ * ──────────────────────────────────────────── */
+
+const allowedOrigins = (process.env.CORS_ORIGIN || '')
   .split(',')
   .map(s => s.trim())
   .filter(Boolean)
 
-const corsOptions: Parameters<typeof cors>[0] = allowed.length
-  ? { origin: allowed, credentials: true }
-  : { origin: '*', credentials: false }
+const corsOptions: cors.CorsOptions = {
+  origin(origin, callback) {
+    // No origin (e.g. curl, health checks) -> allow
+    if (!origin) return callback(null, true)
+
+    // If nothing configured, allow all (dev fallback)
+    if (allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+      return callback(null, true)
+    }
+
+    console.warn('[CORS] blocked origin:', origin)
+    return callback(new Error('Not allowed by CORS'))
+  },
+  credentials: true,
+}
 
 // ----- App -----
 const app = express()
@@ -62,7 +79,6 @@ app.use('/api/admin/stats', adminStatsRoutes)
 app.use('/api/subscriptions', subscriptionRoutes)
 app.use('/api/payments', paymentRouter)
 app.use('/api/notifications', notificationRoutes)
-
 
 // GP webpay (feature flag)
 const gpEnabled =
