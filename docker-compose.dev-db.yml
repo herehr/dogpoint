@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15
+    container_name: dogpoint_dev_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: dogpoint_dev
+    ports:
+      - "55432:5432"
+    volumes:
+      - dogpoint_dev_data:/var/lib/postgresql/data
+
+volumes:
+  dogpoint_dev_data:
