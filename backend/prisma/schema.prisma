@@ -12,15 +12,26 @@ datasource db {
 /// * Core models
 /// * =========================
 model User {
-  id            String         @id @default(cuid())
-  email         String         @unique
-  role          Role           @default(USER)
-  updatedAt     DateTime       @updatedAt
-  createdAt     DateTime       @default(now())
-  passwordHash  String?
-  posts         Post[]
+  id           String   @id @default(cuid())
+  email        String   @unique
+  role         Role     @default(USER)
+  updatedAt    DateTime @updatedAt
+  createdAt    DateTime @default(now())
+  passwordHash String?
+
+  /// Posts where the user is the "author"
+  posts Post[] @relation("AuthorPosts")
+
   subscriptions Subscription[]
   notifications Notification[]
+
+  /// Animals created / approved by this user
+  animalsCreated  Animal[] @relation("AnimalCreatedBy")
+  animalsApproved Animal[] @relation("AnimalApprovedBy")
+
+  /// Posts created / approved by this user (workflow)
+  postsCreated  Post[] @relation("PostCreatedBy")
+  postsApproved Post[] @relation("PostApprovedBy")
 }
 
 model Animal {
@@ -40,6 +51,13 @@ model Animal {
   galerie          GalerieMedia[]
   posts            Post[]
   subscriptions    Subscription[]
+
+  // --- Approval workflow fields ---
+  status       ContentStatus @default(PUBLISHED)
+  createdById  String?
+  createdBy    User?         @relation("AnimalCreatedBy", fields: [createdById], references: [id])
+  approvedById String?
+  approvedBy   User?         @relation("AnimalApprovedBy", fields: [approvedById], references: [id])
 }
 
 model GalerieMedia {
@@ -79,17 +97,29 @@ model AdoptionRequest {
 /// * Posts with media
 /// * =========================
 model Post {
-  id          String      @id @default(cuid())
+  id          String   @id @default(cuid())
   title       String
   body        String?
-  active      Boolean     @default(true)
+  active      Boolean  @default(true)
   animalId    String
   authorId    String?
-  createdAt   DateTime    @default(now())
-  publishedAt DateTime    @default(now())
-  animal      Animal      @relation(fields: [animalId], references: [id], onDelete: Cascade)
-  author      User?       @relation(fields: [authorId], references: [id])
-  media       PostMedia[]
+  createdAt   DateTime @default(now())
+  publishedAt DateTime @default(now())
+
+  animal Animal @relation(fields: [animalId], references: [id], onDelete: Cascade)
+
+  /// Original author of the post
+  author User? @relation("AuthorPosts", fields: [authorId], references: [id])
+
+  media PostMedia[]
+
+  // --- Approval workflow fields ---
+  status       ContentStatus @default(PUBLISHED)
+  createdById  String?
+  createdBy    User?         @relation("PostCreatedBy", fields: [createdById], references: [id])
+  approvedById String?
+  approvedBy   User?         @relation("PostApprovedBy", fields: [approvedById], references: [id])
+  updatedAt    DateTime      @updatedAt
 
   @@index([animalId])
   @@index([authorId])
@@ -153,15 +183,15 @@ model Payment {
 }
 
 model Notification {
-  id        String   @id @default(uuid())
-  user      User     @relation(fields: [userId], references: [id])
-  userId    String
+  id     String @id @default(uuid())
+  user   User   @relation(fields: [userId], references: [id])
+  userId String
 
-  type      String   // e.g. 'ADOPTION_CREATED', 'ADOPTION_CANCELLED'
+  type      String // e.g. 'ADOPTION_CREATED', 'ADOPTION_CANCELLED'
   title     String
   message   String
-  readAt    DateTime?    // null = unread
-  createdAt DateTime @default(now())
+  readAt    DateTime? // null = unread
+  createdAt DateTime  @default(now())
 }
 
 model WebhookEvent {
@@ -265,4 +295,11 @@ enum PaymentMethod {
 
 enum PaymentInterval {
   MONTHLY
+}
+
+enum ContentStatus {
+  DRAFT
+  PENDING_REVIEW
+  PUBLISHED
+  REJECTED
 }
