@@ -6,17 +6,18 @@ import cors from 'cors'
 
 import stripeJsonRouter, { rawRouter as stripeRawRouter } from './routes/stripe'
 import authRoutes from './routes/auth'
-
-import adminModeratorsRoutes from './routes/adminModerators'
 import animalRoutes from './routes/animals'
 import uploadRoutes from './routes/upload'
 import postsRoutes from './routes/posts'
+import adoptionRouter from './routes/adoption'
+import emailTest from './routes/emailTest';
+import adminModeratorsRoutes from './routes/adminModerators'
 import adminStatsRoutes from './routes/adminStats'
 import subscriptionRoutes from './routes/subscriptionRoutes'
 import paymentRouter from './routes/paymentRoutes'
-import adoptionRouter from './routes/adoption'
 import gpwebpayRoutes from './routes/gpwebpay'
 import notificationRoutes from './routes/notification'
+
 
 import { prisma } from './prisma'
 
@@ -87,6 +88,7 @@ app.use('/api/admin/stats', adminStatsRoutes)
 app.use('/api/subscriptions', subscriptionRoutes)
 app.use('/api/payments', paymentRouter)
 app.use('/api/notifications', notificationRoutes)
+app.use('/api/test', emailTest);
 
 // GP webpay (feature flag)
 const gpEnabled =
