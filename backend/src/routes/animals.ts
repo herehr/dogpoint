@@ -2,6 +2,8 @@
 import { Router, Request, Response } from 'express'
 import { prisma } from '../prisma'
 import { requireAuth } from '../middleware/auth'
+import { ContentStatus, Role } from '@prisma/client'
+import { notifyApproversAboutNewAnimal } from '../services/moderationNotifications'
 
 const router = Router()
 
@@ -10,25 +12,27 @@ type BodyMedia = { url?: string; typ?: string } | string
 function parseGalerie(input: any): Array<{ url: string; typ?: string }> {
   const arr: BodyMedia[] =
     Array.isArray(input?.galerie) ? input.galerie
-    : Array.isArray(input?.gallery) ? input.gallery
-    : []
+      : Array.isArray(input?.gallery) ? input.gallery
+      : []
   return arr
-    .map((x) => (typeof x === 'string' ? { url: x } : { url: x?.url, typ: x?.typ }))
+    .map(x => (typeof x === 'string' ? { url: x } : { url: x?.url, typ: x?.typ }))
     .filter((m): m is { url: string; typ?: string } => !!m.url)
-    .map((m) => ({ url: m.url, typ: m.typ ?? 'image' }))
+    .map(m => ({ url: m.url, typ: m.typ ?? 'image' }))
 }
 
 /* =========================
-   READ
+   READ (PUBLIC)
    ========================= */
 
 // GET all (public)
 router.get('/', async (_req: Request, res: Response): Promise<void> => {
   try {
     const animals = await prisma.animal.findMany({
-      // Use id to avoid schema drift on createdAt
+      where: {
+        active: true,
+        status: ContentStatus.PUBLISHED, // only approved animals
+      },
       orderBy: { id: 'desc' },
-      // Include only what we need from galerie; order by id to avoid createdAt drift
       include: {
         galerie: {
           select: { url: true, typ: true },
@@ -36,10 +40,12 @@ router.get('/', async (_req: Request, res: Response): Promise<void> => {
         },
       },
     })
+
     const shaped = animals.map(a => ({
       ...a,
       main: a.main ?? a.galerie?.[0]?.url ?? null,
     }))
+
     res.json(shaped)
   } catch (e: any) {
     console.error('GET /api/animals error:', {
@@ -49,7 +55,7 @@ router.get('/', async (_req: Request, res: Response): Promise<void> => {
   }
 })
 
-// GET one (public)
+// GET one (public – no status filter, so mods/admins can see pending by ID)
 router.get('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
     const a = await prisma.animal.findUnique({
@@ -73,7 +79,10 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
   }
 })
 
-/// CREATE
+/* =========================
+   CREATE (AUTH + ROLE CHECK)
+   ========================= */
+
 router.post('/', requireAuth, async (req: Request, res: Response): Promise<void> => {
   const body = (req.body || {}) as any
   const media = parseGalerie(body)
@@ -82,6 +91,15 @@ router.post('/', requireAuth, async (req: Request, res: Response): Promise<void>
   if (!body.jmeno && !body.name) {
     res.status(400).json({ error: 'Missing name/jmeno' }); return
   }
+
+  // Require ADMIN or MODERATOR
+  const user = (req as any).user as { id: string; email?: string | null; role: Role } | undefined
+  if (!user || (user.role !== Role.ADMIN && user.role !== Role.MODERATOR)) {
+    res.status(403).json({ error: 'Forbidden' }); return
+  }
+
+  const isAdmin = user.role === Role.ADMIN
+  const initialStatus = isAdmin ? ContentStatus.PUBLISHED : ContentStatus.PENDING_REVIEW
 
   // Safe coercions
   const parsedBornYear =
@@ -105,12 +123,16 @@ router.post('/', requireAuth, async (req: Request, res: Response): Promise<void>
           bornYear: parsedBornYear,
           active: body.active === undefined ? true : Boolean(body.active),
           main: requestedMain,
+
+          status: initialStatus,
+          createdById: user.id,
+          approvedById: isAdmin ? user.id : null,
         },
       })
 
       if (media.length) {
         await tx.galerieMedia.createMany({
-          data: media.map((g) => ({
+          data: media.map(g => ({
             animalId: created.id,
             url: g.url,
             typ: g.typ ?? 'image',
@@ -134,6 +156,15 @@ router.post('/', requireAuth, async (req: Request, res: Response): Promise<void>
     })
 
     if (!result) { res.status(500).json({ error: 'Create failed' }); return }
+
+    // Notify approvers if created by moderator
+    if (!isAdmin) {
+      void notifyApproversAboutNewAnimal(
+        { id: user.id, email: user.email ?? null, role: user.role },
+        { id: result.id, jmeno: result.jmeno, name: result.name }
+      )
+    }
+
     res.status(201).json(result)
   } catch (e: any) {
     console.error('POST /api/animals error:', {
@@ -143,18 +174,25 @@ router.post('/', requireAuth, async (req: Request, res: Response): Promise<void>
   }
 })
 
+/* =========================
+   UPDATE (AUTH + ROLE CHECK)
+   ========================= */
 
-// UPDATE
 router.patch('/:id', requireAuth, async (req: Request, res: Response): Promise<void> => {
   const id = String(req.params.id)
   const body = (req.body || {}) as any
   const media = parseGalerie(body)
 
+  const user = (req as any).user as { id: string; role: Role } | undefined
+  if (!user || (user.role !== Role.ADMIN && user.role !== Role.MODERATOR)) {
+    res.status(403).json({ error: 'Forbidden' }); return
+  }
+
   const parsedBornYear =
     Object.prototype.hasOwnProperty.call(body, 'bornYear')
       ? (body.bornYear === null || body.bornYear === '' || body.bornYear === undefined
-          ? null
-          : Number.isFinite(Number(body.bornYear)) ? Number(body.bornYear) : null)
+        ? null
+        : Number.isFinite(Number(body.bornYear)) ? Number(body.bornYear) : null)
       : undefined
 
   const parsedBirthDate =
@@ -188,7 +226,7 @@ router.patch('/:id', requireAuth, async (req: Request, res: Response): Promise<v
         await tx.galerieMedia.deleteMany({ where: { animalId: id } })
         if (media.length) {
           await tx.galerieMedia.createMany({
-            data: media.map((g) => ({ animalId: id, url: g.url, typ: g.typ ?? 'image' })),
+            data: media.map(g => ({ animalId: id, url: g.url, typ: g.typ ?? 'image' })),
           })
         }
         const fresh = await tx.animal.findUnique({ where: { id }, include: { galerie: true } })
@@ -215,10 +253,15 @@ router.patch('/:id', requireAuth, async (req: Request, res: Response): Promise<v
 })
 
 /* =========================
-   DELETE
+   DELETE (AUTH + ROLE CHECK)
    ========================= */
 
 router.delete('/:id', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const user = (req as any).user as { id: string; role: Role } | undefined
+  if (!user || (user.role !== Role.ADMIN && user.role !== Role.MODERATOR)) {
+    res.status(403).json({ error: 'Forbidden' }); return
+  }
+
   try {
     const id = String(req.params.id)
     await prisma.galerieMedia.deleteMany({ where: { animalId: id } })

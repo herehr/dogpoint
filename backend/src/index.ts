@@ -51,7 +51,8 @@ const corsOptions: Parameters<typeof cors>[0] = {
     }
 
     console.warn('[CORS] blocked origin:', origin)
-    callback(new Error('Not allowed by CORS'))
+    // ❗ Do NOT throw -> just say "CORS not allowed"
+    callback(null, false)
   },
   credentials: true,
 }

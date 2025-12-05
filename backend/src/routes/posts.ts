@@ -3,6 +3,8 @@ import { Router, Request, Response, NextFunction } from 'express'
 import jwt from 'jsonwebtoken'
 import { prisma } from '../prisma'
 import { requireAuth } from '../middleware/authJwt'
+import { ContentStatus, Role } from '@prisma/client'
+import { notifyApproversAboutNewPost } from '../services/moderationNotifications'
 
 const router = Router()
 
@@ -46,7 +48,7 @@ function normalizeMedia(input: any): IncomingMedia[] {
     .map((m: IncomingMedia) => ({ url: m.url, typ: m.typ ?? 'image' }))
 }
 
-function isStaff(role?: string): boolean {
+function isStaff(role?: Role | string): boolean {
   return role === 'ADMIN' || role === 'MODERATOR'
 }
 
@@ -57,9 +59,15 @@ function isStaff(role?: string): boolean {
 async function listPosts(req: Request, res: Response): Promise<void> {
   try {
     const animalId = req.query.animalId ? String(req.query.animalId) : undefined
+    const userRole = (req as any).user?.role as Role | string | undefined
+    const staff = isStaff(userRole)
+
     const posts = await prisma.post.findMany({
       where: {
         active: true,
+        // Public: only PUBLISHED
+        // Staff: can see all statuses
+        ...(staff ? {} : { status: ContentStatus.PUBLISHED }),
         ...(animalId ? { animalId } : {}),
       },
       orderBy: { createdAt: 'desc' },
@@ -97,6 +105,16 @@ router.get('/:id', tryAttachUser, async (req: Request, res: Response): Promise<v
       res.status(404).json({ error: 'Not found' })
       return
     }
+
+    const userRole = (req as any).user?.role as Role | string | undefined
+    const staff = isStaff(userRole)
+
+    // Only staff can see non-published posts
+    if (post.status !== ContentStatus.PUBLISHED && !staff) {
+      res.status(404).json({ error: 'Not found' })
+      return
+    }
+
     res.json(post)
   } catch (e: any) {
     console.error('GET /api/posts/:id error:', e)
@@ -111,7 +129,8 @@ router.get('/:id', tryAttachUser, async (req: Request, res: Response): Promise<v
 
 router.post('/', requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
-    if (!isStaff(req.user?.role)) {
+    const user = (req as any).user as { id: string; email?: string | null; role: Role } | undefined
+    if (!user || !isStaff(user.role)) {
       res.status(403).json({ error: 'Forbidden' })
       return
     }
@@ -135,7 +154,8 @@ router.post('/', requireAuth, async (req: Request, res: Response): Promise<void>
       return
     }
 
-    const authorId = req.user!.id // staff-only path → always present
+    const isAdmin = user.role === Role.ADMIN
+    const initialStatus = isAdmin ? ContentStatus.PUBLISHED : ContentStatus.PENDING_REVIEW
 
     const created = await prisma.$transaction(async (tx) => {
       const post = await tx.post.create({
@@ -144,7 +164,11 @@ router.post('/', requireAuth, async (req: Request, res: Response): Promise<void>
           body: body ? String(body) : null,
           active: active === undefined ? true : Boolean(active),
           animalId: String(animalId),
-          authorId,
+          authorId: user.id,
+
+          status: initialStatus,
+          createdById: user.id,
+          approvedById: isAdmin ? user.id : null,
         },
       })
       if (media.length) {
@@ -158,6 +182,14 @@ router.post('/', requireAuth, async (req: Request, res: Response): Promise<void>
       }
       return tx.post.findUnique({ where: { id: post.id }, include: { media: true } })
     })
+
+    // Notify approvers if created by moderator
+    if (!isAdmin && created) {
+      void notifyApproversAboutNewPost(
+        { id: user.id, email: user.email ?? null, role: user.role },
+        { id: created.id, title: created.title, animalId: created.animalId }
+      )
+    }
 
     res.status(201).json(created)
   } catch (e: any) {
@@ -179,7 +211,8 @@ router.post('/', requireAuth, async (req: Request, res: Response): Promise<void>
 
 router.patch('/:id', requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
-    if (!isStaff(req.user?.role)) {
+    const user = (req as any).user as { id: string; role: Role } | undefined
+    if (!user || !isStaff(user.role)) {
       res.status(403).json({ error: 'Forbidden' })
       return
     }
@@ -202,6 +235,8 @@ router.patch('/:id', requireAuth, async (req: Request, res: Response): Promise<v
           title: body.title ?? undefined,
           body: body.body ?? undefined,
           active: body.active ?? undefined,
+          // For now we keep status as-is; if you want edits by moderator
+          // to send the post back to PENDING_REVIEW, we can add that later.
         },
       })
 
@@ -234,19 +269,21 @@ router.patch('/:id', requireAuth, async (req: Request, res: Response): Promise<v
 
 router.delete('/:id', requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
-    if (!isStaff(req.user?.role)) {
+    const user = (req as any).user as { id: string; role: Role } | undefined
+    if (!user || !isStaff(user.role)) {
       res.status(403).json({ error: 'Forbidden' })
       return
     }
+
     const id = String(req.params.id)
 
     await prisma.$transaction(async (tx) => {
-  await tx.postMedia.deleteMany({ where: { postId: id } })
-  await tx.post.update({
-    where: { id },
-    data: { active: false },
-  })
-})
+      await tx.postMedia.deleteMany({ where: { postId: id } })
+      await tx.post.update({
+        where: { id },
+        data: { active: false },
+      })
+    })
 
     res.status(204).end()
   } catch (e: any) {
