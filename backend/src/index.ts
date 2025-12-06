@@ -10,7 +10,7 @@ import animalRoutes from './routes/animals'
 import uploadRoutes from './routes/upload'
 import postsRoutes from './routes/posts'
 import adoptionRouter from './routes/adoption'
-import emailTest from './routes/emailTest';
+import emailTest from './routes/emailTest'
 import adminModeratorsRoutes from './routes/adminModerators'
 import adminStatsRoutes from './routes/adminStats'
 import subscriptionRoutes from './routes/subscriptionRoutes'
@@ -26,18 +26,18 @@ import { prisma } from './prisma'
  * CORS_ORIGIN="https://sea-lion-app-6pdrc.ondigitalocean.app,https://pomaham.dog-point.cz"
  * ──────────────────────────────────────────── */
 
-// 🔁 CHANGED: now supports BOTH CORS_ORIGIN and CORS_ALLOWED_ORIGINS
+// Support both env names, use whichever is set
 const allowedOrigins: string[] =
   (process.env.CORS_ORIGIN || process.env.CORS_ALLOWED_ORIGINS || '')
     .split(',')
-    .map(s => s.trim())
+    .map((s) => s.trim())
     .filter(Boolean)
 
 // Use the same type Express uses for cors() options
 const corsOptions: Parameters<typeof cors>[0] = {
   origin(
     origin: string | undefined,
-    callback: (err: Error | null, allow?: boolean) => void
+    callback: (err: Error | null, allow?: boolean) => void,
   ): void {
     // No origin (e.g. curl, health checks) -> allow
     if (!origin) {
@@ -50,14 +50,7 @@ const corsOptions: Parameters<typeof cors>[0] = {
       callback(null, true)
       return
     }
-    
-    console.warn('[CORS] blocked origin:', origin)
-    // Do NOT throw – this avoids 500 in preflight
-    callback(null, false)
-  },
-  credentials: true,
-}
-    
+
     console.warn('[CORS] blocked origin:', origin)
     // Do NOT throw – this avoids 500 in preflight
     callback(null, false)
@@ -97,7 +90,7 @@ app.use('/api/admin/stats', adminStatsRoutes)
 app.use('/api/subscriptions', subscriptionRoutes)
 app.use('/api/payments', paymentRouter)
 app.use('/api/notifications', notificationRoutes)
-app.use('/api/test', emailTest);
+app.use('/api/test', emailTest)
 
 // GP webpay (feature flag)
 const gpEnabled =
