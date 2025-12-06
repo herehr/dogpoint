@@ -1,89 +1,158 @@
 // backend/src/services/moderationNotifications.ts
+import nodemailer from 'nodemailer'
 import { prisma } from '../prisma'
-import { sendEmail } from './email'
-import type { Role } from '@prisma/client'
+import { Role } from '@prisma/client'
 
-type BaseUser = {
-  id: string
-  email: string | null
-  role: Role
-}
+/**
+ * Shared mailer – uses the same env vars as your emailTest route:
+ * EMAIL_HOST, EMAIL_PORT, EMAIL_SECURE, EMAIL_USER, EMAIL_PASSWORD, EMAIL_FROM
+ * (for SendGrid SMTP: host=smtp.sendgrid.net, user=apikey, pass=API key)
+ */
+const transporter = nodemailer.createTransport({
+  host: process.env.EMAIL_HOST,
+  port: Number(process.env.EMAIL_PORT) || 587,
+  secure: process.env.EMAIL_SECURE === 'true',
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASSWORD,
+  },
+})
 
-const APP_NAME = 'Dogpoint adopce'
+const EMAIL_FROM = process.env.EMAIL_FROM || 'no-reply@dog-point.cz'
+const APP_BASE_URL = process.env.APP_BASE_URL || 'https://patron.dog-point.cz'
 
-function getReviewUrl(type: 'animal' | 'post', id: string) {
-  const base = process.env.FRONTEND_BASE_URL || 'https://dogpoint.cz'
-  if (type === 'animal') {
-    return `${base}/moderator/upravit-zvire/${id}`
+async function sendModerationEmails(
+  subject: string,
+  htmlBody: string,
+  textBody: string,
+  recipientEmails: string[],
+): Promise<void> {
+  if (!recipientEmails.length) return
+
+  for (const to of recipientEmails) {
+    try {
+      await transporter.sendMail({
+        from: EMAIL_FROM,
+        to,
+        subject,
+        text: textBody,
+        html: htmlBody,
+      })
+    } catch (e: any) {
+      console.error('[moderation email] send failed', { to, message: e?.message })
+    }
   }
-  return `${base}/moderator/prispevky` // adjust to your posts review page
 }
 
+/**
+ * Notify all approvers (admins + other moderators) about a new animal
+ * that is pending review.
+ */
 export async function notifyApproversAboutNewAnimal(
-  creator: BaseUser,
-  animal: { id: string; jmeno: string | null; name: string | null }
-) {
+  animalId: string,
+  name: string,
+  createdById: string,
+): Promise<void> {
+  // Find all admins and moderators except the creator
   const approvers = await prisma.user.findMany({
     where: {
-      role: { in: ['ADMIN', 'MODERATOR'] },
-      id: { not: creator.id },
+      role: { in: [Role.ADMIN, Role.MODERATOR] },
+      id: { not: createdById },
     },
   })
 
   if (!approvers.length) return
 
-  const title = animal.jmeno || animal.name || 'Nové zvíře'
-  const url = getReviewUrl('animal', animal.id)
+  const link = `${APP_BASE_URL}/moderator/zvire/${animalId}`
 
-  const subject = `${APP_NAME} – nové zvíře ke schválení`
-  const html = `
+  // Create in-app notifications
+  await prisma.notification.createMany({
+    data: approvers.map((u) => ({
+      userId: u.id,
+      type: 'ANIMAL_PENDING_REVIEW',
+      title: 'Nové zvíře čeká na schválení',
+      message: `Zvíře "${name}" čeká na schválení. Otevřete: ${link}`,
+    })),
+  })
+
+  const emails = approvers.map((u) => u.email)
+  const subject = 'Dogpoint – nové zvíře čeká na schválení'
+  const textBody = `Dobrý den,
+
+moderátor přidal nové zvíře, které čeká na schválení:
+
+Zvíře: ${name}
+Odkaz: ${link}
+
+Stačí jedno schválení (admin nebo moderátor).
+
+Děkujeme,
+Dogpoint`
+  const htmlBody = `
     <p>Dobrý den,</p>
-    <p>moderátor <b>${creator.email}</b> přidal nové zvíře, které čeká na schválení:</p>
-    <ul>
-      <li>Název: <b>${title}</b></li>
-    </ul>
-    <p>Zvíře můžete schválit nebo upravit zde:</p>
-    <p><a href="${url}">${url}</a></p>
-    <p>Děkujeme,<br>${APP_NAME}</p>
+    <p>Moderátor přidal nové zvíře, které čeká na schválení:</p>
+    <p><strong>Zvíře:</strong> ${name}</p>
+    <p><strong>Odkaz:</strong> <a href="${link}">${link}</a></p>
+    <p>Stačí jedno schválení (admin nebo moderátor).</p>
+    <p>Děkujeme,<br/>Dogpoint</p>
   `
 
-  for (const user of approvers) {
-    if (!user.email) continue
-    // fire-and-forget, no await needed per loop
-    void sendEmail(user.email, subject, html)
-  }
+  await sendModerationEmails(subject, htmlBody, textBody, emails)
 }
 
+/**
+ * Notify all approvers (admins + other moderators) about a new post
+ * that is pending review.
+ */
 export async function notifyApproversAboutNewPost(
-  creator: BaseUser,
-  post: { id: string; title: string; animalId: string }
-) {
+  postId: string,
+  title: string,
+  animalName: string | null,
+  createdById: string,
+): Promise<void> {
   const approvers = await prisma.user.findMany({
     where: {
-      role: { in: ['ADMIN', 'MODERATOR'] },
-      id: { not: creator.id },
+      role: { in: [Role.ADMIN, Role.MODERATOR] },
+      id: { not: createdById },
     },
-    include: { },
   })
 
   if (!approvers.length) return
 
-  const url = getReviewUrl('post', post.id)
+  const link = `${APP_BASE_URL}/moderator/prispevek/${postId}`
 
-  const subject = `${APP_NAME} – nový příspěvek ke schválení`
-  const html = `
+  await prisma.notification.createMany({
+    data: approvers.map((u) => ({
+      userId: u.id,
+      type: 'POST_PENDING_REVIEW',
+      title: 'Nový příspěvek čeká na schválení',
+      message: `Příspěvek "${title}" (${animalName ?? 'bez zvířete'}) čeká na schválení. Otevřete: ${link}`,
+    })),
+  })
+
+  const emails = approvers.map((u) => u.email)
+  const subject = 'Dogpoint – nový příspěvek čeká na schválení'
+  const textBody = `Dobrý den,
+
+moderátor přidal nový příspěvek, který čeká na schválení:
+
+Nadpis: ${title}
+Zvíře: ${animalName ?? 'bez zvířete'}
+Odkaz: ${link}
+
+Stačí jedno schválení (admin nebo moderátor).
+
+Děkujeme,
+Dogpoint`
+  const htmlBody = `
     <p>Dobrý den,</p>
-    <p>moderátor <b>${creator.email}</b> přidal nový příspěvek, který čeká na schválení:</p>
-    <ul>
-      <li>Název příspěvku: <b>${post.title}</b></li>
-    </ul>
-    <p>Příspěvek můžete schválit nebo upravit zde:</p>
-    <p><a href="${url}">${url}</a></p>
-    <p>Děkujeme,<br>${APP_NAME}</p>
+    <p>Moderátor přidal nový příspěvek, který čeká na schválení:</p>
+    <p><strong>Nadpis:</strong> ${title}</p>
+    <p><strong>Zvíře:</strong> ${animalName ?? 'bez zvířete'}</p>
+    <p><strong>Odkaz:</strong> <a href="${link}">${link}</a></p>
+    <p>Stačí jedno schválení (admin nebo moderátor).</p>
+    <p>Děkujeme,<br/>Dogpoint</p>
   `
 
-  for (const user of approvers) {
-    if (!user.email) continue
-    void sendEmail(user.email, subject, html)
-  }
+  await sendModerationEmails(subject, htmlBody, textBody, emails)
 }

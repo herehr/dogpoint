@@ -48,32 +48,31 @@ function normalizeMedia(input: any): IncomingMedia[] {
     .map((m: IncomingMedia) => ({ url: m.url, typ: m.typ ?? 'image' }))
 }
 
-function isStaff(role?: Role | string): boolean {
-  return role === 'ADMIN' || role === 'MODERATOR'
+function isStaff(role?: string | Role): boolean {
+  return (
+    role === 'ADMIN' ||
+    role === 'MODERATOR' ||
+    role === Role.ADMIN ||
+    role === Role.MODERATOR
+  )
 }
 
 /* ──────────────────────────────────────────────────────────
-   Shared list handler
+   Shared list handler (public, only PUBLISHED)
 ─────────────────────────────────────────────────────────── */
 
 async function listPosts(req: Request, res: Response): Promise<void> {
   try {
     const animalId = req.query.animalId ? String(req.query.animalId) : undefined
-    const userRole = (req as any).user?.role as Role | string | undefined
-    const staff = isStaff(userRole)
-
     const posts = await prisma.post.findMany({
       where: {
         active: true,
-        // Public: only PUBLISHED
-        // Staff: can see all statuses
-        ...(staff ? {} : { status: ContentStatus.PUBLISHED }),
+        status: ContentStatus.PUBLISHED,
         ...(animalId ? { animalId } : {}),
       },
       orderBy: { createdAt: 'desc' },
       include: { media: true },
     })
-    // IMPORTANT: never 404 here – just return [] if none
     res.json(posts)
   } catch (e: any) {
     console.error('GET /api/posts error:', e)
@@ -85,14 +84,43 @@ async function listPosts(req: Request, res: Response): Promise<void> {
    GET /api/posts/public (public list)
    GET /api/posts        (public list)
    Optional: ?animalId=...
-   MUST come before '/:id'
 ─────────────────────────────────────────────────────────── */
 
 router.get('/public', tryAttachUser, listPosts)
 router.get('/',      tryAttachUser, listPosts)
 
 /* ──────────────────────────────────────────────────────────
-   GET /api/posts/:id  (public detail)
+   GET pending posts (staff only)
+   GET /api/posts/pending
+─────────────────────────────────────────────────────────── */
+
+router.get('/pending', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const user = req.user as { id: string; role: Role | string } | undefined
+  if (!user || !isStaff(user.role)) {
+    res.status(403).json({ error: 'Forbidden' })
+    return
+  }
+
+  try {
+    const animalId = req.query.animalId ? String(req.query.animalId) : undefined
+    const posts = await prisma.post.findMany({
+      where: {
+        active: true,
+        status: ContentStatus.PENDING_REVIEW,
+        ...(animalId ? { animalId } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+      include: { media: true, animal: true },
+    })
+    res.json(posts)
+  } catch (e: any) {
+    console.error('GET /api/posts/pending error:', e)
+    res.status(500).json({ error: 'Internal error fetching pending posts' })
+  }
+})
+
+/* ──────────────────────────────────────────────────────────
+   GET /api/posts/:id  (public detail – only active)
 ─────────────────────────────────────────────────────────── */
 
 router.get('/:id', tryAttachUser, async (req: Request, res: Response): Promise<void> => {
@@ -105,16 +133,6 @@ router.get('/:id', tryAttachUser, async (req: Request, res: Response): Promise<v
       res.status(404).json({ error: 'Not found' })
       return
     }
-
-    const userRole = (req as any).user?.role as Role | string | undefined
-    const staff = isStaff(userRole)
-
-    // Only staff can see non-published posts
-    if (post.status !== ContentStatus.PUBLISHED && !staff) {
-      res.status(404).json({ error: 'Not found' })
-      return
-    }
-
     res.json(post)
   } catch (e: any) {
     console.error('GET /api/posts/:id error:', e)
@@ -124,13 +142,11 @@ router.get('/:id', tryAttachUser, async (req: Request, res: Response): Promise<v
 
 /* ──────────────────────────────────────────────────────────
    POST /api/posts  (ONLY ADMIN/MODERATOR)
-   Body: { animalId, title, body?, media?: [{url, typ}] | [string], active? }
 ─────────────────────────────────────────────────────────── */
 
 router.post('/', requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
-    const user = (req as any).user as { id: string; email?: string | null; role: Role } | undefined
-    if (!user || !isStaff(user.role)) {
+    if (!isStaff(req.user?.role)) {
       res.status(403).json({ error: 'Forbidden' })
       return
     }
@@ -147,15 +163,17 @@ router.post('/', requireAuth, async (req: Request, res: Response): Promise<void>
       return
     }
 
-    // ensure animal exists
     const animal = await prisma.animal.findUnique({ where: { id: String(animalId) } })
     if (!animal) {
       res.status(404).json({ error: 'Animal not found' })
       return
     }
 
-    const isAdmin = user.role === Role.ADMIN
+    const user = req.user as { id: string; role: Role | string }
+    const isAdmin = user.role === Role.ADMIN || user.role === 'ADMIN'
     const initialStatus = isAdmin ? ContentStatus.PUBLISHED : ContentStatus.PENDING_REVIEW
+
+    const authorId = user.id
 
     const created = await prisma.$transaction(async (tx) => {
       const post = await tx.post.create({
@@ -164,11 +182,10 @@ router.post('/', requireAuth, async (req: Request, res: Response): Promise<void>
           body: body ? String(body) : null,
           active: active === undefined ? true : Boolean(active),
           animalId: String(animalId),
-          authorId: user.id,
-
+          authorId,
           status: initialStatus,
-          createdById: user.id,
-          approvedById: isAdmin ? user.id : null,
+          createdById: authorId,
+          approvedById: isAdmin ? authorId : null,
         },
       })
       if (media.length) {
@@ -183,12 +200,20 @@ router.post('/', requireAuth, async (req: Request, res: Response): Promise<void>
       return tx.post.findUnique({ where: { id: post.id }, include: { media: true } })
     })
 
-    // Notify approvers if created by moderator
-    if (!isAdmin && created) {
-      void notifyApproversAboutNewPost(
-        { id: user.id, email: user.email ?? null, role: user.role },
-        { id: created.id, title: created.title, animalId: created.animalId }
-      )
+    if (!created) {
+      res.status(500).json({ error: 'Internal error creating post' })
+      return
+    }
+
+    if (!isAdmin) {
+      notifyApproversAboutNewPost(
+        created.id,
+        created.title,
+        animal.jmeno ?? animal.name ?? null,
+        user.id,
+      ).catch((e) => {
+        console.error('[notifyApproversAboutNewPost] failed', e?.message)
+      })
     }
 
     res.status(201).json(created)
@@ -205,14 +230,11 @@ router.post('/', requireAuth, async (req: Request, res: Response): Promise<void>
 
 /* ──────────────────────────────────────────────────────────
    PATCH /api/posts/:id  (ADMIN/MODERATOR)
-   Body can include: { title?, body?, active?, media? }
-   If media provided (array), we REPLACE all media.
 ─────────────────────────────────────────────────────────── */
 
 router.patch('/:id', requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
-    const user = (req as any).user as { id: string; role: Role } | undefined
-    if (!user || !isStaff(user.role)) {
+    if (!isStaff(req.user?.role)) {
       res.status(403).json({ error: 'Forbidden' })
       return
     }
@@ -235,8 +257,6 @@ router.patch('/:id', requireAuth, async (req: Request, res: Response): Promise<v
           title: body.title ?? undefined,
           body: body.body ?? undefined,
           active: body.active ?? undefined,
-          // For now we keep status as-is; if you want edits by moderator
-          // to send the post back to PENDING_REVIEW, we can add that later.
         },
       })
 
@@ -264,17 +284,55 @@ router.patch('/:id', requireAuth, async (req: Request, res: Response): Promise<v
 })
 
 /* ──────────────────────────────────────────────────────────
-   DELETE /api/posts/:id  (ADMIN/MODERATOR)
+   APPROVE /api/posts/:id/approve  (ADMIN/MODERATOR)
+─────────────────────────────────────────────────────────── */
+
+router.post('/:id/approve', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const user = req.user as { id: string; role: Role | string } | undefined
+  if (!user || !isStaff(user.role)) {
+    res.status(403).json({ error: 'Forbidden' })
+    return
+  }
+
+  const id = String(req.params.id)
+
+  try {
+    const existing = await prisma.post.findUnique({ where: { id } })
+    if (!existing) {
+      res.status(404).json({ error: 'Not found' })
+      return
+    }
+
+    if (existing.status === ContentStatus.PUBLISHED) {
+      res.json(existing)
+      return
+    }
+
+    const updated = await prisma.post.update({
+      where: { id },
+      data: {
+        status: ContentStatus.PUBLISHED,
+        approvedById: user.id,
+      },
+    })
+
+    res.json(updated)
+  } catch (e: any) {
+    console.error('POST /api/posts/:id/approve error:', e)
+    res.status(500).json({ error: 'Internal error approving post' })
+  }
+})
+
+/* ──────────────────────────────────────────────────────────
+   DELETE /api/posts/:id  (ADMIN/MODERATOR, soft delete)
 ─────────────────────────────────────────────────────────── */
 
 router.delete('/:id', requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
-    const user = (req as any).user as { id: string; role: Role } | undefined
-    if (!user || !isStaff(user.role)) {
+    if (!isStaff(req.user?.role)) {
       res.status(403).json({ error: 'Forbidden' })
       return
     }
-
     const id = String(req.params.id)
 
     await prisma.$transaction(async (tx) => {

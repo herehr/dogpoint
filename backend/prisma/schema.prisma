@@ -53,7 +53,7 @@ model Animal {
   subscriptions    Subscription[]
 
   // --- Approval workflow fields ---
-  status       ContentStatus @default(PUBLISHED)
+  status       ContentStatus @default(PENDING_REVIEW)
   createdById  String?
   createdBy    User?         @relation("AnimalCreatedBy", fields: [createdById], references: [id])
   approvedById String?
@@ -97,33 +97,25 @@ model AdoptionRequest {
 /// * Posts with media
 /// * =========================
 model Post {
-  id          String   @id @default(cuid())
+  id          String      @id @default(cuid())
   title       String
   body        String?
-  active      Boolean  @default(true)
+  active      Boolean     @default(true)
   animalId    String
   authorId    String?
-  createdAt   DateTime @default(now())
-  publishedAt DateTime @default(now())
-
-  animal Animal @relation(fields: [animalId], references: [id], onDelete: Cascade)
-
-  /// Original author of the post
-  author User? @relation("AuthorPosts", fields: [authorId], references: [id])
-
-  media PostMedia[]
+  createdAt   DateTime    @default(now())
+  publishedAt DateTime    @default(now())
+  animal      Animal      @relation(fields: [animalId], references: [id], onDelete: Cascade)
+  author      User?       @relation("AuthorPosts", fields: [authorId], references: [id])
+  media       PostMedia[]
 
   // --- Approval workflow fields ---
-  status       ContentStatus @default(PUBLISHED)
+  status       ContentStatus @default(PENDING_REVIEW)
   createdById  String?
   createdBy    User?         @relation("PostCreatedBy", fields: [createdById], references: [id])
   approvedById String?
   approvedBy   User?         @relation("PostApprovedBy", fields: [approvedById], references: [id])
-  updatedAt    DateTime      @updatedAt
-
-  @@index([animalId])
-  @@index([authorId])
-  @@index([publishedAt])
+  updatedAt    DateTime      @default(now()) @updatedAt
 }
 
 model PostMedia {
