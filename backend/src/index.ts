@@ -49,9 +49,9 @@ const corsOptions: Parameters<typeof cors>[0] = {
       callback(null, true)
       return
     }
-
+    
     console.warn('[CORS] blocked origin:', origin)
-    // ❗ Do NOT throw -> just say "CORS not allowed"
+    // Do NOT throw – this avoids 500 in preflight
     callback(null, false)
   },
   credentials: true,
