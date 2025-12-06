@@ -18,19 +18,20 @@ import paymentRouter from './routes/paymentRoutes'
 import gpwebpayRoutes from './routes/gpwebpay'
 import notificationRoutes from './routes/notification'
 
-
 import { prisma } from './prisma'
 
 /* ──────────────────────────────────────────────
  * CORS
- * CORS_ORIGIN can be a comma-separated list, e.g.
+ * CORS_ORIGIN / CORS_ALLOWED_ORIGINS can be a comma-separated list, e.g.
  * CORS_ORIGIN="https://sea-lion-app-6pdrc.ondigitalocean.app,https://pomaham.dog-point.cz"
  * ──────────────────────────────────────────── */
 
-const allowedOrigins: string[] = (process.env.CORS_ORIGIN || '')
-  .split(',')
-  .map(s => s.trim())
-  .filter(Boolean)
+// 🔁 CHANGED: now supports BOTH CORS_ORIGIN and CORS_ALLOWED_ORIGINS
+const allowedOrigins: string[] =
+  (process.env.CORS_ORIGIN || process.env.CORS_ALLOWED_ORIGINS || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean)
 
 // Use the same type Express uses for cors() options
 const corsOptions: Parameters<typeof cors>[0] = {
@@ -49,6 +50,13 @@ const corsOptions: Parameters<typeof cors>[0] = {
       callback(null, true)
       return
     }
+    
+    console.warn('[CORS] blocked origin:', origin)
+    // Do NOT throw – this avoids 500 in preflight
+    callback(null, false)
+  },
+  credentials: true,
+}
     
     console.warn('[CORS] blocked origin:', origin)
     // Do NOT throw – this avoids 500 in preflight
