@@ -17,6 +17,7 @@ import subscriptionRoutes from './routes/subscriptionRoutes'
 import paymentRouter from './routes/paymentRoutes'
 import gpwebpayRoutes from './routes/gpwebpay'
 import notificationRoutes from './routes/notification'
+import moderationRoutes from './routes/moderation' 
 
 import { prisma } from './prisma'
 
@@ -91,6 +92,7 @@ app.use('/api/subscriptions', subscriptionRoutes)
 app.use('/api/payments', paymentRouter)
 app.use('/api/notifications', notificationRoutes)
 app.use('/api/test', emailTest)
+app.use('/api/moderation', moderationRoutes)
 
 // GP webpay (feature flag)
 const gpEnabled =
