@@ -43,12 +43,13 @@ const ModeratorAnimals: React.FC = () => {
   const location = useLocation()
   const navigate = useNavigate()
 
-  // 🔹 Read tab from query (?tab=pending)
-  const searchParams = new URLSearchParams(location.search)
-  const queryTab = searchParams.get('tab')
-  const initialTab: TabKey = queryTab === 'pending' ? 'pending' : 'published'
+  // 🔹 Initial tab from URL (?tab=pending) – no hooks inside helper!
+  const paramsAtMount = new URLSearchParams(location.search)
+  const tabParam = paramsAtMount.get('tab')
+  const [tab, setTab] = useState<TabKey>(
+    tabParam === 'pending' ? 'pending' : 'published',
+  )
 
-  const [tab, setTab] = useState<TabKey>(initialTab)
   const [published, setPublished] = useState<Animal[]>([])
   const [pending, setPending] = useState<Animal[]>([])
   const [loading, setLoading] = useState(false)
@@ -63,7 +64,7 @@ const ModeratorAnimals: React.FC = () => {
     ? { Authorization: `Bearer ${token}` }
     : {}
 
-  // Keep tab in sync when URL changes (back/forward / click from dashboard)
+  // keep tab state in sync with URL ?tab=pending
   useEffect(() => {
     const params = new URLSearchParams(location.search)
     const t = params.get('tab')
