@@ -1,4 +1,4 @@
-// frontend/src/pages/ModeratorAnimals.tsx  (or Moderators.tsx if that's your route)
+// frontend/src/pages/ModeratorAnimals.tsx
 import React, { useEffect, useState } from 'react'
 import {
   Container,
@@ -39,33 +39,35 @@ interface Animal {
 
 type TabKey = 'published' | 'pending'
 
-function useTabFromQuery(): TabKey {
-  const location = useLocation()
-  const params = new URLSearchParams(location.search)
-  const tab = params.get('tab')
-  return tab === 'pending' ? 'pending' : 'published'
-}
-
 const ModeratorAnimals: React.FC = () => {
   const location = useLocation()
   const navigate = useNavigate()
-  const [tab, setTab] = useState<TabKey>(useTabFromQuery)
+
+  // 🔹 Read tab from query (?tab=pending)
+  const searchParams = new URLSearchParams(location.search)
+  const queryTab = searchParams.get('tab')
+  const initialTab: TabKey = queryTab === 'pending' ? 'pending' : 'published'
+
+  const [tab, setTab] = useState<TabKey>(initialTab)
   const [published, setPublished] = useState<Animal[]>([])
   const [pending, setPending] = useState<Animal[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const token = typeof window !== 'undefined'
-    ? sessionStorage.getItem('moderatorToken')
-    : null
+  const token =
+    typeof window !== 'undefined'
+      ? sessionStorage.getItem('moderatorToken')
+      : null
 
   const authHeaders: HeadersInit = token
     ? { Authorization: `Bearer ${token}` }
     : {}
 
-  // keep tab state in sync with URL ?tab=pending
+  // Keep tab in sync when URL changes (back/forward / click from dashboard)
   useEffect(() => {
-    setTab(useTabFromQuery())
+    const params = new URLSearchParams(location.search)
+    const t = params.get('tab')
+    setTab(t === 'pending' ? 'pending' : 'published')
   }, [location.search])
 
   const fetchPublished = async () => {
@@ -130,13 +132,16 @@ const ModeratorAnimals: React.FC = () => {
     try {
       setLoading(true)
       setError(null)
-      const res = await fetch(`${API_BASE_URL}/api/moderation/animals/${id}/approve`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...authHeaders,
+      const res = await fetch(
+        `${API_BASE_URL}/api/moderation/animals/${id}/approve`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...authHeaders,
+          },
         },
-      })
+      )
       if (res.status === 401 || res.status === 403) {
         setError('Nemáte oprávnění schválit toto zvíře.')
         return
