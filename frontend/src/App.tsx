@@ -32,7 +32,8 @@ import OchranaOsobnichUdaju from './pages/OchranaOsobnichUdaju'
 import NotificationsPage from './pages/NotificationsPage'
 import 'react-quill/dist/quill.snow.css'
 import ModeratorNewPost from './pages/ModeratorNewPost'
-import ModeratorAnimals from './pages/ModeratorAnimals' // 👈 NEW IMPORT
+import ModeratorAnimals from './pages/ModeratorAnimals'
+import AddAnimal from './pages/AddAnimal'   // ✅ RESTORED IMPORT
 
 function AppLayout() {
   return (
@@ -63,8 +64,7 @@ export default function App() {
   const navigate = useNavigate()
   const location = useLocation()
 
-  // Legacy Stripe redirect handler:
-  // Handle Stripe redirects (success, cancel, pending)
+  // Stripe redirect handler
   useEffect(() => {
     const params = new URLSearchParams(location.search)
     const paid = params.get('paid')
@@ -73,10 +73,9 @@ export default function App() {
     const animal = params.get('animal')
 
     if (animal && (paid === '1' || pending === '1')) {
-      // SUCCESS or PENDING → treat both as unlocked
       try {
         localStorage.setItem('dp:justPaid', '1')
-        localStorage.setItem(`dp:unlock:${animal}`, '1') // unlock animal fully
+        localStorage.setItem(`dp:unlock:${animal}`, '1')
       } catch {}
 
       navigate(`/zvirata/${encodeURIComponent(animal)}?paid=1`, {
@@ -86,7 +85,6 @@ export default function App() {
     }
 
     if (animal && canceled === '1') {
-      // User canceled payment → still redirect but locked
       navigate(`/zvirata/${encodeURIComponent(animal)}?canceled=1`, {
         replace: true,
       })
@@ -96,25 +94,18 @@ export default function App() {
 
   return (
     <Routes>
-      {/* Absolute route for adoption start (bypasses layout if needed) */}
+      {/* Absolute adoption route */}
       <Route path="/adopce/:id" element={<AdoptionStart />} />
 
-      {/* Root layout with header and nested pages */}
+      {/* Layout root */}
       <Route path="/" element={<AppLayout />}>
-        {/* Home */}
-        <Route index element={<LandingPage />} />
-
         {/* Public */}
+        <Route index element={<LandingPage />} />
         <Route path="zvirata" element={<AnimalsPage />} />
         <Route path="zvire/:id" element={<AnimalDetail />} />
-        {/* Backwards compatibility: still accept /zvirata/:id URLs */}
         <Route path="zvirata/:id" element={<AnimalDetail />} />
-        {/* Also keep nested version, in case it’s used by internal navigation */}
         <Route path="adopce/:id" element={<AdoptionStart />} />
-        <Route
-          path="ochrana-osobnich-udaju"
-          element={<OchranaOsobnichUdaju />}
-        />
+        <Route path="ochrana-osobnich-udaju" element={<OchranaOsobnichUdaju />} />
         <Route path="notifikace" element={<NotificationsPage />} />
 
         {/* Auth */}
@@ -155,14 +146,27 @@ export default function App() {
             </RequireRole>
           }
         />
+
+        {/* 🆕 Moderator animals (published + pending) */}
         <Route
           path="moderator/animals"
           element={
             <RequireRole roles={['MODERATOR', 'ADMIN']}>
-              <ModeratorAnimals /> {/* 👈 NEW PAGE: published + pending tab */}
+              <ModeratorAnimals />
             </RequireRole>
           }
         />
+
+        {/* 🆕 ADD ANIMAL restored */}
+        <Route
+          path="moderator/pridat"
+          element={
+            <RequireRole roles={['MODERATOR', 'ADMIN']}>
+              <AddAnimal />
+            </RequireRole>
+          }
+        />
+
         <Route
           path="moderator/posts/novy"
           element={
@@ -172,7 +176,7 @@ export default function App() {
           }
         />
 
-        {/* User */}
+        {/* User Dashboard */}
         <Route
           path="user"
           element={
@@ -182,10 +186,10 @@ export default function App() {
           }
         />
 
-        {/* Prototype playground */}
+        {/* Playground */}
         <Route path="proto/*" element={<UXPrototype />} />
 
-        {/* 404 fallback (for everything under "/") */}
+        {/* 404 */}
         <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>
