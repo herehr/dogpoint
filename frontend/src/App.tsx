@@ -32,6 +32,7 @@ import OchranaOsobnichUdaju from './pages/OchranaOsobnichUdaju'
 import NotificationsPage from './pages/NotificationsPage'
 import 'react-quill/dist/quill.snow.css'
 import ModeratorNewPost from './pages/ModeratorNewPost'
+import ModeratorAnimals from './pages/ModeratorAnimals' // 👈 NEW IMPORT
 
 function AppLayout() {
   return (
@@ -64,34 +65,34 @@ export default function App() {
 
   // Legacy Stripe redirect handler:
   // Handle Stripe redirects (success, cancel, pending)
-useEffect(() => {
-  const params = new URLSearchParams(location.search)
-  const paid = params.get('paid')
-  const canceled = params.get('canceled')
-  const pending = params.get('pending')
-  const animal = params.get('animal')
+  useEffect(() => {
+    const params = new URLSearchParams(location.search)
+    const paid = params.get('paid')
+    const canceled = params.get('canceled')
+    const pending = params.get('pending')
+    const animal = params.get('animal')
 
-  if (animal && (paid === '1' || pending === '1')) {
-    // SUCCESS or PENDING → treat both as unlocked
-    try {
-      localStorage.setItem('dp:justPaid', '1')
-      localStorage.setItem(`dp:unlock:${animal}`, '1')   // unlock animal fully
-    } catch {}
+    if (animal && (paid === '1' || pending === '1')) {
+      // SUCCESS or PENDING → treat both as unlocked
+      try {
+        localStorage.setItem('dp:justPaid', '1')
+        localStorage.setItem(`dp:unlock:${animal}`, '1') // unlock animal fully
+      } catch {}
 
-    navigate(`/zvirata/${encodeURIComponent(animal)}?paid=1`, {
-      replace: true,
-    })
-    return
-  }
+      navigate(`/zvirata/${encodeURIComponent(animal)}?paid=1`, {
+        replace: true,
+      })
+      return
+    }
 
-  if (animal && canceled === '1') {
-    // User canceled payment → still redirect but locked
-    navigate(`/zvirata/${encodeURIComponent(animal)}?canceled=1`, {
-      replace: true,
-    })
-    return
-  }
-}, [location.search, navigate])
+    if (animal && canceled === '1') {
+      // User canceled payment → still redirect but locked
+      navigate(`/zvirata/${encodeURIComponent(animal)}?canceled=1`, {
+        replace: true,
+      })
+      return
+    }
+  }, [location.search, navigate])
 
   return (
     <Routes>
@@ -114,7 +115,7 @@ useEffect(() => {
           path="ochrana-osobnich-udaju"
           element={<OchranaOsobnichUdaju />}
         />
-        <Route path="/notifikace" element={<NotificationsPage />} />
+        <Route path="notifikace" element={<NotificationsPage />} />
 
         {/* Auth */}
         <Route path="login" element={<Login />} />
@@ -146,8 +147,6 @@ useEffect(() => {
         />
 
         {/* Moderator */}
-
-        <Route path="/moderator/animals" element={<ModeratorAnimals />} />
         <Route
           path="moderator"
           element={
@@ -160,11 +159,18 @@ useEffect(() => {
           path="moderator/animals"
           element={
             <RequireRole roles={['MODERATOR', 'ADMIN']}>
-              <AnimalsManager />
+              <ModeratorAnimals /> {/* 👈 NEW PAGE: published + pending tab */}
             </RequireRole>
           }
         />
-        <Route path="/moderator/posts/novy" element={<ModeratorNewPost />} />
+        <Route
+          path="moderator/posts/novy"
+          element={
+            <RequireRole roles={['MODERATOR', 'ADMIN']}>
+              <ModeratorNewPost />
+            </RequireRole>
+          }
+        />
 
         {/* User */}
         <Route
