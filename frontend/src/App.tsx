@@ -22,18 +22,18 @@ import AnimalsPage from './pages/AnimalsPage'
 import AnimalDetail from './pages/AnimalDetail'
 import AdminDashboard from './pages/AdminDashboard'
 import AdminModerators from './pages/AdminModerators'
-import ModeratorDashboard from './pages/ModeratorDashboard'
 import AnimalsManager from './pages/AnimalsManager'
-import UXPrototype from './prototypes/UXPrototype'
+import ModeratorDashboard from './pages/ModeratorDashboard'
+import ModeratorAnimals from './pages/ModeratorAnimals'
+import ModeratorNewPost from './pages/ModeratorNewPost'
 import Login from './pages/Login'
 import UserDashboard from './pages/UserDashboard'
 import AdoptionStart from './pages/AdoptionStart'
 import OchranaOsobnichUdaju from './pages/OchranaOsobnichUdaju'
 import NotificationsPage from './pages/NotificationsPage'
+import UXPrototype from './prototypes/UXPrototype'
+
 import 'react-quill/dist/quill.snow.css'
-import ModeratorNewPost from './pages/ModeratorNewPost'
-import ModeratorAnimals from './pages/ModeratorAnimals'
-import AddAnimal from './pages/AddAnimal'   // ✅ RESTORED IMPORT
 
 function AppLayout() {
   return (
@@ -64,7 +64,7 @@ export default function App() {
   const navigate = useNavigate()
   const location = useLocation()
 
-  // Stripe redirect handler
+  // Legacy Stripe redirect logic
   useEffect(() => {
     const params = new URLSearchParams(location.search)
     const paid = params.get('paid')
@@ -78,9 +78,7 @@ export default function App() {
         localStorage.setItem(`dp:unlock:${animal}`, '1')
       } catch {}
 
-      navigate(`/zvirata/${encodeURIComponent(animal)}?paid=1`, {
-        replace: true,
-      })
+      navigate(`/zvirata/${encodeURIComponent(animal)}?paid=1`, { replace: true })
       return
     }
 
@@ -88,30 +86,28 @@ export default function App() {
       navigate(`/zvirata/${encodeURIComponent(animal)}?canceled=1`, {
         replace: true,
       })
-      return
     }
   }, [location.search, navigate])
 
   return (
     <Routes>
-      {/* Absolute adoption route */}
+      {/* DIRECT ROUTE (before layout) */}
       <Route path="/adopce/:id" element={<AdoptionStart />} />
 
-      {/* Layout root */}
+      {/* ROOT layout */}
       <Route path="/" element={<AppLayout />}>
         {/* Public */}
         <Route index element={<LandingPage />} />
         <Route path="zvirata" element={<AnimalsPage />} />
         <Route path="zvire/:id" element={<AnimalDetail />} />
         <Route path="zvirata/:id" element={<AnimalDetail />} />
-        <Route path="adopce/:id" element={<AdoptionStart />} />
         <Route path="ochrana-osobnich-udaju" element={<OchranaOsobnichUdaju />} />
         <Route path="notifikace" element={<NotificationsPage />} />
 
         {/* Auth */}
         <Route path="login" element={<Login />} />
 
-        {/* Admin */}
+        {/* ADMIN */}
         <Route
           path="admin"
           element={
@@ -137,7 +133,7 @@ export default function App() {
           }
         />
 
-        {/* Moderator */}
+        {/* MODERATOR */}
         <Route
           path="moderator"
           element={
@@ -147,7 +143,7 @@ export default function App() {
           }
         />
 
-        {/* 🆕 Moderator animals (published + pending) */}
+        {/* NEW: approval & list */}
         <Route
           path="moderator/animals"
           element={
@@ -157,16 +153,7 @@ export default function App() {
           }
         />
 
-        {/* 🆕 ADD ANIMAL restored */}
-        <Route
-          path="moderator/pridat"
-          element={
-            <RequireRole roles={['MODERATOR', 'ADMIN']}>
-              <AddAnimal />
-            </RequireRole>
-          }
-        />
-
+        {/* NEW post creation */}
         <Route
           path="moderator/posts/novy"
           element={
@@ -176,7 +163,17 @@ export default function App() {
           }
         />
 
-        {/* User Dashboard */}
+        {/* OLD editor as backup (edit/add animal) */}
+        <Route
+          path="moderator/pridat"
+          element={
+            <RequireRole roles={['MODERATOR', 'ADMIN']}>
+              <AnimalsManager />
+            </RequireRole>
+          }
+        />
+
+        {/* USER */}
         <Route
           path="user"
           element={
