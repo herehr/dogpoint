@@ -43,7 +43,7 @@ const ModeratorAnimals: React.FC = () => {
   const location = useLocation()
   const navigate = useNavigate()
 
-  // 🔹 Initial tab from URL (?tab=pending) – no hooks inside helper!
+  // initial tab
   const paramsAtMount = new URLSearchParams(location.search)
   const tabParam = paramsAtMount.get('tab')
   const [tab, setTab] = useState<TabKey>(
@@ -64,7 +64,7 @@ const ModeratorAnimals: React.FC = () => {
     ? { Authorization: `Bearer ${token}` }
     : {}
 
-  // keep tab state in sync with URL ?tab=pending
+  // sync with ?tab=pending
   useEffect(() => {
     const params = new URLSearchParams(location.search)
     const t = params.get('tab')
@@ -225,9 +225,24 @@ const ModeratorAnimals: React.FC = () => {
 
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
-      <Typography variant="h5" sx={{ fontWeight: 900, mb: 2 }}>
-        Správa zvířat
-      </Typography>
+      <Stack
+        direction="row"
+        justifyContent="space-between"
+        alignItems="center"
+        sx={{ mb: 2 }}
+      >
+        <Typography variant="h5" sx={{ fontWeight: 900 }}>
+          Správa zvířat
+        </Typography>
+
+        {/* ADD ANIMAL BUTTON — restored */}
+        <Button
+          variant="contained"
+          onClick={() => navigate('/moderator/pridat')}
+        >
+          Přidat zvíře
+        </Button>
+      </Stack>
 
       <Tabs
         value={tab}
@@ -258,7 +273,21 @@ const ModeratorAnimals: React.FC = () => {
             : 'Žádná schválená zvířata.'}
         </Typography>
       ) : (
-        list.map((a) => renderAnimalCard(a, isPendingTab))
+        // 🔥 DESKTOP GRID — MOBILE FIRST
+        <Box
+          display="grid"
+          gridTemplateColumns={{
+            xs: '1fr',
+            sm: 'repeat(2, 1fr)',
+            md: 'repeat(3, 1fr)',
+          }}
+          gap={2}
+          sx={{ mt: 2 }}
+        >
+          {list.map((a) => (
+            <Box key={a.id}>{renderAnimalCard(a, isPendingTab)}</Box>
+          ))}
+        </Box>
       )}
     </Container>
   )
