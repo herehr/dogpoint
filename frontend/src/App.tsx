@@ -146,6 +146,8 @@ useEffect(() => {
         />
 
         {/* Moderator */}
+
+        <Route path="/moderator/animals" element={<ModeratorAnimals />} />
         <Route
           path="moderator"
           element={

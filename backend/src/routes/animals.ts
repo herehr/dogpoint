@@ -64,6 +64,8 @@ router.get('/', async (_req: Request, res: Response): Promise<void> => {
 
 // GET pending for staff – animals waiting for approval
 // MUST be before '/:id'
+// GET pending for staff – animals waiting for approval
+// MUST be before '/:id'
 router.get('/pending', requireAuth, async (req: Request, res: Response): Promise<void> => {
   const user = (req as any).user as { id: string; role: Role | string } | undefined
   if (!user || !isStaff(user.role)) {
@@ -75,7 +77,10 @@ router.get('/pending', requireAuth, async (req: Request, res: Response): Promise
     const animals = await prisma.animal.findMany({
       where: {
         active: true,
-        status: ContentStatus.PENDING_REVIEW,
+        // 👉 all NOT approved (anything that is not PUBLISHED)
+        status: {
+          not: ContentStatus.PUBLISHED,
+        },
       },
       orderBy: { createdAt: 'desc' },
       include: {
