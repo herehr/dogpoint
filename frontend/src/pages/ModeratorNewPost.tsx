@@ -1,165 +1,89 @@
 // frontend/src/pages/ModeratorNewPost.tsx
-import React, { useEffect, useState, useCallback, useRef } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import {
   Container,
   Typography,
-  Stack,
   TextField,
   Button,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  Alert,
-  Box,
-  LinearProgress,
+  Stack,
   Grid,
+  Box,
+  Alert,
+  LinearProgress,
   IconButton,
   Tooltip,
 } from '@mui/material'
-import { useNavigate } from 'react-router-dom'
 import UploadIcon from '@mui/icons-material/UploadFile'
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera'
-import DeleteIcon from '@mui/icons-material/Delete'
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
+import { useNavigate } from 'react-router-dom'
+
+import { useAuth } from '../context/AuthContext'
 import RichTextEditor from '../components/RichTextEditor'
+import { fetchAnimals, type Animal, uploadMedia } from '../api'
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api'
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
 
-type AnimalOption = {
-  id: string
-  jmeno?: string
-  name?: string
-}
-
-type MediaItem = {
-  url: string
-  type?: 'image' | 'video'
-}
+type PostMedia = { url: string; type?: 'image' | 'video' }
 
 const EMOJIS = ['🐾', '❤️', '😊', '🥰', '👏', '🎉', '😍', '🤗', '🌟', '👍']
 
 export default function ModeratorNewPost() {
   const navigate = useNavigate()
+  const { token } = useAuth()
 
-  const [animals, setAnimals] = useState<AnimalOption[]>([])
-  const [loadingAnimals, setLoadingAnimals] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const [animalId, setAnimalId] = useState('')
+  const [animals, setAnimals] = useState<Animal[]>([])
+  const [animalId, setAnimalId] = useState<string>('')
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
+  const [media, setMedia] = useState<PostMedia[]>([])
 
-  const [media, setMedia] = useState<MediaItem[]>([])
+  const [loading, setLoading] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [uploadNote, setUploadNote] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [ok, setOk] = useState<string | null>(null)
 
-  const [saving, setSaving] = useState(false)
-  const [successMessage, setSuccessMessage] = useState<string | null>(null)
-
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const cameraInputRef = useRef<HTMLInputElement>(null)
-
-  /** Načtení seznamu zvířat pro dropdown */
-  const loadAnimals = useCallback(async () => {
-    try {
-      setLoadingAnimals(true)
-      setError(null)
-
-      const token = sessionStorage.getItem('accessToken')
-      if (!token) {
-        setError('Nejste přihlášen jako moderátor. Přihlaste se prosím znovu.')
-        return
-      }
-
-      // ⬇️ FIXED: add /api here
-      const res = await fetch(`${API_BASE}/api/animals?active=true`, {
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-      })
-
-      if (!res.ok) {
-        throw new Error(`Načtení zvířat selhalo: ${res.status}`)
-      }
-
-      const data = await res.json()
-      setAnimals(data || [])
-    } catch (e: any) {
-      console.error('[ModeratorNewPost] loadAnimals error', e)
-      setError(e?.message || 'Nepodařilo se načíst zvířata.')
-    } finally {
-      setLoadingAnimals(false)
-    }
-  }, [])
+  const fileRef = useRef<HTMLInputElement>(null)
+  const cameraRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    loadAnimals()
-  }, [loadAnimals])
+    ;(async () => {
+      try {
+        const list = await fetchAnimals()
+        setAnimals(list)
+      } catch (e: any) {
+        setError(e?.message || 'Nepodařilo se načíst seznam zvířat')
+      }
+    })()
+  }, [])
 
-  /** Přidání emoji do textu */
-  function addEmoji(emoji: string) {
-    setBody((prev) => (prev ? `${prev} ${emoji}` : emoji))
-  }
+  /* ---------- Upload helpers ---------- */
 
-  /** Upload souborů (fotky / videa) na backend (/api/upload) */
   async function handleFiles(files: FileList | File[]) {
     const arr = Array.from(files).filter((f) => f && f.size > 0)
-    if (arr.length === 0) return
-
+    if (!arr.length) return
     setUploading(true)
     setError(null)
-
     try {
-      const uploaded: MediaItem[] = []
-
-      for (let i = 0; i < arr.length; i += 1) {
-        const f = arr[i]
+      const results: string[] = []
+      for (let i = 0; i < arr.length; i++) {
         setUploadNote(`Nahrávám ${i + 1} / ${arr.length}…`)
-
-        const fd = new FormData()
-        fd.append('file', f)
-
-        const token = sessionStorage.getItem('accessToken') || ''
-
-        const res = await fetch(`${API_BASE}/upload`, {
-          method: 'POST',
-          headers: {
-            Authorization: token ? `Bearer ${token}` : '',
-          },
-          body: fd,
-        })
-
-        if (!res.ok) {
-          const txt = await res.text()
-          console.error('[ModeratorNewPost] upload error', res.status, txt)
-          throw new Error('Nahrání souboru selhalo')
-        }
-
-        const json = await res.json()
-        const data = json?.data || json
-
-        const rawUrl: string =
-          data?.url ||
-          (data?.key
-            ? `${data.publicBase || ''}${data.key}`
-            : '')
-
-        if (!rawUrl) continue
-
-        const urlWithBust = appendBust(rawUrl)
-        uploaded.push({
-          url: urlWithBust,
-          type: guessTypeFromUrl(rawUrl),
-        })
+        // eslint-disable-next-line no-await-in-loop
+        const one = await uploadMedia(arr[i])
+        const url = (one as any)?.url || (one as any)?.key || ''
+        if (url) results.push(url)
       }
-
-      if (uploaded.length > 0) {
-        setMedia((prev) => [...prev, ...uploaded])
-      }
+      const now = Date.now()
+      setMedia((cur) => [
+        ...cur,
+        ...results.map((u) => ({
+          url: `${u}${u.includes('?') ? '&' : '?'}v=${now}`,
+          type: guessTypeFromUrl(u) || 'image',
+        })),
+      ])
     } catch (e: any) {
-      console.error('[ModeratorNewPost] handleFiles error', e)
-      setError(e?.message || 'Nahrání souborů selhalo.')
+      setError(e?.message || 'Nahrání selhalo')
     } finally {
       setUploading(false)
       setUploadNote('')
@@ -188,281 +112,284 @@ export default function ModeratorNewPost() {
     e.stopPropagation()
   }
 
-  function removeMediaIndex(i: number) {
-    setMedia((list) => list.filter((_, idx) => idx !== i))
+  function removeMedia(idx: number) {
+    setMedia((list) => list.filter((_, i) => i !== idx))
   }
 
-  /** Uložení příspěvku */
-  const handleSave = async (e: React.FormEvent) => {
+  function addEmoji(emoji: string) {
+    setBody((prev) => (prev ? `${prev} ${emoji}` : emoji))
+  }
+
+  /* ---------- SAVE ---------- */
+
+  async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
-    setSuccessMessage(null)
+    setOk(null)
 
+    if (!token) {
+      setError('Nejste přihlášen jako moderátor / admin.')
+      return
+    }
     if (!animalId) {
       setError('Vyberte prosím zvíře.')
       return
     }
-    if (!title.trim()) {
-      setError('Zadejte prosím titulek příspěvku.')
-      return
-    }
-    if (!body.trim() && media.length === 0) {
-      setError('Text příspěvku nebo fotka/video nesmí být prázdné.')
+    if (!title.trim() && !body.trim() && media.length === 0) {
+      setError('Vyplňte titulek nebo text, nebo přidejte média.')
       return
     }
 
-    const token = sessionStorage.getItem('accessToken')
-    if (!token) {
-      setError('Nejste přihlášen jako moderátor. Přihlaste se prosím znovu.')
-      return
-    }
-
+    setLoading(true)
     try {
-      setSaving(true)
+      const payload = {
+        animalId,
+        title: title.trim() || 'Bez názvu',
+        body: body.trim() || undefined,
+        media: media.length
+          ? media.map((m) => ({
+              url: m.url,
+              typ: m.type || guessTypeFromUrl(m.url) || 'image',
+            }))
+          : undefined,
+      }
 
-      const res = await fetch(`${API_BASE}/posts`, {
+      // 🔴 BUG BEFORE: calling `${API_BASE_URL}/posts` (=> /posts 404)
+      // ✅ FIX: use /api/posts + Authorization
+      const res = await fetch(`${API_BASE_URL}/api/posts`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          animalId,
-          title: title.trim(),
-          body, // HTML z RichTextEditoru
-          media: media.length ? media : undefined,
-        }),
+        body: JSON.stringify(payload),
       })
 
       if (!res.ok) {
-        const txt = await res.text()
-        console.error('[ModeratorNewPost] save error', res.status, txt)
-        throw new Error('Nepodařilo se uložit příspěvek.')
+        const text = await res.text()
+        console.error('[ModeratorNewPost] save error', res.status, text)
+        throw new Error(
+          `Uložení selhalo (HTTP ${res.status}): ${
+            text || 'Neznámá chyba'
+          }`,
+        )
       }
 
-      setSuccessMessage('Příspěvek byl uložen.')
+      setOk('Příspěvek uložen. Pokud jste moderátor, čeká na schválení.')
       setTitle('')
       setBody('')
       setMedia([])
+      // optional: navigate back after short delay
+      // setTimeout(() => navigate('/moderator/animals?tab=pending'), 800)
     } catch (e: any) {
-      setError(e?.message || 'Nepodařilo se uložit příspěvek.')
+      setError(e?.message || 'Uložení příspěvku selhalo')
     } finally {
-      setSaving(false)
+      setLoading(false)
     }
   }
 
+  /* ---------- RENDER ---------- */
+
   return (
     <Container maxWidth="md" sx={{ py: 4 }}>
-      <Stack
-        direction="row"
-        justifyContent="space-between"
-        alignItems="center"
-        sx={{ mb: 3 }}
-      >
-        <Typography variant="h5" sx={{ fontWeight: 900 }}>
-          Nový příspěvek
-        </Typography>
-        <Button variant="outlined" onClick={() => navigate('/moderator')}>
-          Zpět na panel
-        </Button>
-      </Stack>
+      <Typography variant="h5" sx={{ fontWeight: 900, mb: 2 }}>
+        Nový příběh / příspěvek
+      </Typography>
 
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
           {error}
         </Alert>
       )}
-      {successMessage && (
+      {ok && (
         <Alert severity="success" sx={{ mb: 2 }}>
-          {successMessage}
+          {ok}
         </Alert>
       )}
 
-      <Box component="form" onSubmit={handleSave}>
-        {/* výběr zvířete */}
-        <FormControl fullWidth margin="normal" disabled={loadingAnimals}>
-          <InputLabel id="animal-select-label">Zvíře</InputLabel>
-          <Select
-            labelId="animal-select-label"
+      <form onSubmit={onSubmit}>
+        <Stack spacing={3}>
+          {/* Animal selector */}
+          <TextField
+            select
+            SelectProps={{ native: true }}
             label="Zvíře"
             value={animalId}
             onChange={(e) => setAnimalId(e.target.value)}
+            required
+            fullWidth
           >
+            <option value="">— vyberte zvíře —</option>
             {animals.map((a) => (
-              <MenuItem key={a.id} value={a.id}>
-                {a.jmeno || a.name || a.id}
-              </MenuItem>
+              <option key={a.id} value={a.id}>
+                {a.jmeno || (a as any).name || 'Bez jména'}
+              </option>
             ))}
-          </Select>
-        </FormControl>
+          </TextField>
 
-        {/* titulek */}
-        <TextField
-          label="Titulek"
-          fullWidth
-          margin="normal"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-        />
+          <TextField
+            label="Titulek"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            fullWidth
+          />
 
-        {/* text příspěvku */}
-        <Box sx={{ mt: 2 }}>
           <RichTextEditor
             label="Text příspěvku"
             value={body}
-            onChange={setBody}
-            helperText="Můžete použít tučné, kurzívu, podtržení a barvu (tyrkysová)."
+            onChange={(val) => setBody(val)}
+            helperText="Napište, co je nového – můžete použít formátování."
           />
-        </Box>
 
-        {/* emoji řádek */}
-        <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', mt: 1 }}>
-          {EMOJIS.map((emo) => (
-            <Button
-              key={emo}
-              size="small"
-              variant="text"
-              onClick={() => addEmoji(emo)}
-              sx={{ minWidth: 36 }}
-            >
-              {emo}
-            </Button>
-          ))}
-        </Stack>
-
-        {/* upload fotek / videí */}
-        <Box sx={{ mt: 3 }}>
-          <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 1 }}>
-            Fotky / videa (volitelné)
-          </Typography>
-
-          <Stack
-            direction={{ xs: 'column', sm: 'row' }}
-            spacing={2}
-            alignItems="center"
-          >
-            <Button
-              onClick={() => fileInputRef.current?.click()}
-              startIcon={<UploadIcon />}
-              variant="outlined"
-            >
-              Vybrat soubory
-            </Button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              hidden
-              multiple
-              accept="image/*,video/*"
-              onChange={onPickFiles}
-            />
-
-            <Button
-              onClick={() => cameraInputRef.current?.click()}
-              startIcon={<PhotoCameraIcon />}
-              variant="outlined"
-            >
-              Vyfotit (telefon)
-            </Button>
-            <input
-              ref={cameraInputRef}
-              type="file"
-              hidden
-              accept="image/*"
-              capture="environment"
-              onChange={onPickCamera}
-            />
+          {/* Emoji bar */}
+          <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+            {EMOJIS.map((emo) => (
+              <Button
+                key={emo}
+                size="small"
+                variant="text"
+                onClick={() => addEmoji(emo)}
+                sx={{ minWidth: 36 }}
+              >
+                {emo}
+              </Button>
+            ))}
           </Stack>
 
-          <Box
-            onDrop={onDrop}
-            onDragOver={onDragOver}
-            sx={{
-              mt: 2,
-              p: 2,
-              border: '2px dashed',
-              borderColor: 'divider',
-              borderRadius: 2,
-              textAlign: 'center',
-              color: 'text.secondary',
-              cursor: 'copy',
-              userSelect: 'none',
-            }}
-          >
-            Přetáhněte sem fotografie nebo videa
-          </Box>
+          {/* Media uploader */}
+          <Stack spacing={1}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+              Fotky / videa
+            </Typography>
 
-          {uploading && (
-            <Stack spacing={1} sx={{ mt: 1 }}>
-              <LinearProgress />
-              <Typography variant="caption" color="text.secondary">
-                {uploadNote}
-              </Typography>
+            <Stack
+              direction={{ xs: 'column', sm: 'row' }}
+              spacing={2}
+              alignItems="center"
+            >
+              <Button
+                onClick={() => fileRef.current?.click()}
+                startIcon={<UploadIcon />}
+                variant="outlined"
+              >
+                Vybrat soubory
+              </Button>
+              <input
+                ref={fileRef}
+                type="file"
+                hidden
+                multiple
+                accept="image/*,video/*"
+                onChange={onPickFiles}
+              />
+
+              <Button
+                onClick={() => cameraRef.current?.click()}
+                startIcon={<PhotoCameraIcon />}
+                variant="outlined"
+              >
+                Vyfotit (telefon)
+              </Button>
+              <input
+                ref={cameraRef}
+                type="file"
+                hidden
+                accept="image/*,video/*"
+                capture="environment"
+                onChange={onPickCamera}
+              />
             </Stack>
-          )}
 
-          {media.length > 0 && (
-            <Grid container spacing={1.5} sx={{ mt: 1 }}>
-              {media.map((m, i) => (
-                <Grid item xs={6} sm={4} md={3} key={`${m.url}-${i}`}>
-                  <Box
-                    sx={{
-                      position: 'relative',
-                      border: '1px solid',
-                      borderColor: 'divider',
-                      borderRadius: 2,
-                      overflow: 'hidden',
-                    }}
-                  >
-                    <img
-                      src={m.url}
-                      alt={`media-${i}`}
-                      style={{
-                        width: '100%',
-                        height: 140,
-                        objectFit: 'cover',
-                        display: 'block',
+            <Box
+              onDrop={onDrop}
+              onDragOver={onDragOver}
+              sx={{
+                mt: 1,
+                p: 2,
+                border: '2px dashed',
+                borderColor: 'divider',
+                borderRadius: 2,
+                textAlign: 'center',
+                color: 'text.secondary',
+                cursor: 'copy',
+                userSelect: 'none',
+              }}
+            >
+              Přetáhněte sem fotografie nebo videa
+            </Box>
+
+            {uploading && (
+              <Stack spacing={1} sx={{ mt: 1 }}>
+                <LinearProgress />
+                <Typography variant="caption" color="text.secondary">
+                  {uploadNote}
+                </Typography>
+              </Stack>
+            )}
+
+            {media.length > 0 && (
+              <Grid container spacing={1.5} sx={{ mt: 0.5 }}>
+                {media.map((m, i) => (
+                  <Grid item xs={6} sm={4} md={3} key={`${m.url}-${i}`}>
+                    <Box
+                      sx={{
+                        position: 'relative',
+                        border: '1px solid',
+                        borderColor: 'divider',
+                        borderRadius: 2,
+                        overflow: 'hidden',
                       }}
-                    />
-                    <Tooltip title="Odebrat">
-                      <IconButton
-                        size="small"
-                        onClick={() => removeMediaIndex(i)}
-                        sx={{
-                          position: 'absolute',
-                          top: 6,
-                          right: 6,
-                          bgcolor: 'rgba(255,255,255,0.9)',
+                    >
+                      <img
+                        src={m.url}
+                        alt={`post-media-${i}`}
+                        style={{
+                          width: '100%',
+                          height: 140,
+                          objectFit: 'cover',
+                          display: 'block',
                         }}
-                      >
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                  </Box>
-                </Grid>
-              ))}
-            </Grid>
-          )}
-        </Box>
+                      />
+                      <Tooltip title="Odebrat">
+                        <IconButton
+                          size="small"
+                          onClick={() => removeMedia(i)}
+                          sx={{
+                            position: 'absolute',
+                            top: 6,
+                            right: 6,
+                            bgcolor: 'rgba(255,255,255,0.9)',
+                          }}
+                        >
+                          <DeleteOutlineIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </Box>
+                  </Grid>
+                ))}
+              </Grid>
+            )}
+          </Stack>
 
-        <Button
-          type="submit"
-          variant="contained"
-          sx={{ mt: 3 }}
-          disabled={saving || uploading}
-        >
-          {saving ? 'Ukládám…' : 'Uložit příspěvek'}
-        </Button>
-      </Box>
+          <Stack direction="row" spacing={2} justifyContent="flex-end">
+            <Button
+              variant="text"
+              onClick={() => navigate('/moderator/animals?tab=pending')}
+            >
+              Zpět
+            </Button>
+            <Button
+              type="submit"
+              variant="contained"
+              disabled={loading || uploading}
+            >
+              {loading ? 'Ukládám…' : 'Uložit příspěvek'}
+            </Button>
+          </Stack>
+        </Stack>
+      </form>
     </Container>
   )
-}
-
-/* Helpers */
-
-function appendBust(url: string): string {
-  const v = Date.now()
-  return `${url}${url.includes('?') ? '&' : '?'}v=${v}`
 }
 
 function guessTypeFromUrl(u: string): 'image' | 'video' | undefined {
