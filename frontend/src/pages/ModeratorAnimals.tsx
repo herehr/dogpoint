@@ -12,6 +12,7 @@ import {
   Button,
   Stack,
   Chip,
+  Grid,
 } from '@mui/material'
 import { useLocation, useNavigate } from 'react-router-dom'
 
@@ -43,7 +44,7 @@ const ModeratorAnimals: React.FC = () => {
   const location = useLocation()
   const navigate = useNavigate()
 
-  // initial tab
+  // 🔹 Initial tab from URL (?tab=pending)
   const paramsAtMount = new URLSearchParams(location.search)
   const tabParam = paramsAtMount.get('tab')
   const [tab, setTab] = useState<TabKey>(
@@ -55,17 +56,20 @@ const ModeratorAnimals: React.FC = () => {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // 🔹 Read token from *all* possible places
   const token =
-  typeof window !== 'undefined'
-    ? sessionStorage.getItem('moderatorToken') ||
-      sessionStorage.getItem('adminToken')      // 👈 allow admin JWT too
-    : null
+    typeof window !== 'undefined'
+      ? sessionStorage.getItem('authToken') ||
+        localStorage.getItem('authToken') ||
+        sessionStorage.getItem('moderatorToken') ||
+        localStorage.getItem('moderatorToken')
+      : null
 
   const authHeaders: HeadersInit = token
     ? { Authorization: `Bearer ${token}` }
     : {}
 
-  // sync with ?tab=pending
+  // keep tab state in sync with URL ?tab=pending
   useEffect(() => {
     const params = new URLSearchParams(location.search)
     const t = params.get('tab')
@@ -95,6 +99,7 @@ const ModeratorAnimals: React.FC = () => {
         },
       })
       if (res.status === 401 || res.status === 403) {
+        console.warn('fetchPending unauthorized', res.status)
         setError('Nemáte oprávnění zobrazit neschválená zvířata.')
         setPending([])
         return
@@ -181,7 +186,7 @@ const ModeratorAnimals: React.FC = () => {
         : 'default'
 
     return (
-      <Card key={animal.id} sx={{ mb: 2 }}>
+      <Card sx={{ height: '100%' }}>
         {img && (
           <Box
             component="img"
@@ -226,22 +231,22 @@ const ModeratorAnimals: React.FC = () => {
 
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
+      {/* Header row: title + "Přidat zvíře" */}
       <Stack
-        direction="row"
+        direction={{ xs: 'column', sm: 'row' }}
+        alignItems={{ xs: 'flex-start', sm: 'center' }}
         justifyContent="space-between"
-        alignItems="center"
+        spacing={2}
         sx={{ mb: 2 }}
       >
         <Typography variant="h5" sx={{ fontWeight: 900 }}>
           Správa zvířat
         </Typography>
-
-        {/* ADD ANIMAL BUTTON — restored */}
         <Button
           variant="contained"
-          onClick={() => navigate('/moderator/pridat')}
+          onClick={() => navigate('/moderator/zvirata-sprava')}
         >
-          Přidat zvíře
+          Přidat / upravit zvíře
         </Button>
       </Stack>
 
@@ -274,21 +279,13 @@ const ModeratorAnimals: React.FC = () => {
             : 'Žádná schválená zvířata.'}
         </Typography>
       ) : (
-        // 🔥 DESKTOP GRID — MOBILE FIRST
-        <Box
-          display="grid"
-          gridTemplateColumns={{
-            xs: '1fr',
-            sm: 'repeat(2, 1fr)',
-            md: 'repeat(3, 1fr)',
-          }}
-          gap={2}
-          sx={{ mt: 2 }}
-        >
+        <Grid container spacing={2}>
           {list.map((a) => (
-            <Box key={a.id}>{renderAnimalCard(a, isPendingTab)}</Box>
+            <Grid item xs={12} sm={6} md={4} lg={3} key={a.id}>
+              {renderAnimalCard(a, isPendingTab)}
+            </Grid>
           ))}
-        </Box>
+        </Grid>
       )}
     </Container>
   )

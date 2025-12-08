@@ -33,6 +33,7 @@ import OchranaOsobnichUdaju from './pages/OchranaOsobnichUdaju'
 import NotificationsPage from './pages/NotificationsPage'
 import UXPrototype from './prototypes/UXPrototype'
 
+
 import 'react-quill/dist/quill.snow.css'
 
 function AppLayout() {
@@ -152,6 +153,15 @@ export default function App() {
             </RequireRole>
           }
         />
+
+<Route
+  path="moderator/zvirata-sprava"
+  element={
+    <RequireRole roles={['MODERATOR', 'ADMIN']}>
+      <AnimalsManager />
+    </RequireRole>
+  }
+/>
 
         {/* NEW post creation */}
         <Route
