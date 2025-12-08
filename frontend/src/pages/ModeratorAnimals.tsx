@@ -12,9 +12,9 @@ import {
   Button,
   Stack,
   Chip,
-  Grid,
 } from '@mui/material'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'   // 👈 use the shared auth
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
 
@@ -43,8 +43,9 @@ type TabKey = 'published' | 'pending'
 const ModeratorAnimals: React.FC = () => {
   const location = useLocation()
   const navigate = useNavigate()
+  const { token } = useAuth()                       // 👈 get token from context
 
-  // 🔹 Initial tab from URL (?tab=pending)
+  // initial tab from URL
   const paramsAtMount = new URLSearchParams(location.search)
   const tabParam = paramsAtMount.get('tab')
   const [tab, setTab] = useState<TabKey>(
@@ -56,20 +57,11 @@ const ModeratorAnimals: React.FC = () => {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // 🔹 Read token from *all* possible places
-  const token =
-    typeof window !== 'undefined'
-      ? sessionStorage.getItem('authToken') ||
-        localStorage.getItem('authToken') ||
-        sessionStorage.getItem('moderatorToken') ||
-        localStorage.getItem('moderatorToken')
-      : null
-
   const authHeaders: HeadersInit = token
     ? { Authorization: `Bearer ${token}` }
     : {}
 
-  // keep tab state in sync with URL ?tab=pending
+  // keep tab in sync with ?tab=...
   useEffect(() => {
     const params = new URLSearchParams(location.search)
     const t = params.get('tab')
@@ -90,6 +82,13 @@ const ModeratorAnimals: React.FC = () => {
   }
 
   const fetchPending = async () => {
+    // if somehow no token, don’t even try
+    if (!token) {
+      setPending([])
+      setError('Nemáte oprávnění zobrazit neschválená zvířata.')
+      return
+    }
+
     try {
       setError(null)
       const res = await fetch(`${API_BASE_URL}/api/animals/pending`, {
@@ -99,7 +98,6 @@ const ModeratorAnimals: React.FC = () => {
         },
       })
       if (res.status === 401 || res.status === 403) {
-        console.warn('fetchPending unauthorized', res.status)
         setError('Nemáte oprávnění zobrazit neschválená zvířata.')
         setPending([])
         return
@@ -122,7 +120,7 @@ const ModeratorAnimals: React.FC = () => {
   useEffect(() => {
     refreshAll()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [token])  // 👈 refetch when token becomes available
 
   const handleTabChange = (_e: React.SyntheticEvent, newValue: TabKey) => {
     const search = newValue === 'pending' ? '?tab=pending' : ''
@@ -186,7 +184,7 @@ const ModeratorAnimals: React.FC = () => {
         : 'default'
 
     return (
-      <Card sx={{ height: '100%' }}>
+      <Card key={animal.id} sx={{ mb: 2 }}>
         {img && (
           <Box
             component="img"
@@ -231,17 +229,18 @@ const ModeratorAnimals: React.FC = () => {
 
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
-      {/* Header row: title + "Přidat zvíře" */}
       <Stack
         direction={{ xs: 'column', sm: 'row' }}
-        alignItems={{ xs: 'flex-start', sm: 'center' }}
         justifyContent="space-between"
-        spacing={2}
+        alignItems={{ xs: 'flex-start', sm: 'center' }}
         sx={{ mb: 2 }}
+        spacing={1}
       >
         <Typography variant="h5" sx={{ fontWeight: 900 }}>
           Správa zvířat
         </Typography>
+
+        {/* Button to full manager (add/edit) */}
         <Button
           variant="contained"
           onClick={() => navigate('/moderator/zvirata-sprava')}
@@ -279,13 +278,7 @@ const ModeratorAnimals: React.FC = () => {
             : 'Žádná schválená zvířata.'}
         </Typography>
       ) : (
-        <Grid container spacing={2}>
-          {list.map((a) => (
-            <Grid item xs={12} sm={6} md={4} lg={3} key={a.id}>
-              {renderAnimalCard(a, isPendingTab)}
-            </Grid>
-          ))}
-        </Grid>
+        list.map((a) => renderAnimalCard(a, isPendingTab))
       )}
     </Container>
   )
