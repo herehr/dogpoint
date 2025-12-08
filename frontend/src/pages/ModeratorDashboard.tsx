@@ -112,13 +112,13 @@ export default function ModeratorDashboard() {
                 <Stack direction="row" spacing={2} alignItems="center">
                   <PetsIcon />
                   <div>
-                    <Typography variant="h6" sx={{ fontWeight: 700 }}>
-                      Zvířata ke schválení
-                    </Typography>
-                    <Typography color="text.secondary">
-                      Přehled zvířat, která čekají na schválení moderátorem nebo
-                      administrátorem.
-                    </Typography>
+                  <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                     Zvířata a příspěvky ke schválení
+                  </Typography>
+                  <Typography color="text.secondary">
+                  Přehled zvířat a příspěvků, které čekají na schválení moderátorem nebo
+                  administrátorem.
+                </Typography>
                   </div>
                 </Stack>
               </CardContent>
