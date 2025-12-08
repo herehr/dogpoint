@@ -85,7 +85,7 @@ router.get(
         where: {
           active: true,
           // 👉 Only items that are NOT yet published
-          status: ContentStatus.PENDING_REVIEW,
+          status: ContentStatus.PUBLISHED,
         },
         orderBy: { createdAt: 'desc' },
         include: {
