@@ -39,7 +39,10 @@ async function sendModerationEmails(
         html: htmlBody,
       })
     } catch (e: any) {
-      console.error('[moderation email] send failed', { to, message: e?.message })
+      console.error('[moderation email] send failed', {
+        to,
+        message: e?.message,
+      })
     }
   }
 }
@@ -63,7 +66,9 @@ export async function notifyApproversAboutNewAnimal(
 
   if (!approvers.length) return
 
-  const link = `${APP_BASE_URL}/moderator/zvire/${animalId}`
+  // NOTE: this URL assumes you will handle the animal ID on the frontend.
+  // For now it points to a generic moderator animal view.
+  const link = `${APP_BASE_URL}/moderator/animals?tab=pending`
 
   // Create in-app notifications
   await prisma.notification.createMany({
@@ -119,7 +124,9 @@ export async function notifyApproversAboutNewPost(
 
   if (!approvers.length) return
 
-  const link = `${APP_BASE_URL}/moderator/prispevek/${postId}`
+  // Again, generic pending-posts view – you can later make
+  // a /moderator/post/:id route and include postId in the URL.
+  const link = `${APP_BASE_URL}/moderator/posts?tab=pending`
 
   await prisma.notification.createMany({
     data: approvers.map((u) => ({
