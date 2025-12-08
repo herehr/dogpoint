@@ -56,9 +56,10 @@ const ModeratorAnimals: React.FC = () => {
   const [error, setError] = useState<string | null>(null)
 
   const token =
-    typeof window !== 'undefined'
-      ? sessionStorage.getItem('moderatorToken')
-      : null
+  typeof window !== 'undefined'
+    ? sessionStorage.getItem('moderatorToken') ||
+      sessionStorage.getItem('adminToken')      // 👈 allow admin JWT too
+    : null
 
   const authHeaders: HeadersInit = token
     ? { Authorization: `Bearer ${token}` }

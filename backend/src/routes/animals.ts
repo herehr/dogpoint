@@ -1,7 +1,7 @@
 // backend/src/routes/animals.ts
 import { Router, Request, Response } from 'express'
 import { prisma } from '../prisma'
-import { requireAuth } from '../middleware/auth'
+import { requireAuth } from '../middleware/authJwt'   // 👈 use JWT-based auth everywhere
 import { ContentStatus, Role } from '@prisma/client'
 import { notifyApproversAboutNewAnimal } from '../services/moderationNotifications'
 
@@ -9,11 +9,12 @@ const router = Router()
 
 type BodyMedia = { url?: string; typ?: string } | string
 
-function parseGalerie(input: any): Array<{ url: string; typ?: string }> {
+function parseGalerie(input: any): Array<{ url: string; typ: string }> {
   const arr: BodyMedia[] =
     Array.isArray(input?.galerie) ? input.galerie
-    : Array.isArray(input?.gallery) ? input.gallery
-    : []
+      : Array.isArray(input?.gallery) ? input.gallery
+      : []
+
   return arr
     .map((x) => (typeof x === 'string' ? { url: x } : { url: x?.url, typ: x?.typ }))
     .filter((m): m is { url: string; typ?: string } => !!m.url)
@@ -49,14 +50,19 @@ router.get('/', async (_req: Request, res: Response): Promise<void> => {
         },
       },
     })
+
     const shaped = animals.map((a) => ({
       ...a,
       main: a.main ?? a.galerie?.[0]?.url ?? null,
     }))
+
     res.json(shaped)
   } catch (e: any) {
     console.error('GET /api/animals error:', {
-      message: e?.message, code: e?.code, meta: e?.meta, stack: e?.stack,
+      message: e?.message,
+      code: e?.code,
+      meta: e?.meta,
+      stack: e?.stack,
     })
     res.status(500).json({ error: 'Internal error fetching animals' })
   }
@@ -64,47 +70,51 @@ router.get('/', async (_req: Request, res: Response): Promise<void> => {
 
 // GET pending for staff – animals waiting for approval
 // MUST be before '/:id'
-// GET pending for staff – animals waiting for approval
-// MUST be before '/:id'
-router.get('/pending', requireAuth, async (req: Request, res: Response): Promise<void> => {
-  const user = (req as any).user as { id: string; role: Role | string } | undefined
-  if (!user || !isStaff(user.role)) {
-    res.status(403).json({ error: 'Forbidden' })
-    return
-  }
+router.get(
+  '/pending',
+  requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    const user = (req as any).user as { id: string; role: Role | string } | undefined
+    if (!user || !isStaff(user.role)) {
+      res.status(403).json({ error: 'Forbidden' })
+      return
+    }
 
-  try {
-    const animals = await prisma.animal.findMany({
-      where: {
-        active: true,
-        // 👉 all NOT approved (anything that is not PUBLISHED)
-        status: {
-          not: ContentStatus.PUBLISHED,
+    try {
+      const animals = await prisma.animal.findMany({
+        where: {
+          active: true,
+          // 👉 Only items that are NOT yet published
+          status: ContentStatus.PENDING_REVIEW,
         },
-      },
-      orderBy: { createdAt: 'desc' },
-      include: {
-        galerie: {
-          select: { url: true, typ: true },
-          orderBy: { id: 'asc' },
+        orderBy: { createdAt: 'desc' },
+        include: {
+          galerie: {
+            select: { url: true, typ: true },
+            orderBy: { id: 'asc' },
+          },
         },
-      },
-    })
+      })
 
-    const shaped = animals.map((a) => ({
-      ...a,
-      main: a.main ?? a.galerie?.[0]?.url ?? null,
-    }))
-    res.json(shaped)
-  } catch (e: any) {
-    console.error('GET /api/animals/pending error:', {
-      message: e?.message, code: e?.code, meta: e?.meta, stack: e?.stack,
-    })
-    res.status(500).json({ error: 'Internal error fetching pending animals' })
-  }
-})
+      const shaped = animals.map((a) => ({
+        ...a,
+        main: a.main ?? a.galerie?.[0]?.url ?? null,
+      }))
 
-// GET one (public)
+      res.json(shaped)
+    } catch (e: any) {
+      console.error('GET /api/animals/pending error:', {
+        message: e?.message,
+        code: e?.code,
+        meta: e?.meta,
+        stack: e?.stack,
+      })
+      res.status(500).json({ error: 'Internal error fetching pending animals' })
+    }
+  },
+)
+
+// GET one (public – for now no status check; frontend handles visibility)
 router.get('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
     const a = await prisma.animal.findUnique({
@@ -116,35 +126,46 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
         },
       },
     })
-    if (!a) { res.status(404).json({ error: 'Not found' }); return }
+    if (!a) {
+      res.status(404).json({ error: 'Not found' })
+      return
+    }
+
     const shaped = { ...a, main: a.main ?? a.galerie?.[0]?.url ?? null }
     res.json(shaped)
   } catch (e: any) {
     console.error('GET /api/animals/:id error:', {
       id: req.params.id,
-      message: e?.message, code: e?.code, meta: e?.meta, stack: e?.stack,
+      message: e?.message,
+      code: e?.code,
+      meta: e?.meta,
+      stack: e?.stack,
     })
     res.status(500).json({ error: 'Internal error fetching animal' })
   }
 })
 
-/// CREATE
+/* =========================
+   CREATE
+   ========================= */
+
 router.post('/', requireAuth, async (req: Request, res: Response): Promise<void> => {
   const body = (req.body || {}) as any
   const media = parseGalerie(body)
   const requestedMain: string | null = body.main ?? null
 
-  const user = (req as any).user as { id: string; role: Role } | undefined
+  const user = (req as any).user as { id: string; role: Role | string } | undefined
   if (!user) {
     res.status(401).json({ error: 'Unauthorized' })
     return
   }
 
   if (!body.jmeno && !body.name) {
-    res.status(400).json({ error: 'Missing name/jmeno' }); return
+    res.status(400).json({ error: 'Missing name/jmeno' })
+    return
   }
 
-  const isAdmin = user.role === Role.ADMIN
+  const isAdmin = user.role === Role.ADMIN || user.role === 'ADMIN'
   const initialStatus = isAdmin ? ContentStatus.PUBLISHED : ContentStatus.PENDING_REVIEW
 
   // Safe coercions
@@ -197,10 +218,14 @@ router.post('/', requireAuth, async (req: Request, res: Response): Promise<void>
         include: { galerie: true },
       })
       if (!fresh) return null
+
       return { ...fresh, main: fresh.main ?? fresh.galerie[0]?.url ?? null }
     })
 
-    if (!result) { res.status(500).json({ error: 'Create failed' }); return }
+    if (!result) {
+      res.status(500).json({ error: 'Create failed' })
+      return
+    }
 
     // If a moderator created the animal -> notify approvers
     if (!isAdmin) {
@@ -216,14 +241,19 @@ router.post('/', requireAuth, async (req: Request, res: Response): Promise<void>
     res.status(201).json(result)
   } catch (e: any) {
     console.error('POST /api/animals error:', {
-      message: e?.message, code: e?.code, meta: e?.meta, stack: e?.stack,
+      message: e?.message,
+      code: e?.code,
+      meta: e?.meta,
+      stack: e?.stack,
     })
     res.status(500).json({ error: 'Internal error creating animal' })
   }
 })
 
+/* =========================
+   UPDATE
+   ========================= */
 
-// UPDATE
 router.patch('/:id', requireAuth, async (req: Request, res: Response): Promise<void> => {
   const id = String(req.params.id)
   const body = (req.body || {}) as any
@@ -232,8 +262,8 @@ router.patch('/:id', requireAuth, async (req: Request, res: Response): Promise<v
   const parsedBornYear =
     Object.prototype.hasOwnProperty.call(body, 'bornYear')
       ? (body.bornYear === null || body.bornYear === '' || body.bornYear === undefined
-          ? null
-          : Number.isFinite(Number(body.bornYear)) ? Number(body.bornYear) : null)
+        ? null
+        : Number.isFinite(Number(body.bornYear)) ? Number(body.bornYear) : null)
       : undefined
 
   const parsedBirthDate =
@@ -267,14 +297,26 @@ router.patch('/:id', requireAuth, async (req: Request, res: Response): Promise<v
         await tx.galerieMedia.deleteMany({ where: { animalId: id } })
         if (media.length) {
           await tx.galerieMedia.createMany({
-            data: media.map((g) => ({ animalId: id, url: g.url, typ: g.typ ?? 'image' })),
+            data: media.map((g) => ({
+              animalId: id,
+              url: g.url,
+              typ: g.typ ?? 'image',
+            })),
           })
         }
-        const fresh = await tx.animal.findUnique({ where: { id }, include: { galerie: true } })
+        const fresh = await tx.animal.findUnique({
+          where: { id },
+          include: { galerie: true },
+        })
         if (!fresh) return null
         return { ...fresh, main: fresh.main ?? fresh.galerie[0]?.url ?? null }
       })
-      if (!updated) { res.status(404).json({ error: 'Not found' }); return }
+
+      if (!updated) {
+        res.status(404).json({ error: 'Not found' })
+        return
+      }
+
       res.json(updated)
       return
     }
@@ -284,10 +326,14 @@ router.patch('/:id', requireAuth, async (req: Request, res: Response): Promise<v
       data: baseUpdate,
       include: { galerie: true },
     })
+
     res.json({ ...updated, main: updated.main ?? updated.galerie[0]?.url ?? null })
   } catch (e: any) {
     console.error('PATCH /api/animals/:id error:', {
-      message: e?.message, code: e?.code, meta: e?.meta, stack: e?.stack,
+      message: e?.message,
+      code: e?.code,
+      meta: e?.meta,
+      stack: e?.stack,
     })
     res.status(500).json({ error: 'Internal error updating animal' })
   }
@@ -314,7 +360,8 @@ router.delete('/:id', requireAuth, async (req: Request, res: Response): Promise<
 
     res.status(204).end()
   } catch (e: any) {
-    if (e.code === 'P2025') {
+    // P2025 = record not found
+    if ((e as any)?.code === 'P2025') {
       console.warn('DELETE /api/animals/:id not found', { id })
       res.status(404).json({ error: 'Not found' })
       return
