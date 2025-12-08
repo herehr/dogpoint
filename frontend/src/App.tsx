@@ -32,6 +32,8 @@ import AdoptionStart from './pages/AdoptionStart'
 import OchranaOsobnichUdaju from './pages/OchranaOsobnichUdaju'
 import NotificationsPage from './pages/NotificationsPage'
 import UXPrototype from './prototypes/UXPrototype'
+import ForgotPassword from './pages/ForgotPassword'
+import ResetPassword from './pages/ResetPassword'
 
 
 import 'react-quill/dist/quill.snow.css'
@@ -104,6 +106,8 @@ export default function App() {
         <Route path="zvirata/:id" element={<AnimalDetail />} />
         <Route path="ochrana-osobnich-udaju" element={<OchranaOsobnichUdaju />} />
         <Route path="notifikace" element={<NotificationsPage />} />
+        <Route path="zapomenute-heslo" element={<ForgotPassword />} />
+        <Route path="obnovit-heslo" element={<ResetPassword />} />
 
         {/* Auth */}
         <Route path="login" element={<Login />} />

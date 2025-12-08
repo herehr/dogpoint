@@ -2,12 +2,22 @@
 import React, { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import {
-  Box, Button, Container, Stack, TextField, Typography, Alert, IconButton, InputAdornment
+  Box,
+  Button,
+  Container,
+  Stack,
+  TextField,
+  Typography,
+  Alert,
+  IconButton,
+  InputAdornment,
 } from '@mui/material'
 import Visibility from '@mui/icons-material/Visibility'
 import VisibilityOff from '@mui/icons-material/VisibilityOff'
 import { login as apiLogin } from '../api'
 import { useAuth } from '../context/AuthContext'
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
 
 export default function Login() {
   const navigate = useNavigate()
@@ -18,15 +28,21 @@ export default function Login() {
   const [password, setPassword] = useState<string>('')
   const [showPw, setShowPw] = useState<boolean>(false)
   const [submitting, setSubmitting] = useState<boolean>(false)
+  const [resetSubmitting, setResetSubmitting] = useState<boolean>(false)
   const [err, setErr] = useState<string | null>(null)
+  const [info, setInfo] = useState<string | null>(null)
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!email || !password || submitting) return
     setErr(null)
+    setInfo(null)
     setSubmitting(true)
     try {
-      const { token, role } = await apiLogin(email.trim().toLowerCase(), password)
+      const { token, role } = await apiLogin(
+        email.trim().toLowerCase(),
+        password,
+      )
 
       // save to context (+ sessionStorage)
       login(token, (role as any) || null)
@@ -36,16 +52,56 @@ export default function Login() {
 
       // fallback by role
       const target =
-        from ? from :
-        role === 'ADMIN' ? '/admin' :
-        role === 'MODERATOR' ? '/moderator' :
-        '/user'
+        from
+          ? from
+          : role === 'ADMIN'
+          ? '/admin'
+          : role === 'MODERATOR'
+          ? '/moderator'
+          : '/user'
 
       navigate(target, { replace: true })
     } catch (e: any) {
-      setErr(e?.message || 'Přihlášení selhalo')
+      // Show backend message if present, otherwise generic
+      const msg = e?.message || 'Přihlášení selhalo'
+      setErr(msg)
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  async function onForgotPassword() {
+    if (!email.trim()) {
+      setErr('Zadejte prosím e-mail, na který máme poslat odkaz.')
+      return
+    }
+
+    setErr(null)
+    setInfo(null)
+    setResetSubmitting(true)
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/auth/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim().toLowerCase() }),
+      })
+
+      // Backend always returns 200 with generic message if user exists or not
+      if (!res.ok) {
+        throw new Error('Odeslání odkazu pro obnovu hesla selhalo.')
+      }
+
+      setInfo(
+        'Pokud u nás tento e-mail existuje, poslali jsme na něj odkaz pro obnovu hesla.',
+      )
+    } catch (e: any) {
+      setErr(
+        e?.message ||
+          'Odeslání odkazu pro obnovu hesla selhalo. Zkuste to prosím znovu.',
+      )
+    } finally {
+      setResetSubmitting(false)
     }
   }
 
@@ -55,7 +111,16 @@ export default function Login() {
         Přihlášení
       </Typography>
 
-      {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
+      {err && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {err}
+        </Alert>
+      )}
+      {info && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          {info}
+        </Alert>
+      )}
 
       <Box component="form" onSubmit={onSubmit} noValidate>
         <Stack spacing={2}>
@@ -92,7 +157,8 @@ export default function Login() {
               ),
             }}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') onSubmit(e as unknown as React.FormEvent)
+              if (e.key === 'Enter')
+                onSubmit(e as unknown as React.FormEvent)
             }}
           />
 
@@ -103,6 +169,27 @@ export default function Login() {
           >
             {submitting ? 'Přihlašuji…' : 'Přihlásit'}
           </Button>
+
+          {/* Zapomenuté heslo */}
+          <Stack
+            direction="row"
+            spacing={1}
+            alignItems="center"
+            justifyContent="space-between"
+          >
+            <Typography variant="body2" color="text.secondary">
+              Zapomněli jste heslo?
+            </Typography>
+            <Button
+              type="button"
+              variant="text"
+              size="small"
+              onClick={onForgotPassword}
+              disabled={resetSubmitting || !email.trim()}
+            >
+              Poslat odkaz pro obnovu
+            </Button>
+          </Stack>
         </Stack>
       </Box>
     </Container>
