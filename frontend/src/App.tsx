@@ -32,9 +32,7 @@ import AdoptionStart from './pages/AdoptionStart'
 import OchranaOsobnichUdaju from './pages/OchranaOsobnichUdaju'
 import NotificationsPage from './pages/NotificationsPage'
 import UXPrototype from './prototypes/UXPrototype'
-import ForgotPassword from './pages/ForgotPassword'
-import ResetPassword from './pages/ResetPassword'
-
+import ResetPassword from './pages/ResetPassword'  // 👈 NEW
 
 import 'react-quill/dist/quill.snow.css'
 
@@ -81,7 +79,9 @@ export default function App() {
         localStorage.setItem(`dp:unlock:${animal}`, '1')
       } catch {}
 
-      navigate(`/zvirata/${encodeURIComponent(animal)}?paid=1`, { replace: true })
+      navigate(`/zvirata/${encodeURIComponent(animal)}?paid=1`, {
+        replace: true,
+      })
       return
     }
 
@@ -94,8 +94,10 @@ export default function App() {
 
   return (
     <Routes>
-      {/* DIRECT ROUTE (before layout) */}
+      {/* DIRECT ROUTES (before layout) */}
       <Route path="/adopce/:id" element={<AdoptionStart />} />
+      {/* password reset from e-mail */}
+      <Route path="/obnovit-heslo" element={<ResetPassword />} />
 
       {/* ROOT layout */}
       <Route path="/" element={<AppLayout />}>
@@ -104,10 +106,11 @@ export default function App() {
         <Route path="zvirata" element={<AnimalsPage />} />
         <Route path="zvire/:id" element={<AnimalDetail />} />
         <Route path="zvirata/:id" element={<AnimalDetail />} />
-        <Route path="ochrana-osobnich-udaju" element={<OchranaOsobnichUdaju />} />
+        <Route
+          path="ochrana-osobnich-udaju"
+          element={<OchranaOsobnichUdaju />}
+        />
         <Route path="notifikace" element={<NotificationsPage />} />
-        <Route path="zapomenute-heslo" element={<ForgotPassword />} />
-        <Route path="obnovit-heslo" element={<ResetPassword />} />
 
         {/* Auth */}
         <Route path="login" element={<Login />} />
@@ -148,7 +151,7 @@ export default function App() {
           }
         />
 
-        {/* NEW: approval & list */}
+        {/* Animals + posts to approve/list */}
         <Route
           path="moderator/animals"
           element={
@@ -158,14 +161,25 @@ export default function App() {
           }
         />
 
-<Route
-  path="moderator/zvirata-sprava"
-  element={
-    <RequireRole roles={['MODERATOR', 'ADMIN']}>
-      <AnimalsManager />
-    </RequireRole>
-  }
-/>
+        {/* Full animals manager for moderators (add/edit) */}
+        <Route
+          path="moderator/zvirata-sprava"
+          element={
+            <RequireRole roles={['MODERATOR', 'ADMIN']}>
+              <AnimalsManager />
+            </RequireRole>
+          }
+        />
+
+        {/* Old alias kept for backwards compatibility */}
+        <Route
+          path="moderator/pridat"
+          element={
+            <RequireRole roles={['MODERATOR', 'ADMIN']}>
+              <AnimalsManager />
+            </RequireRole>
+          }
+        />
 
         {/* NEW post creation */}
         <Route
@@ -173,16 +187,6 @@ export default function App() {
           element={
             <RequireRole roles={['MODERATOR', 'ADMIN']}>
               <ModeratorNewPost />
-            </RequireRole>
-          }
-        />
-
-        {/* OLD editor as backup (edit/add animal) */}
-        <Route
-          path="moderator/pridat"
-          element={
-            <RequireRole roles={['MODERATOR', 'ADMIN']}>
-              <AnimalsManager />
             </RequireRole>
           }
         />
