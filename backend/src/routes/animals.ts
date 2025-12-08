@@ -1,7 +1,7 @@
 // backend/src/routes/animals.ts
 import { Router, Request, Response } from 'express'
 import { prisma } from '../prisma'
-import { requireAuth } from '../middleware/authJwt'   // 👈 use JWT-based auth everywhere
+import { requireAuth } from '../middleware/authJwt'   // ✅ use JWT-based auth
 import { ContentStatus, Role } from '@prisma/client'
 import { notifyApproversAboutNewAnimal } from '../services/moderationNotifications'
 
@@ -9,12 +9,11 @@ const router = Router()
 
 type BodyMedia = { url?: string; typ?: string } | string
 
-function parseGalerie(input: any): Array<{ url: string; typ: string }> {
+function parseGalerie(input: any): Array<{ url: string; typ?: string }> {
   const arr: BodyMedia[] =
     Array.isArray(input?.galerie) ? input.galerie
-      : Array.isArray(input?.gallery) ? input.gallery
-      : []
-
+    : Array.isArray(input?.gallery) ? input.gallery
+    : []
   return arr
     .map((x) => (typeof x === 'string' ? { url: x } : { url: x?.url, typ: x?.typ }))
     .filter((m): m is { url: string; typ?: string } => !!m.url)
@@ -31,7 +30,7 @@ function isStaff(role?: Role | string): boolean {
 }
 
 /* =========================
-   READ
+   READ – PUBLIC LIST
    ========================= */
 
 // GET all (public) – only PUBLISHED + active
@@ -50,12 +49,10 @@ router.get('/', async (_req: Request, res: Response): Promise<void> => {
         },
       },
     })
-
     const shaped = animals.map((a) => ({
       ...a,
       main: a.main ?? a.galerie?.[0]?.url ?? null,
     }))
-
     res.json(shaped)
   } catch (e: any) {
     console.error('GET /api/animals error:', {
@@ -68,12 +65,16 @@ router.get('/', async (_req: Request, res: Response): Promise<void> => {
   }
 })
 
-// GET pending for staff – animals waiting for approval
+/* =========================
+   READ – PENDING FOR STAFF
+   ========================= */
+
 // MUST be before '/:id'
 router.get(
   '/pending',
   requireAuth,
   async (req: Request, res: Response): Promise<void> => {
+    // req.user is populated by authJwt
     const user = (req as any).user as { id: string; role: Role | string } | undefined
     if (!user || !isStaff(user.role)) {
       res.status(403).json({ error: 'Forbidden' })
@@ -83,9 +84,8 @@ router.get(
     try {
       const animals = await prisma.animal.findMany({
         where: {
-          active: true,
-          // 👉 Only items that are NOT yet published
-          status: ContentStatus.PUBLISHED,
+          // ✅ show ALL animals waiting for approval (from ANY moderator)
+          status: ContentStatus.PENDING_REVIEW,
         },
         orderBy: { createdAt: 'desc' },
         include: {
@@ -100,7 +100,6 @@ router.get(
         ...a,
         main: a.main ?? a.galerie?.[0]?.url ?? null,
       }))
-
       res.json(shaped)
     } catch (e: any) {
       console.error('GET /api/animals/pending error:', {
@@ -114,7 +113,10 @@ router.get(
   },
 )
 
-// GET one (public – for now no status check; frontend handles visibility)
+/* =========================
+   READ – ONE PUBLIC
+   ========================= */
+
 router.get('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
     const a = await prisma.animal.findUnique({
@@ -130,7 +132,6 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
       res.status(404).json({ error: 'Not found' })
       return
     }
-
     const shaped = { ...a, main: a.main ?? a.galerie?.[0]?.url ?? null }
     res.json(shaped)
   } catch (e: any) {
@@ -166,16 +167,19 @@ router.post('/', requireAuth, async (req: Request, res: Response): Promise<void>
   }
 
   const isAdmin = user.role === Role.ADMIN || user.role === 'ADMIN'
-  const initialStatus = isAdmin ? ContentStatus.PUBLISHED : ContentStatus.PENDING_REVIEW
+  const initialStatus = isAdmin
+    ? ContentStatus.PUBLISHED
+    : ContentStatus.PENDING_REVIEW
 
   // Safe coercions
   const parsedBornYear =
     body.bornYear === null || body.bornYear === undefined || body.bornYear === ''
       ? null
-      : Number.isFinite(Number(body.bornYear)) ? Number(body.bornYear) : null
+      : Number.isFinite(Number(body.bornYear))
+      ? Number(body.bornYear)
+      : null
 
-  const parsedBirthDate =
-    body.birthDate ? new Date(body.birthDate) : null
+  const parsedBirthDate = body.birthDate ? new Date(body.birthDate) : null
 
   try {
     const result = await prisma.$transaction(async (tx) => {
@@ -218,7 +222,6 @@ router.post('/', requireAuth, async (req: Request, res: Response): Promise<void>
         include: { galerie: true },
       })
       if (!fresh) return null
-
       return { ...fresh, main: fresh.main ?? fresh.galerie[0]?.url ?? null }
     })
 
@@ -261,23 +264,30 @@ router.patch('/:id', requireAuth, async (req: Request, res: Response): Promise<v
 
   const parsedBornYear =
     Object.prototype.hasOwnProperty.call(body, 'bornYear')
-      ? (body.bornYear === null || body.bornYear === '' || body.bornYear === undefined
+      ? body.bornYear === null ||
+        body.bornYear === '' ||
+        body.bornYear === undefined
         ? null
-        : Number.isFinite(Number(body.bornYear)) ? Number(body.bornYear) : null)
+        : Number.isFinite(Number(body.bornYear))
+        ? Number(body.bornYear)
+        : null
       : undefined
 
-  const parsedBirthDate =
-    Object.prototype.hasOwnProperty.call(body, 'birthDate')
-      ? (body.birthDate ? new Date(body.birthDate) : null)
-      : undefined
+  const parsedBirthDate = Object.prototype.hasOwnProperty.call(body, 'birthDate')
+    ? body.birthDate
+      ? new Date(body.birthDate)
+      : null
+    : undefined
 
   try {
     const hasOwnMain = Object.prototype.hasOwnProperty.call(body, 'main')
-    const willReplaceGallery = Array.isArray(body.galerie) || Array.isArray(body.gallery)
-    const mainUpdate =
-      hasOwnMain
-        ? { main: body.main ?? null }
-        : (willReplaceGallery && media.length ? { main: media[0].url } : {})
+    const willReplaceGallery =
+      Array.isArray(body.galerie) || Array.isArray(body.gallery)
+    const mainUpdate = hasOwnMain
+      ? { main: body.main ?? null }
+      : willReplaceGallery && media.length
+      ? { main: media[0].url }
+      : {}
 
     const baseUpdate: any = {
       name: body.name ?? undefined,
@@ -311,12 +321,10 @@ router.patch('/:id', requireAuth, async (req: Request, res: Response): Promise<v
         if (!fresh) return null
         return { ...fresh, main: fresh.main ?? fresh.galerie[0]?.url ?? null }
       })
-
       if (!updated) {
         res.status(404).json({ error: 'Not found' })
         return
       }
-
       res.json(updated)
       return
     }
@@ -326,8 +334,10 @@ router.patch('/:id', requireAuth, async (req: Request, res: Response): Promise<v
       data: baseUpdate,
       include: { galerie: true },
     })
-
-    res.json({ ...updated, main: updated.main ?? updated.galerie[0]?.url ?? null })
+    res.json({
+      ...updated,
+      main: updated.main ?? updated.galerie[0]?.url ?? null,
+    })
   } catch (e: any) {
     console.error('PATCH /api/animals/:id error:', {
       message: e?.message,
@@ -340,7 +350,7 @@ router.patch('/:id', requireAuth, async (req: Request, res: Response): Promise<v
 })
 
 /* =========================
-   DELETE (soft delete)
+   DELETE (soft)
    ========================= */
 
 router.delete('/:id', requireAuth, async (req: Request, res: Response): Promise<void> => {
@@ -360,8 +370,7 @@ router.delete('/:id', requireAuth, async (req: Request, res: Response): Promise<
 
     res.status(204).end()
   } catch (e: any) {
-    // P2025 = record not found
-    if ((e as any)?.code === 'P2025') {
+    if (e.code === 'P2025') {
       console.warn('DELETE /api/animals/:id not found', { id })
       res.status(404).json({ error: 'Not found' })
       return
