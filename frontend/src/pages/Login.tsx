@@ -18,7 +18,7 @@ import { login as apiLogin } from '../api'
 import { useAuth } from '../context/AuthContext'
 
 const API_BASE_URL =
-  (import.meta as any)?.env?.VITE_API_BASE_URL || '' // same pattern as elsewhere
+  (import.meta as any)?.env?.VITE_API_BASE_URL || ''
 
 export default function Login() {
   const navigate = useNavigate()
@@ -29,9 +29,9 @@ export default function Login() {
   const [password, setPassword] = useState<string>('')
   const [showPw, setShowPw] = useState<boolean>(false)
   const [submitting, setSubmitting] = useState<boolean>(false)
-  const [resetSubmitting, setResetSubmitting] = useState<boolean>(false)
   const [err, setErr] = useState<string | null>(null)
   const [info, setInfo] = useState<string | null>(null)
+  const [sendingReset, setSendingReset] = useState<boolean>(false)
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -39,10 +39,11 @@ export default function Login() {
     setErr(null)
     setInfo(null)
     setSubmitting(true)
+
     try {
       const { token, role } = await apiLogin(
         email.trim().toLowerCase(),
-        password,
+        password
       )
 
       // save to context (+ sessionStorage)
@@ -52,56 +53,64 @@ export default function Login() {
       const from = location?.state?.from?.pathname as string | undefined
 
       // fallback by role
-      const target = from
-        ? from
-        : role === 'ADMIN'
-        ? '/admin'
-        : role === 'MODERATOR'
-        ? '/moderator'
-        : '/user'
+      const target =
+        from
+          ? from
+          : role === 'ADMIN'
+          ? '/admin'
+          : role === 'MODERATOR'
+          ? '/moderator'
+          : '/user'
 
       navigate(target, { replace: true })
     } catch (e: any) {
-      const msg = e?.message || 'Přihlášení selhalo'
-      setErr(msg)
+      const msg = e?.message || ''
+      if (msg.includes('Invalid credentials')) {
+        setErr(
+          'Špatný e-mail nebo heslo. Pokud jste heslo zapomněli, můžete si níže poslat odkaz pro jeho obnovení.'
+        )
+      } else {
+        setErr(msg || 'Přihlášení selhalo')
+      }
     } finally {
       setSubmitting(false)
     }
   }
 
   async function onForgotPassword() {
-    const trimmed = email.trim().toLowerCase()
-    if (!trimmed) {
-      setErr('Zadejte prosím e-mail, na který máme poslat odkaz.')
+    setErr(null)
+    setInfo(null)
+
+    if (!email.trim()) {
+      setErr('Nejdříve zadejte e-mail, pro který chcete obnovit heslo.')
       return
     }
 
-    setErr(null)
-    setInfo(null)
-    setResetSubmitting(true)
-
     try {
+      setSendingReset(true)
+
       const res = await fetch(`${API_BASE_URL}/api/auth/forgot-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: trimmed }),
+        body: JSON.stringify({ email: email.trim().toLowerCase() }),
       })
 
-      // We intentionally don’t expose whether the e-mail exists
+      // Pro bezpečnost vždy zobrazíme stejnou zprávu,
+      // i kdyby e-mail v systému nebyl.
       if (!res.ok) {
-        throw new Error('Odeslání odkazu pro obnovu hesla selhalo.')
+        // zkusíme přečíst serverovou chybu, ale navenek to moc nerozlišujeme
+        await res.json().catch(() => null)
       }
 
       setInfo(
-        'Pokud u nás tento e-mail existuje, poslali jsme na něj odkaz pro obnovu hesla.',
+        'Pokud u nás existuje účet s tímto e-mailem, poslali jsme na něj odkaz pro obnovu hesla.'
       )
-    } catch (e: any) {
+    } catch {
       setErr(
-        e?.message ||
-          'Odeslání odkazu pro obnovu hesla selhalo. Zkuste to prosím znovu.',
+        'Odeslání odkazu pro obnovu hesla selhalo. Zkuste to prosím znovu později.'
       )
     } finally {
-      setResetSubmitting(false)
+      setSendingReset(false)
     }
   }
 
@@ -116,8 +125,9 @@ export default function Login() {
           {err}
         </Alert>
       )}
+
       {info && (
-        <Alert severity="info" sx={{ mb: 2 }}>
+        <Alert severity="success" sx={{ mb: 2 }}>
           {info}
         </Alert>
       )}
@@ -157,9 +167,7 @@ export default function Login() {
               ),
             }}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                onSubmit(e as unknown as React.FormEvent)
-              }
+              if (e.key === 'Enter') onSubmit(e as unknown as React.FormEvent)
             }}
           />
 
@@ -171,26 +179,16 @@ export default function Login() {
             {submitting ? 'Přihlašuji…' : 'Přihlásit'}
           </Button>
 
-          {/* Forgot password row */}
-          <Stack
-            direction="row"
-            spacing={1}
-            alignItems="center"
-            justifyContent="space-between"
+          {/* Forgot password action */}
+          <Button
+            type="button"
+            variant="text"
+            onClick={onForgotPassword}
+            disabled={sendingReset || !email}
+            sx={{ alignSelf: 'flex-start' }}
           >
-            <Typography variant="body2" color="text.secondary">
-              Zapomněli jste heslo?
-            </Typography>
-            <Button
-              type="button"
-              variant="text"
-              size="small"
-              onClick={onForgotPassword}
-              disabled={resetSubmitting || !email.trim()}
-            >
-              Poslat odkaz pro obnovu
-            </Button>
-          </Stack>
+            {sendingReset ? 'Odesílám odkaz…' : 'Zapomněl(a) jsem heslo'}
+          </Button>
         </Stack>
       </Box>
     </Container>
