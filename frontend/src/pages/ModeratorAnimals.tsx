@@ -15,7 +15,7 @@ import {
   Grid,
 } from '@mui/material'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { useAuth } from '../context/AuthContext'
+import { useAuth } from '../context/AuthContext'   // 👈 use the shared auth
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
 
@@ -44,7 +44,7 @@ type TabKey = 'published' | 'pending'
 const ModeratorAnimals: React.FC = () => {
   const location = useLocation()
   const navigate = useNavigate()
-  const { token } = useAuth()
+  const { token } = useAuth()                       // 👈 get token from context
 
   // initial tab from URL
   const paramsAtMount = new URLSearchParams(location.search)
@@ -83,6 +83,7 @@ const ModeratorAnimals: React.FC = () => {
   }
 
   const fetchPending = async () => {
+    // if somehow no token, don’t even try
     if (!token) {
       setPending([])
       setError('Nemáte oprávnění zobrazit neschválená zvířata.')
@@ -120,7 +121,7 @@ const ModeratorAnimals: React.FC = () => {
   useEffect(() => {
     refreshAll()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token])
+  }, [token])  // 👈 refetch when token becomes available
 
   const handleTabChange = (_e: React.SyntheticEvent, newValue: TabKey) => {
     const search = newValue === 'pending' ? '?tab=pending' : ''
@@ -161,8 +162,7 @@ const ModeratorAnimals: React.FC = () => {
     }
   }
 
-  // 👇 canApprove now depends on status – if already PUBLISHED, no button
-  const renderAnimalCard = (animal: Animal, canApprove: boolean) => {
+  const renderAnimalCard = (animal: Animal, isPending: boolean) => {
     const name = animal.jmeno || animal.name || 'Bez jména'
     const img = animal.main || animal.galerie?.[0]?.url
 
@@ -185,14 +185,7 @@ const ModeratorAnimals: React.FC = () => {
         : 'default'
 
     return (
-      <Card
-        key={animal.id}
-        sx={{
-          height: '100%',
-          display: 'flex',
-          flexDirection: 'column',
-        }}
-      >
+      <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
         {img && (
           <Box
             component="img"
@@ -218,7 +211,7 @@ const ModeratorAnimals: React.FC = () => {
           )}
         </CardContent>
         <CardActions sx={{ justifyContent: 'flex-end' }}>
-          {canApprove && (
+          {isPending && (
             <Button
               variant="contained"
               size="small"
@@ -287,15 +280,11 @@ const ModeratorAnimals: React.FC = () => {
         </Typography>
       ) : (
         <Grid container spacing={2}>
-          {list.map((a) => {
-            // canApprove = ONLY on pending tab AND not PUBLISHED
-            const canApprove = isPendingTab && a.status !== 'PUBLISHED'
-            return (
-              <Grid item xs={12} sm={6} md={4} key={a.id}>
-                {renderAnimalCard(a, canApprove)}
-              </Grid>
-            )
-          })}
+          {list.map((a) => (
+            <Grid item xs={12} sm={6} md={4} key={a.id}>
+              {renderAnimalCard(a, isPendingTab)}
+            </Grid>
+          ))}
         </Grid>
       )}
     </Container>
