@@ -17,7 +17,8 @@ import VisibilityOff from '@mui/icons-material/VisibilityOff'
 import { login as apiLogin } from '../api'
 import { useAuth } from '../context/AuthContext'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
+const API_BASE_URL =
+  (import.meta as any)?.env?.VITE_API_BASE_URL || '' // same pattern as elsewhere
 
 export default function Login() {
   const navigate = useNavigate()
@@ -51,18 +52,16 @@ export default function Login() {
       const from = location?.state?.from?.pathname as string | undefined
 
       // fallback by role
-      const target =
-        from
-          ? from
-          : role === 'ADMIN'
-          ? '/admin'
-          : role === 'MODERATOR'
-          ? '/moderator'
-          : '/user'
+      const target = from
+        ? from
+        : role === 'ADMIN'
+        ? '/admin'
+        : role === 'MODERATOR'
+        ? '/moderator'
+        : '/user'
 
       navigate(target, { replace: true })
     } catch (e: any) {
-      // Show backend message if present, otherwise generic
       const msg = e?.message || 'Přihlášení selhalo'
       setErr(msg)
     } finally {
@@ -71,7 +70,8 @@ export default function Login() {
   }
 
   async function onForgotPassword() {
-    if (!email.trim()) {
+    const trimmed = email.trim().toLowerCase()
+    if (!trimmed) {
       setErr('Zadejte prosím e-mail, na který máme poslat odkaz.')
       return
     }
@@ -84,10 +84,10 @@ export default function Login() {
       const res = await fetch(`${API_BASE_URL}/api/auth/forgot-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim().toLowerCase() }),
+        body: JSON.stringify({ email: trimmed }),
       })
 
-      // Backend always returns 200 with generic message if user exists or not
+      // We intentionally don’t expose whether the e-mail exists
       if (!res.ok) {
         throw new Error('Odeslání odkazu pro obnovu hesla selhalo.')
       }
@@ -157,8 +157,9 @@ export default function Login() {
               ),
             }}
             onKeyDown={(e) => {
-              if (e.key === 'Enter')
+              if (e.key === 'Enter') {
                 onSubmit(e as unknown as React.FormEvent)
+              }
             }}
           />
 
@@ -170,7 +171,7 @@ export default function Login() {
             {submitting ? 'Přihlašuji…' : 'Přihlásit'}
           </Button>
 
-          {/* Zapomenuté heslo */}
+          {/* Forgot password row */}
           <Stack
             direction="row"
             spacing={1}
