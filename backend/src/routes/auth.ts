@@ -315,7 +315,7 @@ router.post(
   '/forgot-password',
   async (req: Request, res: Response): Promise<void> => {
     const raw = (req.body?.email ?? '') as string
-    const email = raw.trim()
+    const email = raw.trim().toLowerCase()
     if (!email) {
       res.status(400).json({ error: 'Email je povinný' })
       return
@@ -353,27 +353,154 @@ router.post(
         token,
       )}`
 
-      const subject = 'Dogpoint – obnova hesla'
-      const textBody = `Dobrý den,
+      
+      const subject = 'Dogpoint – obnova hesla k vašemu účtu'
 
-obdrželi jsme požadavek na obnovu hesla k účtu s tímto e-mailem.
+const textBody = `Dobrý den,
 
-Pokud jste to byli vy, otevřete následující odkaz a nastavte si nové heslo:
+obdrželi jsme žádost o obnovu hesla k uživatelskému účtu registrovanému na tuto e-mailovou adresu.
 
+Pokud jste o změnu hesla požádali vy, otevřete tento odkaz a nastavte si nové heslo:
 ${link}
 
 Odkaz je platný 1 hodinu. Pokud jste o obnovu hesla nežádali, můžete tento e-mail ignorovat.
 
-Děkujeme,
-Dogpoint`
-      const htmlBody = `
-        <p>Dobrý den,</p>
-        <p>obdrželi jsme požadavek na obnovu hesla k účtu s tímto e-mailem.</p>
-        <p>Pokud jste to byli vy, klikněte na následující odkaz a nastavte si nové heslo:</p>
-        <p><a href="${link}">${link}</a></p>
-        <p>Odkaz je platný 1 hodinu. Pokud jste o obnovu hesla nežádali, můžete tento e-mail ignorovat.</p>
-        <p>Děkujeme,<br/>Dogpoint</p>
-      `
+Bezpečnostní upozornění: Dogpoint po vás nikdy nebude chtít heslo e-mailem ani telefonicky.
+
+Kontakty:
+Telefon: +420 607 018 218
+E-mail: info@dog-point.cz
+
+Adresa útulku:
+Lhotky 60
+281 63 Malotice
+
+Sídlo organizace a korespondenční kontakt:
+Dogpoint o.p.s.
+Milánská 452
+109 00 Praha 15
+
+S pozdravem
+tým DOG-POINT
+`
+
+const htmlBody = `<!doctype html>
+<html lang="cs">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Dogpoint – obnova hesla</title>
+  </head>
+  <body style="margin:0;padding:0;background:#f6f7fb;font-family:Arial,Helvetica,sans-serif;color:#111;">
+    <div style="display:none;max-height:0;overflow:hidden;opacity:0;">
+      Odkaz pro obnovu hesla k vašemu účtu Dogpoint (platí 1 hodinu).
+    </div>
+
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f6f7fb;padding:24px 0;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="600" cellspacing="0" cellpadding="0"
+            style="width:600px;max-width:92vw;background:#ffffff;border-radius:14px;overflow:hidden;box-shadow:0 6px 20px rgba(0,0,0,0.06);">
+            
+            <!-- Header -->
+            <tr>
+              <td style="padding:22px 24px;background:#fff;">
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                  <tr>
+                    <td align="left" style="vertical-align:middle;">
+                      <img src="https://patron.dog-point.cz/logo1.png"
+                           alt="Dogpoint"
+                           style="height:42px;display:block;border:0;outline:none;" />
+                    </td>
+                    <td align="right" style="vertical-align:middle;font-size:12px;color:#666;">
+                      patron.dog-point.cz
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <!-- Content -->
+            <tr>
+              <td style="padding:24px;">
+                <h1 style="margin:0 0 12px;font-size:20px;line-height:1.3;font-weight:800;">
+                  Obnova hesla
+                </h1>
+
+                <p style="margin:0 0 14px;font-size:14px;line-height:1.6;color:#222;">
+                  Dobrý den,<br />
+                  obdrželi jsme žádost o <strong>obnovu hesla</strong> k uživatelskému účtu registrovanému na tuto e-mailovou adresu.
+                </p>
+
+                <p style="margin:0 0 18px;font-size:14px;line-height:1.6;color:#222;">
+                  Pokud jste o změnu hesla požádali vy, klikněte na tlačítko níže a nastavte si nové heslo:
+                </p>
+
+                <!-- Button -->
+                <table role="presentation" cellspacing="0" cellpadding="0" style="margin:0 0 18px;">
+                  <tr>
+                    <td align="center" bgcolor="#111111" style="border-radius:10px;">
+                      <a href="${link}"
+                         style="display:inline-block;padding:12px 18px;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;">
+                        Nastavit nové heslo
+                      </a>
+                    </td>
+                  </tr>
+                </table>
+
+                <p style="margin:0 0 10px;font-size:13px;line-height:1.6;color:#444;">
+                  Odkaz je platný <strong>1 hodinu</strong>. Pokud jste o obnovu hesla nežádali, můžete tento e-mail ignorovat.
+                </p>
+
+                <!-- Security note -->
+                <div style="margin:16px 0 0;padding:12px 14px;background:#f3f4f6;border-radius:10px;font-size:13px;line-height:1.6;color:#111;">
+                  <strong>Bezpečnostní upozornění:</strong> Dogpoint po vás nikdy nebude chtít heslo e-mailem ani telefonicky.
+                </div>
+
+                <!-- Fallback link -->
+                <p style="margin:16px 0 0;font-size:12px;line-height:1.6;color:#666;">
+                  Pokud tlačítko nefunguje, zkopírujte tento odkaz do prohlížeče:<br />
+                  <a href="${link}" style="color:#111;word-break:break-all;">${link}</a>
+                </p>
+              </td>
+            </tr>
+
+            <!-- Footer -->
+            <tr>
+              <td style="padding:18px 24px;background:#fafafa;border-top:1px solid #eee;">
+                <p style="margin:0 0 10px;font-size:12px;line-height:1.5;color:#444;">
+                  S pozdravem<br />
+                  <strong>tým DOG-POINT</strong>
+                </p>
+
+                <p style="margin:0;font-size:12px;line-height:1.6;color:#666;">
+                  <strong>Kontakty</strong><br />
+                  Telefon: +420 607 018 218<br />
+                  E-mail: <a href="mailto:info@dog-point.cz" style="color:#111;">info@dog-point.cz</a>
+                </p>
+
+                <p style="margin:10px 0 0;font-size:12px;line-height:1.6;color:#666;">
+                  <strong>Adresa útulku</strong><br />
+                  Lhotky 60, 281 63 Malotice
+                </p>
+
+                <p style="margin:10px 0 0;font-size:12px;line-height:1.6;color:#666;">
+                  <strong>Sídlo organizace a korespondenční kontakt</strong><br />
+                  Dogpoint o.p.s., Milánská 452, 109 00 Praha 15
+                </p>
+              </td>
+            </tr>
+
+          </table>
+
+          <div style="width:600px;max-width:92vw;margin:10px auto 0;font-size:11px;color:#999;text-align:center;">
+            Tento e-mail byl odeslán automaticky. Prosím neodpovídejte na něj.
+          </div>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`
 
       try {
         await resetTransporter.sendMail({
