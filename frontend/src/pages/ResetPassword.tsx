@@ -1,5 +1,5 @@
 // frontend/src/pages/ResetPassword.tsx
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import {
   Container,
   Typography,
@@ -11,19 +11,16 @@ import {
 } from '@mui/material'
 import { useLocation, useNavigate } from 'react-router-dom'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
-
-function useTokenFromQuery(): string {
-  const location = useLocation()
-  const params = new URLSearchParams(location.search)
-  return params.get('token') || ''
-}
+const API_BASE_URL = (import.meta as any)?.env?.VITE_API_BASE_URL || ''
 
 export default function ResetPassword() {
   const location = useLocation()
   const navigate = useNavigate()
-  const params = new URLSearchParams(location.search)
-  const token = params.get('token') || ''
+
+  const token = useMemo(() => {
+    const params = new URLSearchParams(location.search)
+    return params.get('token') || ''
+  }, [location.search])
 
   const [password, setPassword] = useState('')
   const [password2, setPassword2] = useState('')
@@ -56,13 +53,23 @@ export default function ResetPassword() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token, password }),
       })
-      const data = await res.json()
-      if (!res.ok) {
-        setError(data?.error || 'Obnova hesla selhala.')
-      } else {
-        setSuccess(data?.message || 'Heslo bylo úspěšně změněno.')
+
+      // SAFE parsing (backend might return empty/HTML)
+      const raw = await res.text()
+      let data: any = null
+      try {
+        data = raw ? JSON.parse(raw) : null
+      } catch {
+        data = null
       }
-    } catch (e: any) {
+
+      if (!res.ok) {
+        setError(data?.error || `Obnova hesla selhala (HTTP ${res.status}).`)
+        return
+      }
+
+      setSuccess(data?.message || 'Heslo bylo úspěšně změněno.')
+    } catch {
       setError('Nebylo možné uložit nové heslo. Zkuste to znovu.')
     } finally {
       setLoading(false)
@@ -102,18 +109,10 @@ export default function ResetPassword() {
             />
 
             <Stack direction="row" spacing={1} justifyContent="flex-end">
-              <Button
-                type="button"
-                variant="text"
-                onClick={() => navigate('/login')}
-              >
+              <Button type="button" variant="text" onClick={() => navigate('/login')}>
                 Zpět na přihlášení
               </Button>
-              <Button
-                type="submit"
-                variant="contained"
-                disabled={loading}
-              >
+              <Button type="submit" variant="contained" disabled={loading}>
                 {loading ? 'Ukládám…' : 'Uložit nové heslo'}
               </Button>
             </Stack>
