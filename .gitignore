@@ -25,3 +25,6 @@ _backup/
 !backend/prisma/migrations/**
 !backend/prisma/migrations/**
 !backend/prisma/migrations/**
+# seed scripts (local only)
+**/scripts/seed*.mjs
+**/scripts/seed*.js
