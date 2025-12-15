@@ -141,7 +141,7 @@ export default function AnimalDetail() {
   // helper: load posts via fetch
   const loadPosts = useCallback(
     async (animalId: string) => {
-      const url = `${API_BASE}/posts/public?animalId=${encodeURIComponent(animalId)}`
+      const url = `${API_BASE}/api/posts/public?animalId=${encodeURIComponent(animalId)}`
       console.log('[notify] fetch posts from', url)
       const res = await fetch(url)
       if (!res.ok) {
