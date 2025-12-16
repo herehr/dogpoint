@@ -25,6 +25,7 @@ import AdminModerators from './pages/AdminModerators'
 import AnimalsManager from './pages/AnimalsManager'
 import ModeratorDashboard from './pages/ModeratorDashboard'
 import ModeratorAnimals from './pages/ModeratorAnimals'
+import ModeratorPostsList from './pages/ModeratorPostsList'
 import ModeratorNewPost from './pages/ModeratorNewPost'
 import Login from './pages/Login'
 import UserDashboard from './pages/UserDashboard'
@@ -32,7 +33,7 @@ import AdoptionStart from './pages/AdoptionStart'
 import OchranaOsobnichUdaju from './pages/OchranaOsobnichUdaju'
 import NotificationsPage from './pages/NotificationsPage'
 import UXPrototype from './prototypes/UXPrototype'
-import ResetPassword from './pages/ResetPassword'  // 👈 NEW
+import ResetPassword from './pages/ResetPassword'
 
 import 'react-quill/dist/quill.snow.css'
 
@@ -94,9 +95,8 @@ export default function App() {
 
   return (
     <Routes>
-      {/* DIRECT ROUTES (before layout) */}
+      {/* DIRECT ROUTES */}
       <Route path="/adopce/:id" element={<AdoptionStart />} />
-      {/* password reset from e-mail */}
       <Route path="/obnovit-heslo" element={<ResetPassword />} />
 
       {/* ROOT layout */}
@@ -106,10 +106,7 @@ export default function App() {
         <Route path="zvirata" element={<AnimalsPage />} />
         <Route path="zvire/:id" element={<AnimalDetail />} />
         <Route path="zvirata/:id" element={<AnimalDetail />} />
-        <Route
-          path="ochrana-osobnich-udaju"
-          element={<OchranaOsobnichUdaju />}
-        />
+        <Route path="ochrana-osobnich-udaju" element={<OchranaOsobnichUdaju />} />
         <Route path="notifikace" element={<NotificationsPage />} />
 
         {/* Auth */}
@@ -151,7 +148,6 @@ export default function App() {
           }
         />
 
-        {/* Animals + posts to approve/list */}
         <Route
           path="moderator/animals"
           element={
@@ -161,7 +157,6 @@ export default function App() {
           }
         />
 
-        {/* Full animals manager for moderators (add/edit) */}
         <Route
           path="moderator/zvirata-sprava"
           element={
@@ -171,7 +166,6 @@ export default function App() {
           }
         />
 
-        {/* Old alias kept for backwards compatibility */}
         <Route
           path="moderator/pridat"
           element={
@@ -181,7 +175,16 @@ export default function App() {
           }
         />
 
-        {/* NEW post creation */}
+        {/* POSTS */}
+        <Route
+          path="moderator/posts"
+          element={
+            <RequireRole roles={['MODERATOR', 'ADMIN']}>
+              <ModeratorPostsList />
+            </RequireRole>
+          }
+        />
+
         <Route
           path="moderator/posts/novy"
           element={
