@@ -42,7 +42,7 @@ router.get('/my', checkAuth, async (req: Request, res: Response) => {
       },
     })
 
-    const items = subs.map(sub => ({
+    const items = subs.map((sub) => ({
       animalId: sub.animalId,
       title: sub.animal?.jmeno || sub.animal?.name || 'Zvíře',
       main: sub.animal?.main || undefined,
@@ -104,6 +104,40 @@ router.post('/cancel', checkAuth, async (req: Request, res: Response) => {
   } catch (e) {
     console.error('[adoption/cancel] error:', e)
     return res.status(500).json({ error: 'Failed to cancel adoption' })
+  }
+})
+
+/**
+ * POST /api/adoption/seen
+ * body: { animalId?: string }
+ *
+ * Minimal endpoint to remove 404 in frontend.
+ * For now it just returns ok + server timestamp.
+ * (We can persist per-user/per-animal seen state later via Prisma model.)
+ */
+router.post('/seen', checkAuth, async (req: Request, res: Response) => {
+  try {
+    const authUser = (req as any).user
+    const userId = authUser?.sub || authUser?.id
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Not authenticated' })
+    }
+
+    const animalId = req.body?.animalId ? String(req.body.animalId) : undefined
+
+    // No-op persistence for now (just acknowledge).
+    // Later: upsert into AdoptionSeen table (userId + animalId).
+
+    return res.json({
+      ok: true,
+      userId,
+      animalId: animalId || null,
+      seenAt: new Date().toISOString(),
+    })
+  } catch (e) {
+    console.error('[adoption/seen] error:', e)
+    return res.status(500).json({ error: 'Failed to mark seen' })
   }
 })
 
