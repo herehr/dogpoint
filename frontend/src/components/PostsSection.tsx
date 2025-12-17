@@ -11,10 +11,15 @@ import {
   LinearProgress,
   Grid,
   Tooltip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from '@mui/material'
 import UploadIcon from '@mui/icons-material/UploadFile'
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera'
 import DeleteIcon from '@mui/icons-material/Delete'
+import EditIcon from '@mui/icons-material/Edit'
 
 import { useAccess } from '../context/AccessContext'
 import { useAuth } from '../context/AuthContext'
@@ -36,6 +41,18 @@ type Post = {
 
 const EMOJIS = ['🐾', '❤️', '😊', '🥰', '👏', '🎉', '😍', '🤗', '🌟', '👍']
 
+// backend base (for PATCH in this component)
+const API_BASE = import.meta.env.VITE_API_BASE_URL || ''
+
+function getStaffToken(): string | null {
+  // Prefer admin token if present
+  return (
+    sessionStorage.getItem('adminToken') ||
+    sessionStorage.getItem('moderatorToken') ||
+    null
+  )
+}
+
 export default function PostsSection({ animalId }: { animalId: string }) {
   const { hasAccess } = useAccess()
   const { role } = useAuth()
@@ -47,6 +64,9 @@ export default function PostsSection({ animalId }: { animalId: string }) {
   // Only staff are allowed to WRITE (add / delete posts)
   const canWrite = isStaff
 
+  // ✅ ONLY ADMIN can edit (even after publish)
+  const canEdit = role === 'ADMIN'
+
   const [posts, setPosts] = useState<Post[]>([])
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
@@ -56,6 +76,13 @@ export default function PostsSection({ animalId }: { animalId: string }) {
   const [body, setBody] = useState('')
   const [media, setMedia] = useState<Media[]>([])
   const [saving, setSaving] = useState(false)
+
+  // Edit dialog state (ADMIN only)
+  const [editOpen, setEditOpen] = useState(false)
+  const [editId, setEditId] = useState<string | null>(null)
+  const [editTitle, setEditTitle] = useState('')
+  const [editBody, setEditBody] = useState('')
+  const [editSaving, setEditSaving] = useState(false)
 
   // Upload helpers
   const [uploading, setUploading] = useState(false)
@@ -127,13 +154,16 @@ export default function PostsSection({ animalId }: { animalId: string }) {
         setUploadNote(`Nahrávám ${i + 1} / ${arr.length}…`)
         const fd = new FormData()
         fd.append('file', f)
-        const res = await fetch(
-          (import.meta.env.VITE_API_BASE_URL || '') + '/api/upload',
-          { method: 'POST', body: fd }
-        )
+
+        const res = await fetch(API_BASE + '/api/upload', {
+          method: 'POST',
+          body: fd,
+        })
         if (!res.ok) throw new Error('Nahrání selhalo')
+
         const json = await res.json()
         const url = String(json.url)
+
         setMedia((m) => [
           ...m,
           {
@@ -143,6 +173,7 @@ export default function PostsSection({ animalId }: { animalId: string }) {
         ])
       }
     } catch (e: any) {
+      console.error('[PostsSection] upload error', e)
       setErr(e?.message || 'Nahrání selhalo')
     } finally {
       setUploading(false)
@@ -150,15 +181,97 @@ export default function PostsSection({ animalId }: { animalId: string }) {
     }
   }
 
-  function handleDelete(postId: string) {
-    if (!canWrite) return
-    if (!window.confirm('Opravdu chcete tento příspěvek smazat?')) return
+  function onPickFiles(e: React.ChangeEvent<HTMLInputElement>) {
+    if (e.target.files) handleFiles(e.target.files)
+    e.target.value = ''
+  }
 
-    delJSON<void>(`/api/posts/${encodeURIComponent(postId)}`)
-      .then(() => setPosts((prev) => prev.filter((p) => p.id !== postId)))
-      .catch((e: any) =>
-        setErr(e?.message || 'Smazání příspěvku selhalo.')
-      )
+  function onPickCamera(e: React.ChangeEvent<HTMLInputElement>) {
+    if (e.target.files) handleFiles(e.target.files)
+    e.target.value = ''
+  }
+
+  function onDrop(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault()
+    e.stopPropagation()
+    const files = e.dataTransfer?.files
+    if (files && files.length) handleFiles(files)
+  }
+
+  function onDragOver(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault()
+    e.stopPropagation()
+  }
+
+  function removeMediaIndex(i: number) {
+    setMedia((list) => list.filter((_, idx) => idx !== i))
+  }
+
+  async function handleDelete(postId: string) {
+    if (!canWrite) return
+    const ok = window.confirm('Opravdu chcete tento příspěvek smazat?')
+    if (!ok) return
+
+    try {
+      await delJSON<void>(`/api/posts/${encodeURIComponent(postId)}`)
+      setPosts((prev) => prev.filter((p) => p.id !== postId))
+    } catch (e: any) {
+      console.error('[PostsSection] delete error', e)
+      setErr(e?.message || 'Smazání příspěvku selhalo.')
+    }
+  }
+
+  function openEdit(p: Post) {
+    if (!canEdit) return
+    setEditId(p.id)
+    setEditTitle(p.title || '')
+    setEditBody(p.body || '')
+    setEditOpen(true)
+  }
+
+  function closeEdit() {
+    setEditOpen(false)
+    setEditId(null)
+  }
+
+  async function saveEdit() {
+    if (!canEdit || !editId) return
+    setEditSaving(true)
+    setErr(null)
+
+    const token = getStaffToken()
+    if (!token) {
+      setErr('Chybí přihlášení (admin). Přihlaste se prosím znovu.')
+      setEditSaving(false)
+      return
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/api/posts/${encodeURIComponent(editId)}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          title: editTitle.trim() || 'Bez názvu',
+          body: editBody.trim() || undefined,
+        }),
+      })
+
+      if (!res.ok) {
+        const txt = await res.text()
+        throw new Error(`Uložení selhalo (${res.status}): ${txt}`)
+      }
+
+      closeEdit()
+      await refresh()
+    } catch (e: any) {
+      console.error('[PostsSection] edit save error', e)
+      setErr(e?.message || 'Uložení změn selhalo')
+    } finally {
+      setEditSaving(false)
+    }
   }
 
   return (
@@ -167,11 +280,15 @@ export default function PostsSection({ animalId }: { animalId: string }) {
         Příspěvky
       </Typography>
 
-      {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
+      {err && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {err}
+        </Alert>
+      )}
 
       {!unlocked && (
         <Alert severity="info" sx={{ mb: 2 }}>
-          Příspěvky jsou viditelné po adopci.
+          Příspěvky jsou viditelné po adopci. Dokončete adopci pro přístup k novinkám.
         </Alert>
       )}
 
@@ -192,25 +309,44 @@ export default function PostsSection({ animalId }: { animalId: string }) {
                 position: 'relative',
               }}
             >
-              {canWrite && (
-                <IconButton
-                  size="small"
-                  onClick={() => handleDelete(p.id)}
+              {/* actions */}
+              {(canEdit || canWrite) && (
+                <Stack
+                  direction="row"
+                  spacing={0.5}
                   sx={{
                     position: 'absolute',
                     top: 6,
                     right: 6,
                     bgcolor: 'rgba(255,255,255,0.9)',
+                    borderRadius: 2,
+                    p: 0.25,
                   }}
                 >
-                  <DeleteIcon fontSize="small" />
-                </IconButton>
+                  {canEdit && (
+                    <IconButton
+                      size="small"
+                      onClick={() => openEdit(p)}
+                      aria-label="Upravit příspěvek"
+                    >
+                      <EditIcon fontSize="small" />
+                    </IconButton>
+                  )}
+
+                  {canWrite && (
+                    <IconButton
+                      size="small"
+                      onClick={() => handleDelete(p.id)}
+                      aria-label="Smazat příspěvek"
+                    >
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  )}
+                </Stack>
               )}
 
               {/* TITLE */}
-              <Typography sx={{ fontWeight: 700 }}>
-                {p.title}
-              </Typography>
+              <Typography sx={{ fontWeight: 700 }}>{p.title}</Typography>
 
               {/* DATE directly under title */}
               <Typography
@@ -243,8 +379,12 @@ export default function PostsSection({ animalId }: { animalId: string }) {
                       >
                         <img
                           src={m.url}
-                          alt=""
-                          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                          alt={`post-media-${i}`}
+                          style={{
+                            width: '100%',
+                            height: '100%',
+                            objectFit: 'cover',
+                          }}
                         />
                       </Box>
                     </Grid>
@@ -264,38 +404,174 @@ export default function PostsSection({ animalId }: { animalId: string }) {
         </Stack>
       )}
 
+      {/* Edit dialog (ADMIN only) */}
+      <Dialog open={editOpen} onClose={closeEdit} fullWidth maxWidth="md">
+        <DialogTitle>Upravit příspěvek</DialogTitle>
+        <DialogContent>
+          <Stack spacing={1.5} sx={{ mt: 1 }}>
+            <TextField
+              label="Titulek"
+              value={editTitle}
+              onChange={(e) => setEditTitle(e.target.value)}
+            />
+            <RichTextEditor label="Text" value={editBody} onChange={setEditBody} />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeEdit} disabled={editSaving}>
+            Zrušit
+          </Button>
+          <Button variant="contained" onClick={saveEdit} disabled={editSaving || !editId}>
+            {editSaving ? 'Ukládám…' : 'Uložit'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       {/* Composer (staff only) */}
       {canWrite && (
         <Box component="form" onSubmit={onSubmit} sx={{ mt: 2 }}>
           <Stack spacing={1.5}>
+            {/* Media uploader */}
+            <Stack spacing={1}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+                Fotky / Videa
+              </Typography>
+
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center">
+                <Button
+                  onClick={() => fileInputRef.current?.click()}
+                  startIcon={<UploadIcon />}
+                  variant="outlined"
+                >
+                  Vybrat soubory
+                </Button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  hidden
+                  multiple
+                  accept="image/*,video/*"
+                  onChange={onPickFiles}
+                />
+
+                <Button
+                  onClick={() => cameraInputRef.current?.click()}
+                  startIcon={<PhotoCameraIcon />}
+                  variant="outlined"
+                >
+                  Vyfotit (telefon)
+                </Button>
+                <input
+                  ref={cameraInputRef}
+                  type="file"
+                  hidden
+                  accept="image/*"
+                  capture="environment"
+                  onChange={onPickCamera}
+                />
+              </Stack>
+
+              <Box
+                onDrop={onDrop}
+                onDragOver={onDragOver}
+                sx={{
+                  mt: 1,
+                  p: 2,
+                  border: '2px dashed',
+                  borderColor: 'divider',
+                  borderRadius: 2,
+                  textAlign: 'center',
+                  color: 'text.secondary',
+                  cursor: 'copy',
+                  userSelect: 'none',
+                }}
+              >
+                Přetáhněte sem fotografie nebo videa
+              </Box>
+
+              {uploading && (
+                <Stack spacing={1} sx={{ mt: 1 }}>
+                  <LinearProgress />
+                  <Typography variant="caption" color="text.secondary">
+                    {uploadNote}
+                  </Typography>
+                </Stack>
+              )}
+
+              {media.length > 0 && (
+                <Grid container spacing={1.5} sx={{ mt: 0.5 }}>
+                  {media.map((m, i) => (
+                    <Grid item xs={6} sm={4} md={3} key={`${m.url}-${i}`}>
+                      <Box
+                        sx={{
+                          position: 'relative',
+                          border: '1px solid',
+                          borderColor: 'divider',
+                          borderRadius: 2,
+                          overflow: 'hidden',
+                        }}
+                      >
+                        <img
+                          src={m.url}
+                          alt={`new-media-${i}`}
+                          style={{
+                            width: '100%',
+                            height: 140,
+                            objectFit: 'cover',
+                            display: 'block',
+                          }}
+                        />
+                        <Tooltip title="Odebrat">
+                          <IconButton
+                            size="small"
+                            onClick={() => removeMediaIndex(i)}
+                            sx={{
+                              position: 'absolute',
+                              top: 6,
+                              right: 6,
+                              bgcolor: 'rgba(255,255,255,0.9)',
+                            }}
+                          >
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </Box>
+                    </Grid>
+                  ))}
+                </Grid>
+              )}
+            </Stack>
+
+            {/* Text inputs */}
             <TextField
               label="Titulek"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
+              required={!body && media.length === 0}
             />
             <RichTextEditor
               label="Text"
               value={body}
               onChange={setBody}
+              helperText="Můžete použít tučné, kurzívu, podtržení a barvu (tyrkysová)."
             />
 
-            <Stack direction="row" spacing={1} flexWrap="wrap">
+            {/* Emoji row */}
+            <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', mt: 1 }}>
               {EMOJIS.map((emo) => (
                 <Button
                   key={emo}
                   size="small"
+                  variant="text"
                   onClick={() => addEmoji(emo)}
+                  sx={{ minWidth: 36 }}
                 >
                   {emo}
                 </Button>
               ))}
             </Stack>
 
-            <Button
-              type="submit"
-              variant="contained"
-              disabled={saving || uploading}
-            >
+            <Button type="submit" variant="contained" disabled={saving || uploading}>
               {saving ? 'Ukládám…' : 'Přidat příspěvek'}
             </Button>
           </Stack>

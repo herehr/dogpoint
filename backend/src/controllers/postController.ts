@@ -24,6 +24,11 @@ interface CreatePostBody {
   mediaUrls?: string[] // optional list of already-uploaded media URLs
 }
 
+interface UpdatePostBody {
+  title?: string
+  body?: string
+}
+
 /* ------------------------------------------------------------------ */
 /* POST /api/posts                                                    */
 /* Create post (ADMIN / MODERATOR)                                    */
@@ -59,6 +64,7 @@ export const createPost = async (req: ReqWithUser, res: Response) => {
           body: body ?? null,
           active: true,
           authorId: req.user?.id ?? null,
+          // keep as-is (your workflow might still use publishedAt)
           publishedAt: now,
         },
       })
@@ -92,6 +98,70 @@ export const createPost = async (req: ReqWithUser, res: Response) => {
 }
 
 /* ------------------------------------------------------------------ */
+/* PATCH /api/posts/:id                                               */
+/* Edit post                                                          */
+/* - ADMIN: can edit anytime                                           */
+/* - MODERATOR: only if status === PENDING_REVIEW                      */
+/* ------------------------------------------------------------------ */
+export const updatePost = async (req: ReqWithUser, res: Response) => {
+  const { id } = req.params
+  const { title, body }: UpdatePostBody = req.body || {}
+
+  if (!id) return res.status(400).json({ message: 'Missing post id' })
+
+  try {
+    const role = req.user?.role
+
+    if (!role) {
+      return res.status(401).json({ message: 'Unauthorized' })
+    }
+
+    const post = await prisma.post.findUnique({
+      where: { id },
+      select: { id: true, status: true, active: true },
+    })
+
+    if (!post) {
+      return res.status(404).json({ message: 'Post not found' })
+    }
+
+    if (post.active === false) {
+      return res.status(400).json({ message: 'Post is inactive' })
+    }
+
+    // Permission rules
+    if (role === 'MODERATOR') {
+      if (post.status !== 'PENDING_REVIEW') {
+        return res.status(403).json({
+          message: 'Moderátor může upravit jen příspěvek čekající na schválení.',
+        })
+      }
+    } else if (role !== 'ADMIN') {
+      return res.status(403).json({ message: 'Forbidden' })
+    }
+
+    // Validate inputs
+    const data: any = {}
+    if (typeof title === 'string') data.title = title.trim()
+    if (typeof body === 'string') data.body = body
+    if (!('title' in data) && !('body' in data)) {
+      return res.status(400).json({ message: 'Nothing to update' })
+    }
+
+    const updated = await prisma.post.update({
+      where: { id },
+      data,
+      include: { media: true },
+    })
+
+    return res.json(updated)
+  } catch (err) {
+    console.error('[updatePost] error', err)
+    return res.status(500).json({ message: 'Failed to update post' })
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /* GET /api/posts/public?animalId=...                                 */
 /* Public posts (for frontend, animal detail page)                    */
 /* ------------------------------------------------------------------ */
@@ -101,6 +171,8 @@ export const getPublicPosts = async (req: Request, res: Response) => {
 
     const where: any = {
       active: true,
+      // Optional: if you want ONLY approved posts public, uncomment:
+      // status: 'APPROVED',
     }
 
     if (animalId) {
@@ -109,8 +181,9 @@ export const getPublicPosts = async (req: Request, res: Response) => {
 
     const posts = await prisma.post.findMany({
       where,
+      // ✅ since you use createdAt as the post date:
       orderBy: {
-        publishedAt: 'desc',
+        createdAt: 'desc',
       },
       include: {
         media: true,
@@ -181,7 +254,8 @@ export const countNewPostsSince = async (req: Request, res: Response) => {
       where: {
         animalId,
         active: true,
-        publishedAt: {
+        // If you use createdAt as post date, consider switching this too:
+        createdAt: {
           gt: sinceDate,
         },
       },

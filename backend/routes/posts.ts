@@ -1,6 +1,11 @@
 // backend/src/routes/posts.ts
 import { Router } from 'express'
-import { createPost, getPublicPosts, countNewPostsSince } from '../controllers/postController'
+import {
+  createPost,
+  getPublicPosts,
+  countNewPostsSince,
+  updatePost, // NEW
+} from '../controllers/postController'
 import { checkAuth } from '../middleware/checkAuth'
 import { checkRole } from '../middleware/checkRole'
 import { Role } from '@prisma/client'
@@ -13,6 +18,14 @@ router.post(
   checkAuth,
   [checkRole([Role.ADMIN, Role.MODERATOR])],
   createPost
+)
+
+// ✅ EDIT post – ADMIN always, MODERATOR only if still pending (enforced in controller)
+router.patch(
+  '/:id',
+  checkAuth,
+  [checkRole([Role.ADMIN, Role.MODERATOR])],
+  updatePost
 )
 
 // Public posts for animal detail (no login needed)
