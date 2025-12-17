@@ -14,6 +14,7 @@ const router = Router()
 
 type IncomingMedia = { url: string; typ?: string }
 
+// IMPORTANT: keep this wide so TS never narrows req.user.role
 type AnyRole = Role | 'ADMIN' | 'MODERATOR' | 'USER' | undefined | null
 
 function getRole(req: Request): AnyRole {
@@ -45,7 +46,6 @@ function tryAttachUser(req: Request, _res: Response, next: NextFunction) {
 
   try {
     const decoded = jwt.verify(token, secret) as any
-    // req.user is added via global augmentation in authJwt.ts
     req.user = { id: decoded.id || decoded.sub, role: decoded.role }
   } catch {
     // ignore invalid token
@@ -55,6 +55,9 @@ function tryAttachUser(req: Request, _res: Response, next: NextFunction) {
 
 /**
  * Normalize media from body.media into array of { url, typ }
+ * Accepts:
+ *  - media: ["url1", "url2"]
+ *  - media: [{url, typ}]
  */
 function normalizeMedia(input: any): IncomingMedia[] {
   const arr: any[] = Array.isArray(input?.media) ? input.media : []
@@ -63,7 +66,7 @@ function normalizeMedia(input: any): IncomingMedia[] {
       typeof x === 'string' ? { url: x } : { url: x?.url, typ: x?.typ },
     )
     .filter((m: any): m is IncomingMedia => !!m.url)
-    .map((m: IncomingMedia) => ({ url: m.url, typ: m.typ ?? 'image' }))
+    .map((m: IncomingMedia) => ({ url: String(m.url), typ: m.typ ?? 'image' }))
 }
 
 /* ──────────────────────────────────────────────────────────
@@ -140,44 +143,52 @@ router.post('/:id/media', requireAuth, async (req: Request, res: Response) => {
     return
   }
 
-  const id = String(req.params.id)
-  const body = (req.body || {}) as any
+  try {
+    const id = String(req.params.id)
+    const body = (req.body || {}) as any
 
-  // accept { media:[{url,typ}]} or {url,typ}
-  const incoming: any[] =
-    Array.isArray(body.media) ? body.media : body.url ? [{ url: body.url, typ: body.typ }] : []
+    // accept { media:[{url,typ}]} or {url,typ}
+    const incoming: any[] = Array.isArray(body.media)
+      ? body.media
+      : body.url
+        ? [{ url: body.url, typ: body.typ }]
+        : []
 
-  const cleaned = incoming
-    .map((m: any) => ({
-      url: String(m?.url || '').trim(),
-      typ: String(m?.typ || 'image').trim() || 'image',
-    }))
-    .filter((m: any) => m.url.length > 0)
+    const cleaned = incoming
+      .map((m: any) => ({
+        url: String(m?.url || '').trim(),
+        typ: String(m?.typ || 'image').trim() || 'image',
+      }))
+      .filter((m: any) => m.url.length > 0)
 
-  if (!cleaned.length) {
-    res.status(400).json({ error: 'No media provided' })
-    return
+    if (!cleaned.length) {
+      res.status(400).json({ error: 'No media provided' })
+      return
+    }
+
+    const post = await prisma.post.findUnique({
+      where: { id },
+      select: { id: true, active: true },
+    })
+    if (!post || !post.active) {
+      res.status(404).json({ error: 'Post not found' })
+      return
+    }
+
+    await prisma.postMedia.createMany({
+      data: cleaned.map((m: any) => ({ postId: id, url: m.url, typ: m.typ })),
+    })
+
+    const updated = await prisma.post.findUnique({
+      where: { id },
+      include: { media: true },
+    })
+
+    res.json(updated)
+  } catch (e: any) {
+    console.error('POST /api/posts/:id/media error:', e)
+    res.status(500).json({ error: 'Failed to add media' })
   }
-
-  const post = await prisma.post.findUnique({
-    where: { id },
-    select: { id: true, active: true },
-  })
-  if (!post || !post.active) {
-    res.status(404).json({ error: 'Post not found' })
-    return
-  }
-
-  await prisma.postMedia.createMany({
-    data: cleaned.map((m: any) => ({ postId: id, url: m.url, typ: m.typ })),
-  })
-
-  const updated = await prisma.post.findUnique({
-    where: { id },
-    include: { media: true },
-  })
-
-  res.json(updated)
 })
 
 router.delete(
@@ -190,31 +201,36 @@ router.delete(
       return
     }
 
-    const id = String(req.params.id)
-    const mediaId = String(req.params.mediaId)
+    try {
+      const id = String(req.params.id)
+      const mediaId = String(req.params.mediaId)
 
-    const media = await prisma.postMedia.findUnique({
-      where: { id: mediaId },
-      select: { id: true, postId: true },
-    })
+      const media = await prisma.postMedia.findUnique({
+        where: { id: mediaId },
+        select: { id: true, postId: true },
+      })
 
-    if (!media) {
-      res.status(404).json({ error: 'Media not found' })
-      return
+      if (!media) {
+        res.status(404).json({ error: 'Media not found' })
+        return
+      }
+      if (media.postId !== id) {
+        res.status(400).json({ error: 'Media does not belong to this post' })
+        return
+      }
+
+      await prisma.postMedia.delete({ where: { id: mediaId } })
+
+      const updated = await prisma.post.findUnique({
+        where: { id },
+        include: { media: true },
+      })
+
+      res.json(updated)
+    } catch (e: any) {
+      console.error('DELETE /api/posts/:id/media/:mediaId error:', e)
+      res.status(500).json({ error: 'Failed to delete media' })
     }
-    if (media.postId !== id) {
-      res.status(400).json({ error: 'Media does not belong to this post' })
-      return
-    }
-
-    await prisma.postMedia.delete({ where: { id: mediaId } })
-
-    const updated = await prisma.post.findUnique({
-      where: { id },
-      include: { media: true },
-    })
-
-    res.json(updated)
   },
 )
 
@@ -243,6 +259,8 @@ router.get('/:id', tryAttachUser, async (req: Request, res: Response) => {
 
 /* ──────────────────────────────────────────────────────────
    POST /api/posts  (ADMIN/MODERATOR)
+   - ADMIN: status = PUBLISHED (no approval needed)
+   - MODERATOR: status = PENDING_REVIEW + notifications
 ─────────────────────────────────────────────────────────── */
 
 router.post('/', requireAuth, async (req: Request, res: Response) => {
@@ -275,7 +293,10 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
 
     const user = req.user as any
     const isAdmin = isAdminRole(role)
-    const initialStatus = isAdmin ? ContentStatus.PUBLISHED : ContentStatus.PENDING_REVIEW
+    const initialStatus = isAdmin
+      ? ContentStatus.PUBLISHED
+      : ContentStatus.PENDING_REVIEW
+
     const authorId = String(user?.id)
 
     const created = await prisma.$transaction(async (tx) => {
@@ -319,7 +340,9 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
         created.title,
         animal.jmeno ?? animal.name ?? null,
         authorId,
-      ).catch((e) => console.error('[notifyApproversAboutNewPost] failed', e?.message))
+      ).catch((e) =>
+        console.error('[notifyApproversAboutNewPost] failed', e?.message),
+      )
     }
 
     res.status(201).json(created)
