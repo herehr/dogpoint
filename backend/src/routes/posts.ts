@@ -9,16 +9,21 @@ import { notifyApproversAboutNewPost } from '../services/moderationNotifications
 const router = Router()
 
 /* ──────────────────────────────────────────────────────────
-   Helpers
+   Types + role helpers (avoid TS narrowing issues)
 ─────────────────────────────────────────────────────────── */
 
 type IncomingMedia = { url: string; typ?: string }
 
-// IMPORTANT: keep this wide so TS never narrows req.user.role
-type AnyRole = Role | 'ADMIN' | 'MODERATOR' | 'USER' | undefined | null
+// keep wide on purpose (some middleware typings narrow role incorrectly)
+type AnyRole = Role | 'ADMIN' | 'MODERATOR' | 'USER' | string | undefined | null
 
 function getRole(req: Request): AnyRole {
   return (req.user as any)?.role as AnyRole
+}
+
+function getUserId(req: Request): string | null {
+  const id = (req.user as any)?.id
+  return id ? String(id) : null
 }
 
 function isAdminRole(role: AnyRole): boolean {
@@ -34,10 +39,10 @@ function isStaff(role: AnyRole): boolean {
   )
 }
 
-/**
- * Public endpoints: if a token is present, attach req.user (id, role).
- * Invalid/expired token is silently ignored.
- */
+/* ──────────────────────────────────────────────────────────
+   Optional: attach user for public routes (silent if invalid)
+─────────────────────────────────────────────────────────── */
+
 function tryAttachUser(req: Request, _res: Response, next: NextFunction) {
   const header = req.headers.authorization || ''
   const [, token] = header.split(' ')
@@ -53,12 +58,10 @@ function tryAttachUser(req: Request, _res: Response, next: NextFunction) {
   next()
 }
 
-/**
- * Normalize media from body.media into array of { url, typ }
- * Accepts:
- *  - media: ["url1", "url2"]
- *  - media: [{url, typ}]
- */
+/* ──────────────────────────────────────────────────────────
+   Helpers
+─────────────────────────────────────────────────────────── */
+
 function normalizeMedia(input: any): IncomingMedia[] {
   const arr: any[] = Array.isArray(input?.media) ? input.media : []
   return arr
@@ -69,13 +72,10 @@ function normalizeMedia(input: any): IncomingMedia[] {
     .map((m: IncomingMedia) => ({ url: String(m.url), typ: m.typ ?? 'image' }))
 }
 
-/* ──────────────────────────────────────────────────────────
-   Shared list handler (public, only PUBLISHED)
-─────────────────────────────────────────────────────────── */
-
 async function listPosts(req: Request, res: Response): Promise<void> {
   try {
     const animalId = req.query.animalId ? String(req.query.animalId) : undefined
+
     const posts = await prisma.post.findMany({
       where: {
         active: true,
@@ -85,6 +85,7 @@ async function listPosts(req: Request, res: Response): Promise<void> {
       orderBy: { createdAt: 'desc' },
       include: { media: true },
     })
+
     res.json(posts)
   } catch (e: any) {
     console.error('GET /api/posts error:', e)
@@ -93,16 +94,15 @@ async function listPosts(req: Request, res: Response): Promise<void> {
 }
 
 /* ──────────────────────────────────────────────────────────
-   GET /api/posts/public (public list)
-   GET /api/posts        (public list)
+   GET /api/posts/public  (public list)
+   GET /api/posts         (public list)
 ─────────────────────────────────────────────────────────── */
 
 router.get('/public', tryAttachUser, listPosts)
 router.get('/', tryAttachUser, listPosts)
 
 /* ──────────────────────────────────────────────────────────
-   GET pending posts (staff only)
-   GET /api/posts/pending
+   GET /api/posts/pending (staff only)
 ─────────────────────────────────────────────────────────── */
 
 router.get('/pending', requireAuth, async (req: Request, res: Response) => {
@@ -114,6 +114,7 @@ router.get('/pending', requireAuth, async (req: Request, res: Response) => {
 
   try {
     const animalId = req.query.animalId ? String(req.query.animalId) : undefined
+
     const posts = await prisma.post.findMany({
       where: {
         active: true,
@@ -123,6 +124,7 @@ router.get('/pending', requireAuth, async (req: Request, res: Response) => {
       orderBy: { createdAt: 'desc' },
       include: { media: true, animal: true },
     })
+
     res.json(posts)
   } catch (e: any) {
     console.error('GET /api/posts/pending error:', e)
@@ -144,10 +146,10 @@ router.post('/:id/media', requireAuth, async (req: Request, res: Response) => {
   }
 
   try {
-    const id = String(req.params.id)
+    const postId = String(req.params.id)
     const body = (req.body || {}) as any
 
-    // accept { media:[{url,typ}]} or {url,typ}
+    // Accept: { media:[{url,typ}]} OR {url,typ}
     const incoming: any[] = Array.isArray(body.media)
       ? body.media
       : body.url
@@ -167,20 +169,21 @@ router.post('/:id/media', requireAuth, async (req: Request, res: Response) => {
     }
 
     const post = await prisma.post.findUnique({
-      where: { id },
+      where: { id: postId },
       select: { id: true, active: true },
     })
+
     if (!post || !post.active) {
       res.status(404).json({ error: 'Post not found' })
       return
     }
 
     await prisma.postMedia.createMany({
-      data: cleaned.map((m: any) => ({ postId: id, url: m.url, typ: m.typ })),
+      data: cleaned.map((m: any) => ({ postId, url: m.url, typ: m.typ })),
     })
 
     const updated = await prisma.post.findUnique({
-      where: { id },
+      where: { id: postId },
       include: { media: true },
     })
 
@@ -202,7 +205,7 @@ router.delete(
     }
 
     try {
-      const id = String(req.params.id)
+      const postId = String(req.params.id)
       const mediaId = String(req.params.mediaId)
 
       const media = await prisma.postMedia.findUnique({
@@ -214,7 +217,8 @@ router.delete(
         res.status(404).json({ error: 'Media not found' })
         return
       }
-      if (media.postId !== id) {
+
+      if (media.postId !== postId) {
         res.status(400).json({ error: 'Media does not belong to this post' })
         return
       }
@@ -222,7 +226,7 @@ router.delete(
       await prisma.postMedia.delete({ where: { id: mediaId } })
 
       const updated = await prisma.post.findUnique({
-        where: { id },
+        where: { id: postId },
         include: { media: true },
       })
 
@@ -259,8 +263,6 @@ router.get('/:id', tryAttachUser, async (req: Request, res: Response) => {
 
 /* ──────────────────────────────────────────────────────────
    POST /api/posts  (ADMIN/MODERATOR)
-   - ADMIN: status = PUBLISHED (no approval needed)
-   - MODERATOR: status = PENDING_REVIEW + notifications
 ─────────────────────────────────────────────────────────── */
 
 router.post('/', requireAuth, async (req: Request, res: Response) => {
@@ -274,30 +276,21 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
     const { animalId, title, body, active } = (req.body || {}) as any
     const media = normalizeMedia(req.body)
 
-    if (!animalId) {
-      res.status(400).json({ error: 'animalId required' })
-      return
-    }
+    if (!animalId) return void res.status(400).json({ error: 'animalId required' })
     if (!title || String(title).trim() === '') {
       res.status(400).json({ error: 'title required' })
       return
     }
 
-    const animal = await prisma.animal.findUnique({
-      where: { id: String(animalId) },
-    })
+    const animal = await prisma.animal.findUnique({ where: { id: String(animalId) } })
     if (!animal) {
       res.status(404).json({ error: 'Animal not found' })
       return
     }
 
-    const user = req.user as any
-    const isAdmin = isAdminRole(role)
-    const initialStatus = isAdmin
-      ? ContentStatus.PUBLISHED
-      : ContentStatus.PENDING_REVIEW
-
-    const authorId = String(user?.id)
+    const authorId = getUserId(req) || ''
+    const admin = isAdminRole(role)
+    const initialStatus = admin ? ContentStatus.PUBLISHED : ContentStatus.PENDING_REVIEW
 
     const created = await prisma.$transaction(async (tx) => {
       const post = await tx.post.create({
@@ -309,7 +302,7 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
           authorId,
           status: initialStatus,
           createdById: authorId,
-          approvedById: isAdmin ? authorId : null,
+          approvedById: admin ? authorId : null,
         },
       })
 
@@ -334,15 +327,13 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
       return
     }
 
-    if (!isAdmin) {
+    if (!admin) {
       notifyApproversAboutNewPost(
         created.id,
         created.title,
         animal.jmeno ?? animal.name ?? null,
         authorId,
-      ).catch((e) =>
-        console.error('[notifyApproversAboutNewPost] failed', e?.message),
-      )
+      ).catch((e) => console.error('[notifyApproversAboutNewPost] failed', e?.message))
     }
 
     res.status(201).json(created)
@@ -371,6 +362,7 @@ router.patch('/:id', requireAuth, async (req: Request, res: Response) => {
 
     const id = String(req.params.id)
     const body = (req.body || {}) as any
+
     const media = normalizeMedia(body)
     const willReplaceMedia = Array.isArray(body.media)
 
@@ -441,7 +433,7 @@ router.post('/:id/approve', requireAuth, async (req: Request, res: Response) => 
       return
     }
 
-    const userId = String((req.user as any)?.id)
+    const userId = getUserId(req) || ''
 
     const updated = await prisma.post.update({
       where: { id },
