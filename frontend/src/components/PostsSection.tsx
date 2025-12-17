@@ -15,7 +15,6 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  Divider,
 } from '@mui/material'
 import UploadIcon from '@mui/icons-material/UploadFile'
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera'
@@ -27,7 +26,7 @@ import { useAuth } from '../context/AuthContext'
 import RichTextEditor from './RichTextEditor'
 import { getJSON, postJSON, delJSON, apiUrl } from '../services/api'
 
-// ✅ Use ONE consistent auth header for all roles (admin/moderator/user)
+// ✅ One consistent auth header for all roles
 function token() {
   if (typeof window === 'undefined') return null
   return (
@@ -42,14 +41,10 @@ function authHeader(): Record<string, string> {
   return t ? { Authorization: `Bearer ${t}` } : {}
 }
 
-// Media coming from backend PostMedia has id + typ
-type PostMediaItem = {
-  id: string
-  url: string
-  typ?: string
-}
-
 type NewMedia = { url: string; type?: 'image' | 'video' }
+
+// ✅ existing media from backend MUST include id + typ
+type ExistingPostMedia = { id: string; url: string; typ: string }
 
 type Post = {
   id: string
@@ -57,9 +52,9 @@ type Post = {
   authorId?: string
   title: string
   body?: string
+  media?: ExistingPostMedia[]
   createdAt: string
   active?: boolean
-  media?: PostMediaItem[]
 }
 
 const EMOJIS = ['🐾', '❤️', '😊', '🥰', '👏', '🎉', '😍', '🤗', '🌟', '👍']
@@ -71,30 +66,21 @@ export default function PostsSection({ animalId }: { animalId: string }) {
   const isStaff = role === 'ADMIN' || role === 'MODERATOR'
   const unlocked = isStaff || hasAccess(animalId)
 
-  // Staff can create/delete posts
+  // staff can create/delete posts
   const canWrite = isStaff
 
-  // ✅ ONLY ADMIN can edit (even after publish) + manage media of existing posts
+  // ✅ Only ADMIN can edit + manage media
   const canEdit = role === 'ADMIN'
 
   const [posts, setPosts] = useState<Post[]>([])
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
 
-  // Composer state (new post)
+  // Composer (new post)
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
   const [media, setMedia] = useState<NewMedia[]>([])
   const [saving, setSaving] = useState(false)
-
-  // Edit dialog state (ADMIN only)
-  const [editOpen, setEditOpen] = useState(false)
-  const [editId, setEditId] = useState<string | null>(null)
-  const [editTitle, setEditTitle] = useState('')
-  const [editBody, setEditBody] = useState('')
-  const [editSaving, setEditSaving] = useState(false)
-  const [editUploading, setEditUploading] = useState(false)
-  const [editUploadNote, setEditUploadNote] = useState('')
 
   // Upload helpers (new post)
   const [uploading, setUploading] = useState(false)
@@ -102,9 +88,19 @@ export default function PostsSection({ animalId }: { animalId: string }) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
 
-  // Upload helpers (edit dialog)
+  // Edit dialog (existing post)
+  const [editOpen, setEditOpen] = useState(false)
+  const [editId, setEditId] = useState<string | null>(null)
+  const [editTitle, setEditTitle] = useState('')
+  const [editBody, setEditBody] = useState('')
+  const [editSaving, setEditSaving] = useState(false)
+
+  // Upload helpers (edit post media)
+  const [editUploading, setEditUploading] = useState(false)
+  const [editUploadNote, setEditUploadNote] = useState('')
   const editFileInputRef = useRef<HTMLInputElement>(null)
   const editCameraInputRef = useRef<HTMLInputElement>(null)
+  const [editNewMedia, setEditNewMedia] = useState<NewMedia[]>([])
 
   async function refresh() {
     setErr(null)
@@ -135,24 +131,17 @@ export default function PostsSection({ animalId }: { animalId: string }) {
     e.preventDefault()
     if (!canWrite) return
     if (!title.trim() && !body.trim() && media.length === 0) return
-
     setSaving(true)
     setErr(null)
-
     try {
       await postJSON('/api/posts', {
         animalId,
         title: title.trim() || 'Bez názvu',
         body: body.trim() || undefined,
-        // backend createPost currently supports mediaUrls (in your controller),
-        // but your existing create route earlier used "media" sometimes.
-        // Keep sending "media" only if your backend expects it.
-        // If your backend expects mediaUrls, replace this with mediaUrls: media.map(m=>m.url)
         media: media.length
           ? media.map((m) => ({ url: m.url, typ: m.type || 'image' }))
           : undefined,
       })
-
       setTitle('')
       setBody('')
       setMedia([])
@@ -165,29 +154,37 @@ export default function PostsSection({ animalId }: { animalId: string }) {
     }
   }
 
-  // -------------------------
-  // Upload (new post composer)
-  // -------------------------
-  async function handleFiles(files: FileList | File[]) {
+  async function uploadFilesToSpace(files: FileList | File[], into: 'new' | 'edit') {
     const arr = Array.from(files).filter((f) => f && f.size > 0)
     if (arr.length === 0) return
 
-    setUploading(true)
+    if (into === 'new') {
+      setUploading(true)
+      setUploadNote('')
+    } else {
+      setEditUploading(true)
+      setEditUploadNote('')
+    }
+
     setErr(null)
 
     try {
       const now = Date.now()
       for (let i = 0; i < arr.length; i += 1) {
         const f = arr[i]
-        setUploadNote(`Nahrávám ${i + 1} / ${arr.length}…`)
+        const note = `Nahrávám ${i + 1} / ${arr.length}…`
+        if (into === 'new') setUploadNote(note)
+        else setEditUploadNote(note)
+
         const fd = new FormData()
         fd.append('file', f)
 
         const res = await fetch(apiUrl('/api/upload'), {
           method: 'POST',
-          headers: { ...authHeader() }, // if backend requires auth
+          headers: { ...authHeader() },
           body: fd,
         })
+
         if (!res.ok) {
           const txt = await res.text().catch(() => '')
           throw new Error(`Nahrání selhalo (${res.status}): ${txt || res.statusText}`)
@@ -196,52 +193,50 @@ export default function PostsSection({ animalId }: { animalId: string }) {
         const json = await res.json()
         const url = String(json.url)
 
-        setMedia((m) => [
-          ...m,
-          {
-            url: `${url}${url.includes('?') ? '&' : '?'}v=${now}`,
-            type: guessTypeFromUrl(url),
-          },
-        ])
+        const item: NewMedia = {
+          url: `${url}${url.includes('?') ? '&' : '?'}v=${now}`,
+          type: guessTypeFromUrl(url),
+        }
+
+        if (into === 'new') setMedia((m) => [...m, item])
+        else setEditNewMedia((m) => [...m, item])
       }
     } catch (e: any) {
       console.error('[PostsSection] upload error', e)
       setErr(e?.message || 'Nahrání selhalo')
     } finally {
-      setUploading(false)
-      setUploadNote('')
+      if (into === 'new') {
+        setUploading(false)
+        setUploadNote('')
+      } else {
+        setEditUploading(false)
+        setEditUploadNote('')
+      }
     }
   }
 
   function onPickFiles(e: React.ChangeEvent<HTMLInputElement>) {
-    if (e.target.files) handleFiles(e.target.files)
+    if (e.target.files) uploadFilesToSpace(e.target.files, 'new')
     e.target.value = ''
   }
-
   function onPickCamera(e: React.ChangeEvent<HTMLInputElement>) {
-    if (e.target.files) handleFiles(e.target.files)
+    if (e.target.files) uploadFilesToSpace(e.target.files, 'new')
     e.target.value = ''
   }
-
   function onDrop(e: React.DragEvent<HTMLDivElement>) {
     e.preventDefault()
     e.stopPropagation()
     const files = e.dataTransfer?.files
-    if (files && files.length) handleFiles(files)
+    if (files && files.length) uploadFilesToSpace(files, 'new')
   }
-
   function onDragOver(e: React.DragEvent<HTMLDivElement>) {
     e.preventDefault()
     e.stopPropagation()
   }
-
   function removeMediaIndex(i: number) {
     setMedia((list) => list.filter((_, idx) => idx !== i))
   }
 
-  // -------------------------
-  // Delete post
-  // -------------------------
   async function handleDelete(postId: string) {
     if (!canWrite) return
     const ok = window.confirm('Opravdu chcete tento příspěvek smazat?')
@@ -256,32 +251,23 @@ export default function PostsSection({ animalId }: { animalId: string }) {
     }
   }
 
-  // -------------------------
-  // Edit dialog: open/close
-  // -------------------------
   function openEdit(p: Post) {
     if (!canEdit) return
     setEditId(p.id)
     setEditTitle(p.title || '')
     setEditBody(p.body || '')
+    setEditNewMedia([])
     setEditOpen(true)
   }
 
   function closeEdit() {
     setEditOpen(false)
     setEditId(null)
-    setEditTitle('')
-    setEditBody('')
-    setEditUploading(false)
-    setEditUploadNote('')
+    setEditNewMedia([])
   }
 
-  // -------------------------
-  // Edit dialog: save title/body
-  // -------------------------
   async function saveEdit() {
     if (!canEdit || !editId) return
-
     setEditSaving(true)
     setErr(null)
 
@@ -293,6 +279,7 @@ export default function PostsSection({ animalId }: { animalId: string }) {
     }
 
     try {
+      // 1) patch text/title
       const res = await fetch(apiUrl(`/api/posts/${encodeURIComponent(editId)}`), {
         method: 'PATCH',
         headers: {
@@ -304,10 +291,27 @@ export default function PostsSection({ animalId }: { animalId: string }) {
           body: editBody.trim() || undefined,
         }),
       })
-
       if (!res.ok) {
         const txt = await res.text().catch(() => '')
         throw new Error(`Uložení selhalo (${res.status}): ${txt || res.statusText}`)
+      }
+
+      // 2) add newly uploaded media (if any)
+      if (editNewMedia.length > 0) {
+        const res2 = await fetch(apiUrl(`/api/posts/${encodeURIComponent(editId)}/media`), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...authHeader(),
+          },
+          body: JSON.stringify({
+            media: editNewMedia.map((m) => ({ url: m.url, typ: m.type || 'image' })),
+          }),
+        })
+        if (!res2.ok) {
+          const txt = await res2.text().catch(() => '')
+          throw new Error(`Uložení médií selhalo (${res2.status}): ${txt || res2.statusText}`)
+        }
       }
 
       closeEdit()
@@ -320,112 +324,45 @@ export default function PostsSection({ animalId }: { animalId: string }) {
     }
   }
 
-  // -------------------------
-  // Edit dialog: upload new media + attach to post (ADMIN)
-  // Backend endpoint: POST /api/posts/:id/media { media:[{url,typ}] }
-  // -------------------------
-  async function handleEditFiles(files: FileList | File[]) {
-    if (!canEdit || !editId) return
-
-    const arr = Array.from(files).filter((f) => f && f.size > 0)
-    if (arr.length === 0) return
-
-    setEditUploading(true)
-    setErr(null)
-
-    try {
-      const uploaded: { url: string; typ: string }[] = []
-
-      for (let i = 0; i < arr.length; i += 1) {
-        const f = arr[i]
-        setEditUploadNote(`Nahrávám ${i + 1} / ${arr.length}…`)
-
-        // 1) upload file -> url
-        const fd = new FormData()
-        fd.append('file', f)
-
-        const up = await fetch(apiUrl('/api/upload'), {
-          method: 'POST',
-          headers: { ...authHeader() },
-          body: fd,
-        })
-        if (!up.ok) {
-          const txt = await up.text().catch(() => '')
-          throw new Error(`Nahrání selhalo (${up.status}): ${txt || up.statusText}`)
-        }
-        const json = await up.json()
-        const url = String(json.url)
-        const typ = guessTypeFromUrl(url) === 'video' ? 'video' : 'image'
-        uploaded.push({ url, typ })
-      }
-
-      // 2) attach urls to post
-      setEditUploadNote('Ukládám média k příspěvku…')
-      const res = await fetch(apiUrl(`/api/posts/${encodeURIComponent(editId)}/media`), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...authHeader(),
-        },
-        body: JSON.stringify({
-          media: uploaded.map((u) => ({ url: u.url, typ: u.typ })),
-        }),
-      })
-
-      if (!res.ok) {
-        const txt = await res.text().catch(() => '')
-        throw new Error(`Uložení médií selhalo (${res.status}): ${txt || res.statusText}`)
-      }
-
-      // 3) refresh list + keep dialog open (so admin can continue editing)
-      await refresh()
-    } catch (e: any) {
-      console.error('[PostsSection] edit upload error', e)
-      setErr(e?.message || 'Nahrání / uložení médií selhalo')
-    } finally {
-      setEditUploading(false)
-      setEditUploadNote('')
-    }
-  }
-
-  function onPickEditFiles(e: React.ChangeEvent<HTMLInputElement>) {
-    if (e.target.files) handleEditFiles(e.target.files)
-    e.target.value = ''
-  }
-
-  function onPickEditCamera(e: React.ChangeEvent<HTMLInputElement>) {
-    if (e.target.files) handleEditFiles(e.target.files)
-    e.target.value = ''
-  }
-
-  // -------------------------
-  // Edit dialog: delete ONE media item (ADMIN)
-  // Backend endpoint: DELETE /api/posts/media/:mediaId
-  // -------------------------
-  async function deleteMediaItem(mediaId: string) {
+  async function deleteExistingMedia(postId: string, mediaId: string) {
     if (!canEdit) return
     const ok = window.confirm('Opravdu chcete smazat toto médium?')
     if (!ok) return
 
-    setErr(null)
     try {
-      const res = await fetch(apiUrl(`/api/posts/media/${encodeURIComponent(mediaId)}`), {
-        method: 'DELETE',
-        headers: { ...authHeader() },
-      })
+      // ✅ correct backend route:
+      // DELETE /api/posts/:id/media/:mediaId
+      const res = await fetch(
+        apiUrl(`/api/posts/${encodeURIComponent(postId)}/media/${encodeURIComponent(mediaId)}`),
+        {
+          method: 'DELETE',
+          headers: { ...authHeader() },
+        },
+      )
+
       if (!res.ok) {
         const txt = await res.text().catch(() => '')
         throw new Error(`Smazání média selhalo (${res.status}): ${txt || res.statusText}`)
       }
+
       await refresh()
     } catch (e: any) {
       console.error('[PostsSection] delete media error', e)
-      setErr(e?.message || 'Smazání média selhalo')
+      setErr(e?.message || 'Smazání média selhalo.')
     }
   }
 
-  // helper to get the currently edited post (for showing current media)
-  const editedPost = editId ? posts.find((p) => p.id === editId) : undefined
+  function onEditPickFiles(e: React.ChangeEvent<HTMLInputElement>) {
+    if (e.target.files) uploadFilesToSpace(e.target.files, 'edit')
+    e.target.value = ''
+  }
+  function onEditPickCamera(e: React.ChangeEvent<HTMLInputElement>) {
+    if (e.target.files) uploadFilesToSpace(e.target.files, 'edit')
+    e.target.value = ''
+  }
+  function removeEditNewMediaIndex(i: number) {
+    setEditNewMedia((list) => list.filter((_, idx) => idx !== i))
+  }
 
   return (
     <Box sx={{ mt: 5 }}>
@@ -462,7 +399,6 @@ export default function PostsSection({ animalId }: { animalId: string }) {
                 position: 'relative',
               }}
             >
-              {/* actions */}
               {(canEdit || canWrite) && (
                 <Stack
                   direction="row"
@@ -477,31 +413,20 @@ export default function PostsSection({ animalId }: { animalId: string }) {
                   }}
                 >
                   {canEdit && (
-                    <IconButton
-                      size="small"
-                      onClick={() => openEdit(p)}
-                      aria-label="Upravit příspěvek"
-                    >
+                    <IconButton size="small" onClick={() => openEdit(p)} aria-label="Upravit">
                       <EditIcon fontSize="small" />
                     </IconButton>
                   )}
-
                   {canWrite && (
-                    <IconButton
-                      size="small"
-                      onClick={() => handleDelete(p.id)}
-                      aria-label="Smazat příspěvek"
-                    >
+                    <IconButton size="small" onClick={() => handleDelete(p.id)} aria-label="Smazat">
                       <DeleteIcon fontSize="small" />
                     </IconButton>
                   )}
                 </Stack>
               )}
 
-              {/* TITLE */}
               <Typography sx={{ fontWeight: 700 }}>{p.title}</Typography>
 
-              {/* DATE directly under title */}
               <Typography
                 variant="caption"
                 color="text.secondary"
@@ -510,41 +435,49 @@ export default function PostsSection({ animalId }: { animalId: string }) {
                 {new Date(p.createdAt).toLocaleDateString('cs-CZ')}
               </Typography>
 
-              {/* MEDIA */}
               {p.media && p.media.length > 0 && (
                 <Grid container spacing={1} sx={{ mb: 1 }}>
-                  {p.media.map((m) => {
-                    const isVideo = String(m.typ || '').toLowerCase().includes('video')
+                  {p.media.map((m, i) => {
+                    const isVideo = (m.typ || '').toLowerCase().includes('video')
                     return (
-                      <Grid item xs={6} sm={4} md={3} key={m.id}>
+                      <Grid item xs={6} sm={4} md={3} key={`${m.id}-${i}`}>
                         <Box
-                          component="a"
-                          href={m.url}
-                          target="_blank"
-                          rel="noreferrer"
                           sx={{
-                            display: 'block',
-                            width: '100%',
-                            height: 140,
-                            borderRadius: 2,
-                            overflow: 'hidden',
+                            position: 'relative',
                             border: '1px solid',
                             borderColor: 'divider',
+                            borderRadius: 2,
+                            overflow: 'hidden',
                           }}
                         >
                           {isVideo ? (
-                            <video
-                              controls
-                              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                            >
+                            <video controls style={{ width: '100%', height: 140, objectFit: 'cover' }}>
                               <source src={m.url} />
                             </video>
                           ) : (
                             <img
                               src={m.url}
                               alt=""
-                              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                              style={{ width: '100%', height: 140, objectFit: 'cover', display: 'block' }}
                             />
+                          )}
+
+                          {/* ✅ delete existing media (ADMIN only) */}
+                          {canEdit && (
+                            <Tooltip title="Smazat médium">
+                              <IconButton
+                                size="small"
+                                onClick={() => deleteExistingMedia(p.id, m.id)}
+                                sx={{
+                                  position: 'absolute',
+                                  top: 6,
+                                  right: 6,
+                                  bgcolor: 'rgba(255,255,255,0.9)',
+                                }}
+                              >
+                                <DeleteIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
                           )}
                         </Box>
                       </Grid>
@@ -553,12 +486,8 @@ export default function PostsSection({ animalId }: { animalId: string }) {
                 </Grid>
               )}
 
-              {/* BODY */}
               {p.body && (
-                <Typography
-                  color="text.secondary"
-                  dangerouslySetInnerHTML={{ __html: p.body }}
-                />
+                <Typography color="text.secondary" dangerouslySetInnerHTML={{ __html: p.body }} />
               )}
             </Box>
           ))}
@@ -568,7 +497,6 @@ export default function PostsSection({ animalId }: { animalId: string }) {
       {/* Edit dialog (ADMIN only) */}
       <Dialog open={editOpen} onClose={closeEdit} fullWidth maxWidth="md">
         <DialogTitle>Upravit příspěvek</DialogTitle>
-
         <DialogContent>
           <Stack spacing={1.5} sx={{ mt: 1 }}>
             <TextField
@@ -578,19 +506,59 @@ export default function PostsSection({ animalId }: { animalId: string }) {
             />
             <RichTextEditor label="Text" value={editBody} onChange={setEditBody} />
 
-            <Divider sx={{ my: 1 }} />
+            {/* ✅ Add new media to existing post */}
+            <Stack spacing={1} sx={{ mt: 1 }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+                Přidat média k příspěvku
+              </Typography>
 
-            <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
-              Média v příspěvku
-            </Typography>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center">
+                <Button
+                  onClick={() => editFileInputRef.current?.click()}
+                  startIcon={<UploadIcon />}
+                  variant="outlined"
+                >
+                  Vybrat soubory
+                </Button>
+                <input
+                  ref={editFileInputRef}
+                  type="file"
+                  hidden
+                  multiple
+                  accept="image/*,video/*"
+                  onChange={onEditPickFiles}
+                />
 
-            {/* Existing media (delete per item) */}
-            {editedPost?.media && editedPost.media.length > 0 ? (
-              <Grid container spacing={1}>
-                {editedPost.media.map((m) => {
-                  const isVideo = String(m.typ || '').toLowerCase().includes('video')
-                  return (
-                    <Grid item xs={6} sm={4} md={3} key={m.id}>
+                <Button
+                  onClick={() => editCameraInputRef.current?.click()}
+                  startIcon={<PhotoCameraIcon />}
+                  variant="outlined"
+                >
+                  Vyfotit (telefon)
+                </Button>
+                <input
+                  ref={editCameraInputRef}
+                  type="file"
+                  hidden
+                  accept="image/*"
+                  capture="environment"
+                  onChange={onEditPickCamera}
+                />
+              </Stack>
+
+              {editUploading && (
+                <Stack spacing={1} sx={{ mt: 1 }}>
+                  <LinearProgress />
+                  <Typography variant="caption" color="text.secondary">
+                    {editUploadNote}
+                  </Typography>
+                </Stack>
+              )}
+
+              {editNewMedia.length > 0 && (
+                <Grid container spacing={1.5} sx={{ mt: 0.5 }}>
+                  {editNewMedia.map((m, i) => (
+                    <Grid item xs={6} sm={4} md={3} key={`${m.url}-${i}`}>
                       <Box
                         sx={{
                           position: 'relative',
@@ -598,28 +566,17 @@ export default function PostsSection({ animalId }: { animalId: string }) {
                           borderColor: 'divider',
                           borderRadius: 2,
                           overflow: 'hidden',
-                          height: 140,
                         }}
                       >
-                        {isVideo ? (
-                          <video
-                            controls
-                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                          >
-                            <source src={m.url} />
-                          </video>
-                        ) : (
-                          <img
-                            src={m.url}
-                            alt=""
-                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                          />
-                        )}
-
-                        <Tooltip title="Smazat médium">
+                        <img
+                          src={m.url}
+                          alt=""
+                          style={{ width: '100%', height: 140, objectFit: 'cover', display: 'block' }}
+                        />
+                        <Tooltip title="Odebrat">
                           <IconButton
                             size="small"
-                            onClick={() => deleteMediaItem(m.id)}
+                            onClick={() => removeEditNewMediaIndex(i)}
                             sx={{
                               position: 'absolute',
                               top: 6,
@@ -632,78 +589,17 @@ export default function PostsSection({ animalId }: { animalId: string }) {
                         </Tooltip>
                       </Box>
                     </Grid>
-                  )
-                })}
-              </Grid>
-            ) : (
-              <Typography variant="body2" color="text.secondary">
-                Tento příspěvek zatím nemá žádná média.
-              </Typography>
-            )}
-
-            <Divider sx={{ my: 1 }} />
-
-            {/* Add new media to existing post */}
-            <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
-              Přidat média
-            </Typography>
-
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center">
-              <Button
-                onClick={() => editFileInputRef.current?.click()}
-                startIcon={<UploadIcon />}
-                variant="outlined"
-                disabled={editUploading || !editId}
-              >
-                Vybrat soubory
-              </Button>
-              <input
-                ref={editFileInputRef}
-                type="file"
-                hidden
-                multiple
-                accept="image/*,video/*"
-                onChange={onPickEditFiles}
-              />
-
-              <Button
-                onClick={() => editCameraInputRef.current?.click()}
-                startIcon={<PhotoCameraIcon />}
-                variant="outlined"
-                disabled={editUploading || !editId}
-              >
-                Vyfotit (telefon)
-              </Button>
-              <input
-                ref={editCameraInputRef}
-                type="file"
-                hidden
-                accept="image/*"
-                capture="environment"
-                onChange={onPickEditCamera}
-              />
+                  ))}
+                </Grid>
+              )}
             </Stack>
-
-            {editUploading && (
-              <Stack spacing={1} sx={{ mt: 1 }}>
-                <LinearProgress />
-                <Typography variant="caption" color="text.secondary">
-                  {editUploadNote}
-                </Typography>
-              </Stack>
-            )}
           </Stack>
         </DialogContent>
-
         <DialogActions>
-          <Button onClick={closeEdit} disabled={editSaving || editUploading}>
+          <Button onClick={closeEdit} disabled={editSaving}>
             Zrušit
           </Button>
-          <Button
-            variant="contained"
-            onClick={saveEdit}
-            disabled={editSaving || editUploading || !editId}
-          >
+          <Button variant="contained" onClick={saveEdit} disabled={editSaving || !editId}>
             {editSaving ? 'Ukládám…' : 'Uložit'}
           </Button>
         </DialogActions>
@@ -713,7 +609,7 @@ export default function PostsSection({ animalId }: { animalId: string }) {
       {canWrite && (
         <Box component="form" onSubmit={onSubmit} sx={{ mt: 2 }}>
           <Stack spacing={1.5}>
-            {/* Media uploader */}
+            {/* Media uploader (new post) */}
             <Stack spacing={1}>
               <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
                 Fotky / Videa
@@ -795,13 +691,8 @@ export default function PostsSection({ animalId }: { animalId: string }) {
                       >
                         <img
                           src={m.url}
-                          alt={`new-media-${i}`}
-                          style={{
-                            width: '100%',
-                            height: 140,
-                            objectFit: 'cover',
-                            display: 'block',
-                          }}
+                          alt=""
+                          style={{ width: '100%', height: 140, objectFit: 'cover', display: 'block' }}
                         />
                         <Tooltip title="Odebrat">
                           <IconButton
@@ -824,7 +715,6 @@ export default function PostsSection({ animalId }: { animalId: string }) {
               )}
             </Stack>
 
-            {/* Text inputs */}
             <TextField
               label="Titulek"
               value={title}
@@ -838,7 +728,6 @@ export default function PostsSection({ animalId }: { animalId: string }) {
               helperText="Můžete použít tučné, kurzívu, podtržení a barvu (tyrkysová)."
             />
 
-            {/* Emoji row */}
             <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', mt: 1 }}>
               {EMOJIS.map((emo) => (
                 <Button
