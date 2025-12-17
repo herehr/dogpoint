@@ -201,7 +201,7 @@ export default function ModeratorPostsList() {
       {isPendingTab &&
         items.map((p) => {
           const animalName = p.animal?.jmeno || p.animal?.name || p.animalId
-          const created = new Date(p.createdAt).toLocaleString('cs-CZ')
+          const created = new Date(p.createdAt).toLocaleDateString('cs-CZ')
 
           return (
             <Paper key={p.id} sx={{ p: 2, mb: 2 }}>

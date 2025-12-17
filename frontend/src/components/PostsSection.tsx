@@ -19,11 +19,7 @@ import DeleteIcon from '@mui/icons-material/Delete'
 import { useAccess } from '../context/AccessContext'
 import { useAuth } from '../context/AuthContext'
 import RichTextEditor from './RichTextEditor'
-import {
-  getJSON,
-  postJSON,
-  delJSON,
-} from '../services/api'
+import { getJSON, postJSON, delJSON } from '../services/api'
 
 type Media = { url: string; type?: 'image' | 'video' }
 
@@ -70,7 +66,9 @@ export default function PostsSection({ animalId }: { animalId: string }) {
   async function refresh() {
     setErr(null)
     try {
-      const list = await getJSON<Post[]>(`/api/posts/public?animalId=${encodeURIComponent(animalId)}`)
+      const list = await getJSON<Post[]>(
+        `/api/posts/public?animalId=${encodeURIComponent(animalId)}`
+      )
       setPosts(list || [])
     } catch (e: any) {
       console.error('[PostsSection] list error', e)
@@ -87,7 +85,7 @@ export default function PostsSection({ animalId }: { animalId: string }) {
   }, [animalId])
 
   function addEmoji(emoji: string) {
-    setBody(prev => (prev ? `${prev} ${emoji}` : emoji))
+    setBody((prev) => (prev ? `${prev} ${emoji}` : emoji))
   }
 
   async function onSubmit(e: React.FormEvent) {
@@ -100,8 +98,10 @@ export default function PostsSection({ animalId }: { animalId: string }) {
       await postJSON('/api/posts', {
         animalId,
         title: title.trim() || 'Bez názvu',
-        body: body.trim() || undefined, // HTML string from RichTextEditor
-        media: media.length ? media.map(m => ({ url: m.url, typ: m.type || 'image' })) : undefined,
+        body: body.trim() || undefined,
+        media: media.length
+          ? media.map((m) => ({ url: m.url, typ: m.type || 'image' }))
+          : undefined,
       })
       setTitle('')
       setBody('')
@@ -116,12 +116,11 @@ export default function PostsSection({ animalId }: { animalId: string }) {
   }
 
   async function handleFiles(files: FileList | File[]) {
-    const arr = Array.from(files).filter(f => f && f.size > 0)
+    const arr = Array.from(files).filter((f) => f && f.size > 0)
     if (arr.length === 0) return
     setUploading(true)
     setErr(null)
     try {
-      // Single-file uploads, one by one, to reuse /api/upload
       const now = Date.now()
       for (let i = 0; i < arr.length; i += 1) {
         const f = arr[i]
@@ -130,28 +129,20 @@ export default function PostsSection({ animalId }: { animalId: string }) {
         fd.append('file', f)
         const res = await fetch(
           (import.meta.env.VITE_API_BASE_URL || '') + '/api/upload',
-          {
-            method: 'POST',
-            body: fd,
-          }
+          { method: 'POST', body: fd }
         )
-        if (!res.ok) {
-          const txt = await res.text()
-          console.error('[upload] failed', res.status, txt)
-          throw new Error('Nahrání selhalo')
-        }
+        if (!res.ok) throw new Error('Nahrání selhalo')
         const json = await res.json()
         const url = String(json.url)
-        setMedia(m => ([
+        setMedia((m) => [
           ...m,
           {
             url: `${url}${url.includes('?') ? '&' : '?'}v=${now}`,
             type: guessTypeFromUrl(url),
           },
-        ]))
+        ])
       }
     } catch (e: any) {
-      console.error('[PostsSection] upload error', e)
       setErr(e?.message || 'Nahrání selhalo')
     } finally {
       setUploading(false)
@@ -159,46 +150,15 @@ export default function PostsSection({ animalId }: { animalId: string }) {
     }
   }
 
-  function onPickFiles(e: React.ChangeEvent<HTMLInputElement>) {
-    if (e.target.files) handleFiles(e.target.files)
-    e.target.value = ''
-  }
-
-  function onPickCamera(e: React.ChangeEvent<HTMLInputElement>) {
-    if (e.target.files) handleFiles(e.target.files)
-    e.target.value = ''
-  }
-
-  function onDrop(e: React.DragEvent<HTMLDivElement>) {
-    e.preventDefault()
-    e.stopPropagation()
-    const files = e.dataTransfer?.files
-    if (files && files.length) handleFiles(files)
-  }
-
-  function onDragOver(e: React.DragEvent<HTMLDivElement>) {
-    e.preventDefault()
-    e.stopPropagation()
-  }
-
-  function removeMediaIndex(i: number) {
-    setMedia(list => list.filter((_, idx) => idx !== i))
-  }
-
-  async function handleDelete(postId: string) {
+  function handleDelete(postId: string) {
     if (!canWrite) return
-    const ok = window.confirm('Opravdu chcete tento příspěvek smazat?')
-    if (!ok) return
+    if (!window.confirm('Opravdu chcete tento příspěvek smazat?')) return
 
-    try {
-      // 204 No Content on success – delJSON handles that correctly
-      await delJSON<void>(`/api/posts/${encodeURIComponent(postId)}`)
-      // Optimistic update
-      setPosts(prev => prev.filter(p => p.id !== postId))
-    } catch (e: any) {
-      console.error('[PostsSection] delete error', e)
-      setErr(e?.message || 'Smazání příspěvku selhalo.')
-    }
+    delJSON<void>(`/api/posts/${encodeURIComponent(postId)}`)
+      .then(() => setPosts((prev) => prev.filter((p) => p.id !== postId)))
+      .catch((e: any) =>
+        setErr(e?.message || 'Smazání příspěvku selhalo.')
+      )
   }
 
   return (
@@ -207,15 +167,11 @@ export default function PostsSection({ animalId }: { animalId: string }) {
         Příspěvky
       </Typography>
 
-      {err && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          {err}
-        </Alert>
-      )}
+      {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
 
       {!unlocked && (
         <Alert severity="info" sx={{ mb: 2 }}>
-          Příspěvky jsou viditelné po adopci. Dokončete adopci pro přístup k novinkám.
+          Příspěvky jsou viditelné po adopci.
         </Alert>
       )}
 
@@ -225,7 +181,7 @@ export default function PostsSection({ animalId }: { animalId: string }) {
         <Typography color="text.secondary">Zatím žádné příspěvky.</Typography>
       ) : (
         <Stack spacing={1.5} sx={{ mb: 3 }}>
-          {posts.map(p => (
+          {posts.map((p) => (
             <Box
               key={p.id}
               sx={{
@@ -236,7 +192,6 @@ export default function PostsSection({ animalId }: { animalId: string }) {
                 position: 'relative',
               }}
             >
-              {/* Delete button for staff */}
               {canWrite && (
                 <IconButton
                   size="small"
@@ -246,18 +201,27 @@ export default function PostsSection({ animalId }: { animalId: string }) {
                     top: 6,
                     right: 6,
                     bgcolor: 'rgba(255,255,255,0.9)',
-                    '&:hover': { bgcolor: 'rgba(255,255,255,1)' },
                   }}
-                  aria-label="Smazat příspěvek"
                 >
                   <DeleteIcon fontSize="small" />
                 </IconButton>
               )}
 
-              <Typography sx={{ fontWeight: 700, mb: 0.5 }}>
+              {/* TITLE */}
+              <Typography sx={{ fontWeight: 700 }}>
                 {p.title}
               </Typography>
 
+              {/* DATE directly under title */}
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ display: 'block', mb: 1 }}
+              >
+                {new Date(p.createdAt).toLocaleDateString('cs-CZ')}
+              </Typography>
+
+              {/* MEDIA */}
               {p.media && p.media.length > 0 && (
                 <Grid container spacing={1} sx={{ mb: 1 }}>
                   {p.media.map((m, i) => (
@@ -279,12 +243,8 @@ export default function PostsSection({ animalId }: { animalId: string }) {
                       >
                         <img
                           src={m.url}
-                          alt={`post-media-${i}`}
-                          style={{
-                            width: '100%',
-                            height: '100%',
-                            objectFit: 'cover',
-                          }}
+                          alt=""
+                          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                         />
                       </Box>
                     </Grid>
@@ -292,171 +252,39 @@ export default function PostsSection({ animalId }: { animalId: string }) {
                 </Grid>
               )}
 
-              {/* body is HTML from RichTextEditor – render as-is */}
+              {/* BODY */}
               {p.body && (
                 <Typography
                   color="text.secondary"
-                  sx={{ whiteSpace: 'pre-line' }}
                   dangerouslySetInnerHTML={{ __html: p.body }}
                 />
               )}
-
-              <Typography
-                variant="caption"
-                color="text.secondary"
-                sx={{ display: 'block', mt: 0.5 }}
-              >
-                {new Date(p.createdAt).toLocaleString()}
-              </Typography>
             </Box>
           ))}
         </Stack>
       )}
 
-      {/* Composer — visible to staff ONLY */}
+      {/* Composer (staff only) */}
       {canWrite && (
         <Box component="form" onSubmit={onSubmit} sx={{ mt: 2 }}>
           <Stack spacing={1.5}>
-            {/* Media uploader */}
-            <Stack spacing={1}>
-              <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
-                Fotky / Videa
-              </Typography>
-              <Stack
-                direction={{ xs: 'column', sm: 'row' }}
-                spacing={2}
-                alignItems="center"
-              >
-                <Button
-                  onClick={() => fileInputRef.current?.click()}
-                  startIcon={<UploadIcon />}
-                  variant="outlined"
-                >
-                  Vybrat soubory
-                </Button>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  hidden
-                  multiple
-                  accept="image/*,video/*"
-                  onChange={onPickFiles}
-                />
-                <Button
-                  onClick={() => cameraInputRef.current?.click()}
-                  startIcon={<PhotoCameraIcon />}
-                  variant="outlined"
-                >
-                  Vyfotit (telefon)
-                </Button>
-                <input
-                  ref={cameraInputRef}
-                  type="file"
-                  hidden
-                  accept="image/*"
-                  capture="environment"
-                  onChange={onPickCamera}
-                />
-              </Stack>
-
-              <Box
-                onDrop={onDrop}
-                onDragOver={onDragOver}
-                sx={{
-                  mt: 1,
-                  p: 2,
-                  border: '2px dashed',
-                  borderColor: 'divider',
-                  borderRadius: 2,
-                  textAlign: 'center',
-                  color: 'text.secondary',
-                  cursor: 'copy',
-                  userSelect: 'none',
-                }}
-              >
-                Přetáhněte sem fotografie nebo videa
-              </Box>
-
-              {uploading && (
-                <Stack spacing={1} sx={{ mt: 1 }}>
-                  <LinearProgress />
-                  <Typography variant="caption" color="text.secondary">
-                    {uploadNote}
-                  </Typography>
-                </Stack>
-              )}
-
-              {media.length > 0 && (
-                <Grid container spacing={1.5} sx={{ mt: 0.5 }}>
-                  {media.map((m, i) => (
-                    <Grid item xs={6} sm={4} md={3} key={`${m.url}-${i}`}>
-                      <Box
-                        sx={{
-                          position: 'relative',
-                          border: '1px solid',
-                          borderColor: 'divider',
-                          borderRadius: 2,
-                          overflow: 'hidden',
-                        }}
-                      >
-                        <img
-                          src={m.url}
-                          alt={`new-media-${i}`}
-                          style={{
-                            width: '100%',
-                            height: 140,
-                            objectFit: 'cover',
-                            display: 'block',
-                          }}
-                        />
-                        <Tooltip title="Odebrat">
-                          <IconButton
-                            size="small"
-                            onClick={() => removeMediaIndex(i)}
-                            sx={{
-                              position: 'absolute',
-                              top: 6,
-                              right: 6,
-                              bgcolor: 'rgba(255,255,255,0.9)',
-                            }}
-                          >
-                            <DeleteIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      </Box>
-                    </Grid>
-                  ))}
-                </Grid>
-              )}
-            </Stack>
-
-            {/* Text inputs */}
             <TextField
               label="Titulek"
               value={title}
-              onChange={e => setTitle(e.target.value)}
-              required={!body && media.length === 0}
+              onChange={(e) => setTitle(e.target.value)}
             />
             <RichTextEditor
               label="Text"
               value={body}
               onChange={setBody}
-              helperText="Můžete použít tučné, kurzívu, podtržení a barvu (tyrkysová)."
             />
 
-            {/* Emoji row (inline append) */}
-            <Stack
-              direction="row"
-              spacing={1}
-              sx={{ flexWrap: 'wrap', mt: 1 }}
-            >
-              {EMOJIS.map(emo => (
+            <Stack direction="row" spacing={1} flexWrap="wrap">
+              {EMOJIS.map((emo) => (
                 <Button
                   key={emo}
                   size="small"
-                  variant="text"
                   onClick={() => addEmoji(emo)}
-                  sx={{ minWidth: 36 }}
                 >
                   {emo}
                 </Button>
