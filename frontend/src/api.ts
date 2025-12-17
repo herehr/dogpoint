@@ -10,7 +10,14 @@ export { getJSON, apiUrl }
 // ---- Auth header helper ----
 function token() {
   if (typeof window === 'undefined') return null
-  return sessionStorage.getItem('accessToken')
+
+  // ✅ accept whatever token is present (your app uses multiple keys)
+  return (
+    sessionStorage.getItem('accessToken') ||
+    sessionStorage.getItem('adminToken') ||
+    sessionStorage.getItem('moderatorToken') ||
+    null
+  )
 }
 
 export function authHeader(): Record<string, string> {
@@ -149,10 +156,40 @@ export async function login(
   return res.json()
 }
 
-export async function getAdoptionMe() {
-  return getJSON('/api/adoption/me', {
-    headers: { ...authHeader() } as HeadersInit,
+/**
+ * ✅ Align to backend: GET /api/adoption/my
+ * (your backend does NOT have /me or /my-animals)
+ */
+export async function myAdoptedAnimals(): Promise<MyAdoptedItem[]> {
+  const res = await fetch(apiUrl('/api/adoption/my'), {
+    headers: { 'Content-Type': 'application/json', ...authHeader() },
   })
+  if (!res.ok)
+    throw new Error(
+      `API ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`,
+    )
+  return res.json()
+}
+
+/** Backward compatible alias (if somewhere still calls getAdoptionMe) */
+export async function getAdoptionMe() {
+  return myAdoptedAnimals()
+}
+
+/** Mark all new updates for given animal as seen — ✅ aligns to /api/adoption/seen */
+export async function markAnimalSeen(
+  animalId: string,
+): Promise<{ ok: boolean }> {
+  const res = await fetch(apiUrl('/api/adoption/seen'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeader() },
+    body: JSON.stringify({ animalId }),
+  })
+  if (!res.ok)
+    throw new Error(
+      `API ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`,
+    )
+  return res.json()
 }
 
 export async function startAdoption(
@@ -191,34 +228,6 @@ export async function setPasswordFirstTime(email: string, password: string) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeader() },
     body: JSON.stringify({ email, password }),
-  })
-  if (!res.ok)
-    throw new Error(
-      `API ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`,
-    )
-  return res.json()
-}
-
-/** List user's adopted animals (for UserDashboard) */
-export async function myAdoptedAnimals(): Promise<MyAdoptedItem[]> {
-  const res = await fetch(apiUrl('/api/adoption/my-animals'), {
-    headers: { 'Content-Type': 'application/json', ...authHeader() },
-  })
-  if (!res.ok)
-    throw new Error(
-      `API ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`,
-    )
-  return res.json()
-}
-
-/** Mark all new updates for given animal as seen */
-export async function markAnimalSeen(
-  animalId: string,
-): Promise<{ ok: boolean }> {
-  const res = await fetch(apiUrl('/api/adoption/mark-seen'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeader() },
-    body: JSON.stringify({ animalId }),
   })
   if (!res.ok)
     throw new Error(

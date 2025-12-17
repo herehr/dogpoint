@@ -24,7 +24,22 @@ import EditIcon from '@mui/icons-material/Edit'
 import { useAccess } from '../context/AccessContext'
 import { useAuth } from '../context/AuthContext'
 import RichTextEditor from './RichTextEditor'
-import { getJSON, postJSON, delJSON } from '../services/api'
+import { getJSON, postJSON, delJSON, apiUrl } from '../services/api'
+
+// ✅ Use ONE consistent auth header for all roles (admin/moderator/user)
+function token() {
+  if (typeof window === 'undefined') return null
+  return (
+    sessionStorage.getItem('accessToken') ||
+    sessionStorage.getItem('adminToken') ||
+    sessionStorage.getItem('moderatorToken') ||
+    null
+  )
+}
+function authHeader(): Record<string, string> {
+  const t = token()
+  return t ? { Authorization: `Bearer ${t}` } : {}
+}
 
 type Media = { url: string; type?: 'image' | 'video' }
 
@@ -40,18 +55,6 @@ type Post = {
 }
 
 const EMOJIS = ['🐾', '❤️', '😊', '🥰', '👏', '🎉', '😍', '🤗', '🌟', '👍']
-
-// backend base (for PATCH in this component)
-const API_BASE = import.meta.env.VITE_API_BASE_URL || ''
-
-function getStaffToken(): string | null {
-  // Prefer admin token if present
-  return (
-    sessionStorage.getItem('adminToken') ||
-    sessionStorage.getItem('moderatorToken') ||
-    null
-  )
-}
 
 export default function PostsSection({ animalId }: { animalId: string }) {
   const { hasAccess } = useAccess()
@@ -94,7 +97,7 @@ export default function PostsSection({ animalId }: { animalId: string }) {
     setErr(null)
     try {
       const list = await getJSON<Post[]>(
-        `/api/posts/public?animalId=${encodeURIComponent(animalId)}`
+        `/api/posts/public?animalId=${encodeURIComponent(animalId)}`,
       )
       setPosts(list || [])
     } catch (e: any) {
@@ -155,11 +158,15 @@ export default function PostsSection({ animalId }: { animalId: string }) {
         const fd = new FormData()
         fd.append('file', f)
 
-        const res = await fetch(API_BASE + '/api/upload', {
+        const res = await fetch(apiUrl('/api/upload'), {
           method: 'POST',
+          headers: { ...authHeader() }, // ✅ if backend requires auth
           body: fd,
         })
-        if (!res.ok) throw new Error('Nahrání selhalo')
+        if (!res.ok) {
+          const txt = await res.text().catch(() => '')
+          throw new Error(`Nahrání selhalo (${res.status}): ${txt || res.statusText}`)
+        }
 
         const json = await res.json()
         const url = String(json.url)
@@ -239,19 +246,19 @@ export default function PostsSection({ animalId }: { animalId: string }) {
     setEditSaving(true)
     setErr(null)
 
-    const token = getStaffToken()
-    if (!token) {
+    const t = token()
+    if (!t) {
       setErr('Chybí přihlášení (admin). Přihlaste se prosím znovu.')
       setEditSaving(false)
       return
     }
 
     try {
-      const res = await fetch(`${API_BASE}/api/posts/${encodeURIComponent(editId)}`, {
+      const res = await fetch(apiUrl(`/api/posts/${encodeURIComponent(editId)}`), {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
+          ...authHeader(),
         },
         body: JSON.stringify({
           title: editTitle.trim() || 'Bez názvu',
@@ -260,8 +267,8 @@ export default function PostsSection({ animalId }: { animalId: string }) {
       })
 
       if (!res.ok) {
-        const txt = await res.text()
-        throw new Error(`Uložení selhalo (${res.status}): ${txt}`)
+        const txt = await res.text().catch(() => '')
+        throw new Error(`Uložení selhalo (${res.status}): ${txt || res.statusText}`)
       }
 
       closeEdit()
