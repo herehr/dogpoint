@@ -13,12 +13,11 @@ type ReqWithUser = Request & { user?: AuthUserPayload }
 /* ------------------------------------------------------------------ */
 /* Helper types                                                       */
 /* ------------------------------------------------------------------ */
-
 interface CreatePostBody {
   animalId?: string
   title?: string
   body?: string
-  mediaUrls?: string[] // optional list of already-uploaded media URLs
+  mediaUrls?: string[] // legacy/optional list of already-uploaded URLs
 }
 
 interface UpdatePostBody {
@@ -27,11 +26,9 @@ interface UpdatePostBody {
 }
 
 type IncomingMedia = { url: string; typ?: string }
-type AddMediaBody = { media?: IncomingMedia[]; mediaUrls?: string[] }
 
 /* ------------------------------------------------------------------ */
 /* POST /api/posts                                                    */
-/* Create post (ADMIN / MODERATOR)                                    */
 /* ------------------------------------------------------------------ */
 export const createPost = async (req: ReqWithUser, res: Response) => {
   try {
@@ -52,16 +49,15 @@ export const createPost = async (req: ReqWithUser, res: Response) => {
       const post = await tx.post.create({
         data: {
           animalId,
-          title,
+          title: title.trim(),
           body: body ?? null,
           active: true,
           authorId: req.user?.id ?? null,
           publishedAt: now, // keep as-is
-          // status defaults to PENDING_REVIEW in Prisma schema
-          createdById: req.user?.id ?? null,
         },
       })
 
+      // legacy: mediaUrls (strings)
       if (Array.isArray(mediaUrls) && mediaUrls.length > 0) {
         await tx.postMedia.createMany({
           data: mediaUrls.map((url) => ({
@@ -89,9 +85,6 @@ export const createPost = async (req: ReqWithUser, res: Response) => {
 
 /* ------------------------------------------------------------------ */
 /* PATCH /api/posts/:id                                               */
-/* Edit post                                                          */
-/* - ADMIN: can edit anytime                                          */
-/* - MODERATOR: only if status === PENDING_REVIEW                     */
 /* ------------------------------------------------------------------ */
 export const updatePost = async (req: ReqWithUser, res: Response) => {
   const { id } = req.params
@@ -107,11 +100,10 @@ export const updatePost = async (req: ReqWithUser, res: Response) => {
       where: { id },
       select: { id: true, status: true, active: true },
     })
-
     if (!post) return res.status(404).json({ message: 'Post not found' })
     if (post.active === false) return res.status(400).json({ message: 'Post is inactive' })
 
-    // permission rules
+    // rules
     if (role === 'MODERATOR') {
       if (post.status !== 'PENDING_REVIEW') {
         return res.status(403).json({
@@ -122,11 +114,9 @@ export const updatePost = async (req: ReqWithUser, res: Response) => {
       return res.status(403).json({ message: 'Forbidden' })
     }
 
-    // validate inputs
     const data: any = {}
     if (typeof title === 'string') data.title = title.trim()
     if (typeof body === 'string') data.body = body
-
     if (!('title' in data) && !('body' in data)) {
       return res.status(400).json({ message: 'Nothing to update' })
     }
@@ -146,44 +136,47 @@ export const updatePost = async (req: ReqWithUser, res: Response) => {
 
 /* ------------------------------------------------------------------ */
 /* POST /api/posts/:id/media                                          */
-/* ADMIN only: add media entries                                      */
-/* body: { media:[{url,typ?}] } OR { mediaUrls:[...] }                */
+/* ADMIN only (enforced in routes)                                    */
+/* Body: { media: [{ url, typ? }] } OR { url, typ? }                  */
 /* ------------------------------------------------------------------ */
 export const addPostMedia = async (req: ReqWithUser, res: Response) => {
   const { id } = req.params
-  if (!id) return res.status(400).json({ message: 'Missing post id' })
+  if (!id) return res.status(400).json({ error: 'Missing post id' })
 
   try {
-    const role = req.user?.role
-    if (role !== 'ADMIN') return res.status(403).json({ message: 'Forbidden' })
-
-    const body = (req.body || {}) as AddMediaBody
-
-    const items: IncomingMedia[] = Array.isArray(body.media)
+    // Accept both shapes:
+    // 1) { media: [...] }
+    // 2) { url: "...", typ: "image|video" }
+    const body = (req.body || {}) as any
+    const incoming: IncomingMedia[] = Array.isArray(body.media)
       ? body.media
-      : Array.isArray(body.mediaUrls)
-        ? body.mediaUrls.map((u) => ({ url: String(u), typ: 'image' }))
+      : body.url
+        ? [{ url: String(body.url), typ: body.typ ? String(body.typ) : undefined }]
         : []
 
-    const clean = items
+    const cleaned = incoming
       .map((m) => ({
         url: String(m.url || '').trim(),
-        typ: String(m.typ || 'image').trim(),
+        typ: String(m.typ || 'image').trim() || 'image',
       }))
       .filter((m) => m.url.length > 0)
 
-    if (clean.length === 0) {
-      return res.status(400).json({ message: 'No media provided' })
+    if (cleaned.length === 0) {
+      return res.status(400).json({ error: 'No media provided' })
     }
 
-    const post = await prisma.post.findUnique({ where: { id }, select: { id: true } })
-    if (!post) return res.status(404).json({ message: 'Post not found' })
+    const post = await prisma.post.findUnique({
+      where: { id },
+      select: { id: true, active: true },
+    })
+    if (!post) return res.status(404).json({ error: 'Post not found' })
+    if (post.active === false) return res.status(400).json({ error: 'Post is inactive' })
 
     await prisma.postMedia.createMany({
-      data: clean.map((m) => ({
+      data: cleaned.map((m) => ({
         postId: id,
         url: m.url,
-        typ: m.typ,
+        typ: m.typ || 'image',
       })),
     })
 
@@ -195,48 +188,56 @@ export const addPostMedia = async (req: ReqWithUser, res: Response) => {
     return res.json(updated)
   } catch (err) {
     console.error('[addPostMedia] error', err)
-    return res.status(500).json({ message: 'Failed to add media' })
+    return res.status(500).json({ error: 'Failed to add media' })
   }
 }
 
 /* ------------------------------------------------------------------ */
-/* DELETE /api/posts/media/:mediaId                                   */
-/* ADMIN only: delete one media item                                  */
+/* DELETE /api/posts/:id/media/:mediaId                                */
+/* ADMIN only (enforced in routes)                                    */
 /* ------------------------------------------------------------------ */
 export const deletePostMedia = async (req: ReqWithUser, res: Response) => {
-  const { mediaId } = req.params
-  if (!mediaId) return res.status(400).json({ message: 'Missing mediaId' })
+  const { id, mediaId } = req.params
+  if (!id) return res.status(400).json({ error: 'Missing post id' })
+  if (!mediaId) return res.status(400).json({ error: 'Missing media id' })
 
   try {
-    const role = req.user?.role
-    if (role !== 'ADMIN') return res.status(403).json({ message: 'Forbidden' })
+    const media = await prisma.postMedia.findUnique({
+      where: { id: mediaId },
+      select: { id: true, postId: true },
+    })
+    if (!media) return res.status(404).json({ error: 'Media not found' })
+    if (media.postId !== id) {
+      return res.status(400).json({ error: 'Media does not belong to this post' })
+    }
 
     await prisma.postMedia.delete({ where: { id: mediaId } })
-    return res.json({ ok: true })
-  } catch (err: any) {
+
+    const updated = await prisma.post.findUnique({
+      where: { id },
+      include: { media: true },
+    })
+
+    return res.json(updated)
+  } catch (err) {
     console.error('[deletePostMedia] error', err)
-    if (err?.code === 'P2025') return res.status(404).json({ message: 'Media not found' })
-    return res.status(500).json({ message: 'Failed to delete media' })
+    return res.status(500).json({ error: 'Failed to delete media' })
   }
 }
 
 /* ------------------------------------------------------------------ */
 /* GET /api/posts/public?animalId=...                                 */
-/* Public posts                                                       */
 /* ------------------------------------------------------------------ */
 export const getPublicPosts = async (req: Request, res: Response) => {
   try {
     const animalId = req.query.animalId as string | undefined
 
     const where: any = { active: true }
-    // If you ever want only approved public, add:
-    // where.status = 'PUBLISHED'
-
     if (animalId) where.animalId = animalId
 
     const posts = await prisma.post.findMany({
       where,
-      orderBy: { createdAt: 'desc' }, // ✅ using createdAt as your post date
+      orderBy: { createdAt: 'desc' }, // you use createdAt as visible date
       include: { media: true },
     })
 
@@ -268,7 +269,7 @@ export const countNewPostsSince = async (req: Request, res: Response) => {
       where: {
         animalId,
         active: true,
-        createdAt: { gt: sinceDate }, // ✅ consistent with createdAt date logic
+        createdAt: { gt: sinceDate },
       },
     })
 
