@@ -10,6 +10,8 @@ interface AuthUserPayload {
 
 type ReqWithUser = Request & { user?: AuthUserPayload }
 
+type IncomingMedia = { url: string; typ?: string }
+
 /* ------------------------------------------------------------------ */
 /* Helper types                                                       */
 /* ------------------------------------------------------------------ */
@@ -17,7 +19,12 @@ interface CreatePostBody {
   animalId?: string
   title?: string
   body?: string
-  mediaUrls?: string[] // legacy/optional list of already-uploaded URLs
+
+  // legacy/optional list of already-uploaded URLs
+  mediaUrls?: string[]
+
+  // ✅ current frontend: media objects
+  media?: IncomingMedia[]
 }
 
 interface UpdatePostBody {
@@ -25,14 +32,41 @@ interface UpdatePostBody {
   body?: string
 }
 
-type IncomingMedia = { url: string; typ?: string }
+/* ------------------------------------------------------------------ */
+/* Helpers                                                            */
+/* ------------------------------------------------------------------ */
+function normalizeIncomingMedia(input: any): IncomingMedia[] {
+  if (!input) return []
+
+  // { media: [...] }
+  if (Array.isArray(input.media)) return input.media as IncomingMedia[]
+
+  // direct array: [...]
+  if (Array.isArray(input)) return input as IncomingMedia[]
+
+  // single: { url, typ? }
+  if (typeof input.url === 'string') {
+    return [{ url: String(input.url), typ: input.typ ? String(input.typ) : undefined }]
+  }
+
+  return []
+}
+
+function cleanMedia(list: IncomingMedia[]): { url: string; typ: string }[] {
+  return (list || [])
+    .map((m) => ({
+      url: String(m?.url || '').trim(),
+      typ: String(m?.typ || 'image').trim() || 'image',
+    }))
+    .filter((m) => m.url.length > 0)
+}
 
 /* ------------------------------------------------------------------ */
 /* POST /api/posts                                                    */
 /* ------------------------------------------------------------------ */
 export const createPost = async (req: ReqWithUser, res: Response) => {
   try {
-    const { animalId, title, body, mediaUrls }: CreatePostBody = req.body || {}
+    const { animalId, title, body, mediaUrls, media }: CreatePostBody = req.body || {}
 
     if (!animalId || !title) {
       return res.status(400).json({ message: 'animalId a title jsou povinné.' })
@@ -42,6 +76,21 @@ export const createPost = async (req: ReqWithUser, res: Response) => {
     if (!animal) {
       return res.status(404).json({ message: 'Zvíře nebylo nalezeno.' })
     }
+
+    // ✅ accept BOTH:
+    // - new: media: [{url, typ}]
+    // - legacy: mediaUrls: string[]
+    const incomingFromMedia = cleanMedia(normalizeIncomingMedia({ media }))
+    const incomingFromUrls = Array.isArray(mediaUrls)
+      ? cleanMedia(mediaUrls.map((u) => ({ url: String(u), typ: 'image' })))
+      : []
+
+    // merge + de-dupe by url
+    const merged = new Map<string, { url: string; typ: string }>()
+    for (const m of [...incomingFromMedia, ...incomingFromUrls]) {
+      if (!merged.has(m.url)) merged.set(m.url, m)
+    }
+    const cleanedMedia = Array.from(merged.values())
 
     const now = new Date()
 
@@ -57,12 +106,11 @@ export const createPost = async (req: ReqWithUser, res: Response) => {
         },
       })
 
-      // legacy: mediaUrls (strings)
-      if (Array.isArray(mediaUrls) && mediaUrls.length > 0) {
+      if (cleanedMedia.length > 0) {
         await tx.postMedia.createMany({
-          data: mediaUrls.map((url) => ({
-            url,
-            typ: 'image',
+          data: cleanedMedia.map((m) => ({
+            url: m.url,
+            typ: m.typ || 'image',
             postId: post.id,
           })),
         })
@@ -144,22 +192,8 @@ export const addPostMedia = async (req: ReqWithUser, res: Response) => {
   if (!id) return res.status(400).json({ error: 'Missing post id' })
 
   try {
-    // Accept both shapes:
-    // 1) { media: [...] }
-    // 2) { url: "...", typ: "image|video" }
-    const body = (req.body || {}) as any
-    const incoming: IncomingMedia[] = Array.isArray(body.media)
-      ? body.media
-      : body.url
-        ? [{ url: String(body.url), typ: body.typ ? String(body.typ) : undefined }]
-        : []
-
-    const cleaned = incoming
-      .map((m) => ({
-        url: String(m.url || '').trim(),
-        typ: String(m.typ || 'image').trim() || 'image',
-      }))
-      .filter((m) => m.url.length > 0)
+    const incoming = normalizeIncomingMedia(req.body || {})
+    const cleaned = cleanMedia(incoming)
 
     if (cleaned.length === 0) {
       return res.status(400).json({ error: 'No media provided' })
@@ -237,7 +271,7 @@ export const getPublicPosts = async (req: Request, res: Response) => {
 
     const posts = await prisma.post.findMany({
       where,
-      orderBy: { createdAt: 'desc' }, // you use createdAt as visible date
+      orderBy: { createdAt: 'desc' },
       include: { media: true },
     })
 
