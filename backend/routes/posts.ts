@@ -4,7 +4,9 @@ import {
   createPost,
   getPublicPosts,
   countNewPostsSince,
-  updatePost, // NEW
+  updatePost,
+  addPostMedia,
+  deletePostMedia,
 } from '../controllers/postController'
 import { checkAuth } from '../middleware/checkAuth'
 import { checkRole } from '../middleware/checkRole'
@@ -12,21 +14,17 @@ import { Role } from '@prisma/client'
 
 const router = Router()
 
-// Create new post – only ADMIN & MODERATOR
-router.post(
-  '/',
-  checkAuth,
-  [checkRole([Role.ADMIN, Role.MODERATOR])],
-  createPost
-)
+// Create new post – ADMIN & MODERATOR
+router.post('/', checkAuth, [checkRole([Role.ADMIN, Role.MODERATOR])], createPost)
 
-// ✅ EDIT post – ADMIN always, MODERATOR only if still pending (enforced in controller)
-router.patch(
-  '/:id',
-  checkAuth,
-  [checkRole([Role.ADMIN, Role.MODERATOR])],
-  updatePost
-)
+// Edit post – ADMIN anytime, MODERATOR only if still pending (enforced in controller)
+router.patch('/:id', checkAuth, [checkRole([Role.ADMIN, Role.MODERATOR])], updatePost)
+
+// ✅ Add media to post — ADMIN only
+router.post('/:id/media', checkAuth, [checkRole([Role.ADMIN])], addPostMedia)
+
+// ✅ Delete ONE media item by mediaId — ADMIN only
+router.delete('/media/:mediaId', checkAuth, [checkRole([Role.ADMIN])], deletePostMedia)
 
 // Public posts for animal detail (no login needed)
 router.get('/public', getPublicPosts)
