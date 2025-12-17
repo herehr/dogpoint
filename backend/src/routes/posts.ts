@@ -125,6 +125,105 @@ router.get(
 )
 
 /* ──────────────────────────────────────────────────────────
+   MEDIA (ADMIN only)
+   POST   /api/posts/:id/media
+   DELETE /api/posts/:id/media/:mediaId
+─────────────────────────────────────────────────────────── */
+
+router.post(
+  '/:id/media',
+  requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    if (!(req.user?.role === 'ADMIN' || req.user?.role === Role.ADMIN)) {
+      res.status(403).json({ error: 'Forbidden' })
+      return
+    }
+
+    const id = String(req.params.id)
+    const body = (req.body || {}) as any
+
+    // accept { media:[{url,typ}]} or {url,typ}
+    const incoming =
+      Array.isArray(body.media)
+        ? body.media
+        : body.url
+          ? [{ url: body.url, typ: body.typ }]
+          : []
+
+    const cleaned = incoming
+      .map((m: any) => ({
+        url: String(m?.url || '').trim(),
+        typ: String(m?.typ || 'image').trim() || 'image',
+      }))
+      .filter((m: any) => m.url.length > 0)
+
+    if (!cleaned.length) {
+      res.status(400).json({ error: 'No media provided' })
+      return
+    }
+
+    const post = await prisma.post.findUnique({
+      where: { id },
+      select: { id: true, active: true },
+    })
+    if (!post || !post.active) {
+      res.status(404).json({ error: 'Post not found' })
+      return
+    }
+
+    await prisma.postMedia.createMany({
+      data: cleaned.map((m: any) => ({ postId: id, url: m.url, typ: m.typ })),
+    })
+
+    const updated = await prisma.post.findUnique({
+      where: { id },
+      include: { media: true },
+    })
+
+    res.json(updated)
+  },
+)
+
+router.delete(
+  '/:id/media/:mediaId',
+  requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    if (!(req.user?.role === 'ADMIN' || req.user?.role === Role.ADMIN)) {
+      res.status(403).json({ error: 'Forbidden' })
+      return
+    }
+
+    const id = String(req.params.id)
+    const mediaId = String(req.params.mediaId)
+
+    const media = await prisma.postMedia.findUnique({
+      where: { id: mediaId },
+      select: { id: true, postId: true },
+    })
+
+    if (!media) {
+      res.status(404).json({ error: 'Media not found' })
+      return
+    }
+    if (media.postId !== id) {
+      res.status(400).json({ error: 'Media does not belong to this post' })
+      return
+    }
+
+    await prisma.postMedia.delete({ where: { id: mediaId } })
+
+    const updated = await prisma.post.findUnique({
+      where: { id },
+      include: { media: true },
+    })
+
+    res.json(updated)
+  },
+)
+
+
+
+/* ──────────────────────────────────────────────────────────
    GET /api/posts/:id  (public detail – only active + PUBLISHED)
 ─────────────────────────────────────────────────────────── */
 
