@@ -35,20 +35,22 @@ function yRangeOf(date = new Date()) {
   return { from, to }
 }
 
-export default function AdminStats() {
-  const [tab, setTab] = useState('payments') // 'payments' | 'pledges' | 'expected'
-  const [range, setRange] = useState(ymRangeOf())
-  const [loading, setLoading] = useState(false)
-  const [err, setErr] = useState(null)
+type Props = { embedded?: boolean }
 
-  const [payments, setPayments] = useState(null)
-  const [pledges, setPledges] = useState(null)
-  const [expected, setExpected] = useState(null)
+export default function AdminStats({ embedded = false }: Props) {
+  const [tab, setTab] = useState<'payments' | 'pledges' | 'expected'>('payments')
+  const [range, setRange] = useState<any>(ymRangeOf())
+  const [loading, setLoading] = useState(false)
+  const [err, setErr] = useState<any>(null)
+
+  const [payments, setPayments] = useState<any>(null)
+  const [pledges, setPledges] = useState<any>(null)
+  const [expected, setExpected] = useState<any>(null)
 
   const params = useMemo(() => {
-    const p = {}
-    if (range && range.from) p.from = range.from
-    if (range && range.to) p.to = range.to
+    const p: any = {}
+    if (range?.from) p.from = range.from
+    if (range?.to) p.to = range.to
     return p
   }, [range])
 
@@ -63,7 +65,7 @@ export default function AdminStats() {
       } else {
         setExpected(await getJSON('/api/admin/stats/expected', params))
       }
-    } catch (e) {
+    } catch (e: any) {
       setErr(e?.message || 'Chyba načítání statistik')
     } finally {
       setLoading(false)
@@ -81,13 +83,15 @@ export default function AdminStats() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params])
 
-  return (
-    <Container maxWidth="lg" sx={{ py: 4 }}>
-      <Typography variant="h4" sx={{ fontWeight: 900, mb: 2 }}>
-        Statistiky
-      </Typography>
+  const content = (
+    <>
+      {!embedded && (
+        <Typography variant="h4" sx={{ fontWeight: 900, mb: 2 }}>
+          Statistiky
+        </Typography>
+      )}
 
-      <Paper sx={{ p: 2, mb: 2 }}>
+      <Paper sx={{ p: 2, mb: 2, borderRadius: 3 }}>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center">
           <ToggleButtonGroup
             exclusive
@@ -106,26 +110,16 @@ export default function AdminStats() {
             type="date"
             label="Od"
             size="small"
-            value={(range && range.from) || ''}
-            onChange={(e) =>
-              setRange((r) => ({
-                ...(r || {}),
-                from: e.target.value || undefined,
-              }))
-            }
+            value={range?.from || ''}
+            onChange={(e) => setRange((r: any) => ({ ...(r || {}), from: e.target.value || undefined }))}
             InputLabelProps={{ shrink: true }}
           />
           <TextField
             type="date"
             label="Do"
             size="small"
-            value={(range && range.to) || ''}
-            onChange={(e) =>
-              setRange((r) => ({
-                ...(r || {}),
-                to: e.target.value || undefined,
-              }))
-            }
+            value={range?.to || ''}
+            onChange={(e) => setRange((r: any) => ({ ...(r || {}), to: e.target.value || undefined }))}
             InputLabelProps={{ shrink: true }}
           />
 
@@ -144,7 +138,7 @@ export default function AdminStats() {
       )}
 
       {tab === 'payments' && (
-        <Paper sx={{ p: 2 }}>
+        <Paper sx={{ p: 2, borderRadius: 3 }}>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mb: 2 }}>
             <Stat label="Počet" value={payments?.count ?? '—'} />
             <Stat label="Součet (CZK)" value={payments?.total ?? '—'} />
@@ -167,7 +161,7 @@ export default function AdminStats() {
       )}
 
       {tab === 'pledges' && (
-        <Paper sx={{ p: 2 }}>
+        <Paper sx={{ p: 2, borderRadius: 3 }}>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mb: 2 }}>
             <Stat label="Počet" value={pledges?.count ?? '—'} />
             <Stat label="Součet (CZK)" value={pledges?.sum ?? '—'} />
@@ -189,7 +183,7 @@ export default function AdminStats() {
       )}
 
       {tab === 'expected' && (
-        <Paper sx={{ p: 2 }}>
+        <Paper sx={{ p: 2, borderRadius: 3 }}>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mb: 2 }}>
             <Stat label="Aktivní odběratelé" value={expected?.activeCount ?? '—'} />
             <Stat label="Měsíčně očekáváno (CZK)" value={expected?.totalMonthly ?? '—'} />
@@ -207,14 +201,22 @@ export default function AdminStats() {
           />
         </Paper>
       )}
+    </>
+  )
+
+  if (embedded) return content
+
+  return (
+    <Container maxWidth="lg" sx={{ py: 4 }}>
+      {content}
     </Container>
   )
 }
 
-function Stat(props) {
+function Stat(props: any) {
   const { label, value } = props || {}
   return (
-    <Paper sx={{ p: 1.5, minWidth: 180 }}>
+    <Paper sx={{ p: 1.5, minWidth: 180, borderRadius: 3 }} variant="outlined">
       <Typography variant="caption" color="text.secondary">
         {label}
       </Typography>
@@ -225,7 +227,7 @@ function Stat(props) {
   )
 }
 
-function DataTable(props) {
+function DataTable(props: any) {
   const rows = props?.rows || []
   const columns = props?.columns || []
   const loading = props?.loading
@@ -235,7 +237,7 @@ function DataTable(props) {
       <Table size="small">
         <TableHead>
           <TableRow>
-            {columns.map((c) => (
+            {columns.map((c: any) => (
               <TableCell key={c.key}>{c.label}</TableCell>
             ))}
           </TableRow>
@@ -250,9 +252,9 @@ function DataTable(props) {
               <TableCell colSpan={columns.length}>Žádná data</TableCell>
             </TableRow>
           ) : (
-            rows.map((r, idx) => (
+            rows.map((r: any, idx: number) => (
               <TableRow key={r?.id || `${r?.createdAt || ''}-${r?.email || ''}-${idx}`}>
-                {columns.map((c) => (
+                {columns.map((c: any) => (
                   <TableCell key={c.key}>
                     {c.key === 'createdAt'
                       ? (r?.[c.key] ? new Date(r[c.key]).toLocaleString() : '')

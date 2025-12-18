@@ -66,31 +66,48 @@ export default function Hero() {
           </Grid>
 
           {/* Right column: image */}
-          <Grid item xs={12} md={6}>
-            <Paper
-              elevation={6}
-              sx={{
-                borderRadius: 6,
-                p: { xs: 1.5, sm: 2.5 },
-                mx: { xs: 'auto', md: 0 },
-                maxWidth: 520,
-              }}
-            >
-              <img
-                src="hero.jpg"
-                alt="Pes čekající na nový domov"
-                onError={(e) => {
-                  (e.currentTarget as HTMLImageElement).src = '/hero-dog.jpg'
-                }}
-                style={{
-                  width: '100%',
-                  height: 'auto',
-                  display: 'block',
-                  borderRadius: 16,
-                }}
-              />
-            </Paper>
-          </Grid>
+<Grid item xs={12} md={6}>
+  <Paper
+    elevation={6}
+    sx={{
+      position: 'relative',
+      maxWidth: 520,
+      mx: { xs: 'auto', md: 0 },
+
+      //  border
+      p: '1pt',                     // ≈ 8px
+      backgroundColor: '#ECFBFB',
+
+      // 👇 rounded frame
+      borderRadius: 6,
+      overflow: 'hidden',
+
+      // optional polish
+      boxShadow: '0 20px 40px rgba(0,0,0,0.15)',
+    }}
+  >
+    <Box
+      component="img"
+      src="/hero.jpg"
+      alt="Pes čekající na nový domov"
+      onError={(e) => {
+        ;(e.currentTarget as HTMLImageElement).src = '/hero-dog.jpg'
+      }}
+      sx={{
+        width: '105%',
+        height: '110%',
+        objectFit: 'cover',
+        position: 'relative',
+        top: '-0%',
+        left: '0%',
+        display: 'block',
+
+        // 👇 inner rounding so corners stay clean
+        borderRadius: 4,
+      }}
+    />
+  </Paper>
+</Grid>
         </Grid>
       </Container>
     </Box>
