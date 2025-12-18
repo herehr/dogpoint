@@ -22,6 +22,7 @@ import AnimalsPage from './pages/AnimalsPage'
 import AnimalDetail from './pages/AnimalDetail'
 import AdminDashboard from './pages/AdminDashboard'
 import AdminModerators from './pages/AdminModerators'
+import AdminStatistics from './pages/AdminStatistics'
 import AdminStats from './pages/AdminStats'
 import AdminDashboardOverview from './pages/AdminDashboardOverview'
 import AnimalsManager from './pages/AnimalsManager'
@@ -131,6 +132,15 @@ export default function App() {
             <RequireRole roles={['ADMIN']}>
               <AdminDashboardOverview />
             </RequireRole>
+          }
+        />
+
+        <Route
+          path="admin/statistiky"
+          element={
+           <RequireRole roles={['ADMIN']}>
+            <AdminStatistics />
+           </RequireRole>
           }
         />
 

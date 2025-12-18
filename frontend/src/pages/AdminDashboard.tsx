@@ -59,7 +59,7 @@ export default function AdminDashboard() {
               </Typography>
               <Button
                 component={RouterLink}
-                to="/admin/stats"
+                to="/admin/statistiky"
                 variant="contained"
                 size="small"
                 sx={{ alignSelf: 'flex-start' }}
