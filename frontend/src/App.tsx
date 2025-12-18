@@ -110,8 +110,7 @@ export default function App() {
         <Route path="zvirata/:id" element={<AnimalDetail />} />
         <Route path="ochrana-osobnich-udaju" element={<OchranaOsobnichUdaju />} />
         <Route path="notifikace" element={<NotificationsPage />} />
-        <Route path="/admin/stats" element={<AdminStats />} />
-        <Route path="/admin/dashboard" element={<AdminDashboardOverview />} />
+
 
         {/* Auth */}
         <Route path="login" element={<Login />} />
@@ -125,6 +124,25 @@ export default function App() {
             </RequireRole>
           }
         />
+
+        <Route
+          path="admin/dashboard"
+          element={
+            <RequireRole roles={['ADMIN']}>
+              <AdminDashboardOverview />
+            </RequireRole>
+          }
+        />
+
+        <Route
+          path="admin/stats"
+          element={
+            <RequireRole roles={['ADMIN']}>
+              <AdminStats />
+            </RequireRole>
+          }
+        />
+
         <Route
           path="admin/moderators"
           element={
@@ -133,6 +151,7 @@ export default function App() {
             </RequireRole>
           }
         />
+
         <Route
           path="admin/animals"
           element={
@@ -141,6 +160,7 @@ export default function App() {
             </RequireRole>
           }
         />
+
 
         {/* MODERATOR */}
         <Route
