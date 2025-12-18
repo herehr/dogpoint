@@ -1,7 +1,9 @@
 // frontend/src/pages/AdminDashboardOverview.tsx
 import React, { useEffect, useState } from 'react'
-import { Container, Typography, Grid, Paper, Stack, Alert } from '@mui/material'
+import { Container, Typography, Grid, Paper, Alert } from '@mui/material'
 import { getJSON } from '../services/api'
+
+type Props = { embedded?: boolean }
 
 function Card({ title, value, sub }: { title: string; value: React.ReactNode; sub?: React.ReactNode }) {
   return (
@@ -21,7 +23,7 @@ function Card({ title, value, sub }: { title: string; value: React.ReactNode; su
   )
 }
 
-export default function AdminDashboardOverview() {
+export default function AdminDashboardOverview({ embedded = false }: Props) {
   const [data, setData] = useState<any>(null)
   const [err, setErr] = useState<string | null>(null)
 
@@ -41,14 +43,18 @@ export default function AdminDashboardOverview() {
     }
   }, [])
 
-  return (
-    <Container maxWidth="lg" sx={{ py: 4 }}>
-      <Typography variant="h4" sx={{ fontWeight: 900, mb: 2 }}>
-        Statistiky
-      </Typography>
-      <Typography color="text.secondary" sx={{ mb: 3 }}>
-        Admin přehled: platby, dárci, schvalování obsahu.
-      </Typography>
+  const content = (
+    <>
+      {!embedded && (
+        <>
+          <Typography variant="h4" sx={{ fontWeight: 900, mb: 2 }}>
+            Statistiky
+          </Typography>
+          <Typography color="text.secondary" sx={{ mb: 3 }}>
+            Admin přehled: platby, dárci, schvalování obsahu.
+          </Typography>
+        </>
+      )}
 
       {err && (
         <Alert severity="error" sx={{ mb: 2 }}>
@@ -109,6 +115,14 @@ export default function AdminDashboardOverview() {
           <Card title="Příspěvky ke schválení" value={data?.postsPending ?? '—'} />
         </Grid>
       </Grid>
+    </>
+  )
+
+  if (embedded) return content
+
+  return (
+    <Container maxWidth="lg" sx={{ py: 4 }}>
+      {content}
     </Container>
   )
 }

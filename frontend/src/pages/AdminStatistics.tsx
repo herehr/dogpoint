@@ -1,5 +1,5 @@
 // frontend/src/pages/AdminStatistics.tsx
-import React, { useMemo, useState } from 'react'
+import React, { useState } from 'react'
 import { Container, Typography, Paper, Stack, ToggleButtonGroup, ToggleButton, Box } from '@mui/material'
 import AdminDashboardOverview from './AdminDashboardOverview'
 import AdminStats from './AdminStats'
@@ -7,17 +7,15 @@ import AdminStats from './AdminStats'
 export default function AdminStatistics() {
   const [mode, setMode] = useState<'kpi' | 'details'>('kpi')
 
-  const title = useMemo(() => (mode === 'kpi' ? 'Statistiky' : 'Statistiky'), [mode])
-
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
       <Stack spacing={2}>
         <Box>
           <Typography variant="h4" sx={{ fontWeight: 900 }}>
-            {title}
+            Statistiky
           </Typography>
           <Typography color="text.secondary">
-            Admin přehled: platby, dárci, schvalování obsahu.
+            Přehled (KPI) a detailní statistiky adopcí.
           </Typography>
         </Box>
 
@@ -34,25 +32,10 @@ export default function AdminStatistics() {
             </ToggleButtonGroup>
 
             <Box sx={{ flex: 1 }} />
-
-            <Typography variant="body2" color="text.secondary">
-              {mode === 'kpi'
-                ? 'KPI karty a rychlý přehled.'
-                : 'Platby / přísliby / očekávané (tabulky).'}
-            </Typography>
           </Stack>
         </Paper>
 
-        {/* Render the chosen view */}
-        <Box>
-          {mode === 'kpi' ? (
-            // IMPORTANT: these pages already render their own Container.
-            // We keep it simple: render them "as-is".
-            <AdminDashboardOverview />
-          ) : (
-            <AdminStats />
-          )}
-        </Box>
+        {mode === 'kpi' ? <AdminDashboardOverview embedded /> : <AdminStats embedded />}
       </Stack>
     </Container>
   )
