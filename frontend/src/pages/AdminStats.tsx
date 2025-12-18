@@ -61,7 +61,7 @@ export default function AdminStats() {
         const res = await getJSON<Stats>('/api/admin/stats')
         if (alive) setData(res)
       } catch (e: any) {
-        if (alive) setErr(e?.message || 'Failed to load stats')
+        if (alive) setErr(e?.message || 'Nepodařilo se načíst statistiky.')
       } finally {
         if (alive) setLoading(false)
       }
@@ -75,64 +75,80 @@ export default function AdminStats() {
     <Container maxWidth="lg" sx={{ py: 6 }}>
       <Stack spacing={1} sx={{ mb: 3 }}>
         <Typography variant="h5" sx={{ fontWeight: 900 }}>
-          Statistics
+          Statistiky
         </Typography>
         <Typography color="text.secondary">
-          Admin overview: money, donors, content workflow.
+          Admin přehled: platby, dárci, schvalování obsahu.
         </Typography>
       </Stack>
 
-      {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
-      {loading && <Typography color="text.secondary">Loading…</Typography>}
+      {err && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {err}
+        </Alert>
+      )}
+
+      {loading && <Typography color="text.secondary">Načítám…</Typography>}
 
       {data && (
         <Grid container spacing={2}>
+          {/* Peníze */}
           <Grid item xs={12} md={4}>
-            <Card title="Expected monthly (active subs)" value={czk(data.money.expectedMonthlyCZK)} />
+            <Card
+              title="Očekávaný měsíční příjem (aktivní předplatné)"
+              value={czk(data.money.expectedMonthlyCZK)}
+            />
           </Grid>
           <Grid item xs={12} md={4}>
             <Card
-              title="Paid this month"
+              title="Přijato tento měsíc"
               value={czk(data.money.paidThisMonthCZK)}
-              sub={`${data.money.paidThisMonthCount} payments`}
+              sub={`${data.money.paidThisMonthCount} plateb`}
             />
           </Grid>
           <Grid item xs={12} md={4}>
             <Card
-              title="Paid last month"
+              title="Přijato minulý měsíc"
               value={czk(data.money.paidLastMonthCZK)}
-              sub={`${data.money.paidLastMonthCount} payments`}
+              sub={`${data.money.paidLastMonthCount} plateb`}
             />
           </Grid>
 
+          {/* Uživatelé / adopce */}
           <Grid item xs={12} sm={6} md={3}>
-            <Card title="Users total" value={String(data.users.total)} />
+            <Card title="Uživatelé celkem" value={String(data.users.total)} />
           </Grid>
           <Grid item xs={12} sm={6} md={3}>
-            <Card title="Donors (approx.)" value={String(data.users.donorsApprox)} sub="users with subscriptions" />
+            <Card
+              title="Dárci (odhad)"
+              value={String(data.users.donorsApprox)}
+              sub="uživatelé s předplatným"
+            />
           </Grid>
           <Grid item xs={12} sm={6} md={3}>
-            <Card title="Subscriptions active" value={String(data.flow.subscriptionsActive)} />
+            <Card title="Aktivní předplatné" value={String(data.flow.subscriptionsActive)} />
           </Grid>
           <Grid item xs={12} sm={6} md={3}>
-            <Card title="Subscriptions pending" value={String(data.flow.subscriptionsPending)} />
-          </Grid>
-
-          <Grid item xs={12} sm={6} md={3}>
-            <Card title="Animals active" value={String(data.content.animalsActive)} />
-          </Grid>
-          <Grid item xs={12} sm={6} md={3}>
-            <Card title="Animals pending" value={String(data.content.animalsPending)} />
-          </Grid>
-          <Grid item xs={12} sm={6} md={3}>
-            <Card title="Posts published" value={String(data.content.postsPublished)} />
-          </Grid>
-          <Grid item xs={12} sm={6} md={3}>
-            <Card title="Posts pending" value={String(data.content.postsPending)} />
+            <Card title="Čekající předplatné" value={String(data.flow.subscriptionsPending)} />
           </Grid>
 
+          {/* Obsah */}
+          <Grid item xs={12} sm={6} md={3}>
+            <Card title="Zvířata aktivní" value={String(data.content.animalsActive)} />
+          </Grid>
+          <Grid item xs={12} sm={6} md={3}>
+            <Card title="Zvířata ke schválení" value={String(data.content.animalsPending)} />
+          </Grid>
+          <Grid item xs={12} sm={6} md={3}>
+            <Card title="Příspěvky publikované" value={String(data.content.postsPublished)} />
+          </Grid>
+          <Grid item xs={12} sm={6} md={3}>
+            <Card title="Příspěvky ke schválení" value={String(data.content.postsPending)} />
+          </Grid>
+
+          {/* Flow */}
           <Grid item xs={12} md={4}>
-            <Card title="Pledges pending" value={String(data.flow.pledgesPending)} />
+            <Card title="Přísliby (čekající)" value={String(data.flow.pledgesPending)} />
           </Grid>
         </Grid>
       )}
