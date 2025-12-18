@@ -12,6 +12,7 @@ import postsRoutes from './routes/posts'
 import adoptionRouter from './routes/adoption'
 import emailTest from './routes/emailTest'
 import adminModeratorsRoutes from './routes/adminModerators'
+import adminDashboardRoutes from './routes/adminDashboard'
 import adminStatsRoutes from './routes/adminStats'
 import subscriptionRoutes from './routes/subscriptionRoutes'
 import paymentRouter from './routes/paymentRoutes'
@@ -93,6 +94,7 @@ app.use('/api/payments', paymentRouter)
 app.use('/api/notifications', notificationRoutes)
 app.use('/api/test', emailTest)
 app.use('/api/moderation', moderationRoutes)
+app.use('/api/admin/dashboard', adminDashboardRoutes)
 
 // GP webpay (feature flag)
 const gpEnabled =

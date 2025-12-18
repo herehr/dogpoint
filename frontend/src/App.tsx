@@ -23,6 +23,7 @@ import AnimalDetail from './pages/AnimalDetail'
 import AdminDashboard from './pages/AdminDashboard'
 import AdminModerators from './pages/AdminModerators'
 import AdminStats from './pages/AdminStats'
+import AdminDashboardOverview from './pages/AdminDashboardOverview'
 import AnimalsManager from './pages/AnimalsManager'
 import ModeratorDashboard from './pages/ModeratorDashboard'
 import ModeratorAnimals from './pages/ModeratorAnimals'
@@ -110,6 +111,7 @@ export default function App() {
         <Route path="ochrana-osobnich-udaju" element={<OchranaOsobnichUdaju />} />
         <Route path="notifikace" element={<NotificationsPage />} />
         <Route path="/admin/stats" element={<AdminStats />} />
+        <Route path="/admin/dashboard" element={<AdminDashboardOverview />} />
 
         {/* Auth */}
         <Route path="login" element={<Login />} />

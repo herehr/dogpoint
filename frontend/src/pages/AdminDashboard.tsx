@@ -22,6 +22,54 @@ export default function AdminDashboard() {
       </Paper>
 
       <Grid container spacing={2}>
+        {/* Dashboard (KPI přehled) */}
+        <Grid item xs={12} sm={6} md={4}>
+          <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, height: '100%' }}>
+            <Stack spacing={1.5}>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <BarChartIcon />
+                <Typography variant="h6" sx={{ fontWeight: 800 }}>Dashboard</Typography>
+              </Stack>
+              <Typography color="text.secondary">
+                Rychlý přehled: příjmy, dárci, schvalování.
+              </Typography>
+              <Button
+                component={RouterLink}
+                to="/admin/dashboard"
+                variant="contained"
+                size="small"
+                sx={{ alignSelf: 'flex-start' }}
+              >
+                Otevřít
+              </Button>
+            </Stack>
+          </Paper>
+        </Grid>
+
+        {/* Detaily adopcí (tabs + tabulky) */}
+        <Grid item xs={12} sm={6} md={4}>
+          <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, height: '100%' }}>
+            <Stack spacing={1.5}>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <BarChartIcon />
+                <Typography variant="h6" sx={{ fontWeight: 800 }}>Detaily adopcí</Typography>
+              </Stack>
+              <Typography color="text.secondary">
+                Platby, přísliby a očekávané měsíční příjmy (detail).
+              </Typography>
+              <Button
+                component={RouterLink}
+                to="/admin/stats"
+                variant="contained"
+                size="small"
+                sx={{ alignSelf: 'flex-start' }}
+              >
+                Otevřít
+              </Button>
+            </Stack>
+          </Paper>
+        </Grid>
+
         {/* Zvířata */}
         <Grid item xs={12} sm={6} md={4}>
           <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, height: '100%' }}>
@@ -70,31 +118,7 @@ export default function AdminDashboard() {
           </Paper>
         </Grid>
 
-        {/* Statistiky — EXISTING */}
-        <Grid item xs={12} sm={6} md={4}>
-          <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, height: '100%' }}>
-            <Stack spacing={1.5}>
-              <Stack direction="row" spacing={1} alignItems="center">
-                <BarChartIcon />
-                <Typography variant="h6" sx={{ fontWeight: 800 }}>Statistiky</Typography>
-              </Stack>
-              <Typography color="text.secondary">
-                Přehled plateb, příslibů a očekávaných měsíčních příjmů.
-              </Typography>
-              <Button
-                component={RouterLink}
-                to="/admin/stats"
-                variant="contained"
-                size="small"
-                sx={{ alignSelf: 'flex-start' }}
-              >
-                Otevřít
-              </Button>
-            </Stack>
-          </Paper>
-        </Grid>
-
-        {/* NOVÉ: Ke schválení (zvířata + příspěvky) */}
+        {/* Ke schválení */}
         <Grid item xs={12} sm={6} md={4}>
           <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, height: '100%' }}>
             <Stack spacing={1.5}>
@@ -105,8 +129,7 @@ export default function AdminDashboard() {
                 </Typography>
               </Stack>
               <Typography color="text.secondary">
-                Přehled zvířat a příspěvků, které čekají na schválení moderátorem nebo
-                administrátorem.
+                Přehled zvířat a příspěvků, které čekají na schválení moderátorem nebo administrátorem.
               </Typography>
               <Button
                 component={RouterLink}
