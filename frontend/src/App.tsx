@@ -22,6 +22,7 @@ import AnimalsPage from './pages/AnimalsPage'
 import AnimalDetail from './pages/AnimalDetail'
 import AdminDashboard from './pages/AdminDashboard'
 import AdminModerators from './pages/AdminModerators'
+import AdminStats from './pages/AdminStats'
 import AnimalsManager from './pages/AnimalsManager'
 import ModeratorDashboard from './pages/ModeratorDashboard'
 import ModeratorAnimals from './pages/ModeratorAnimals'
@@ -108,6 +109,7 @@ export default function App() {
         <Route path="zvirata/:id" element={<AnimalDetail />} />
         <Route path="ochrana-osobnich-udaju" element={<OchranaOsobnichUdaju />} />
         <Route path="notifikace" element={<NotificationsPage />} />
+        <Route path="/admin/stats" element={<AdminStats />} />
 
         {/* Auth */}
         <Route path="login" element={<Login />} />
