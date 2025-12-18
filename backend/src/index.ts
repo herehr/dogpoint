@@ -12,8 +12,8 @@ import postsRoutes from './routes/posts'
 import adoptionRouter from './routes/adoption'
 import emailTest from './routes/emailTest'
 import adminModeratorsRoutes from './routes/adminModerators'
-import adminDashboardRoutes from './routes/adminDashboard'
 import adminStatsRoutes from './routes/adminStats'
+import adminDashboardRoutes from './routes/adminDashboard'
 import subscriptionRoutes from './routes/subscriptionRoutes'
 import paymentRouter from './routes/paymentRoutes'
 import gpwebpayRoutes from './routes/gpwebpay'
@@ -87,14 +87,15 @@ app.use('/api/stripe', stripeJsonRouter)
 app.use('/api/adoption', adoptionRouter)
 app.use('/api/upload', uploadRoutes)
 app.use('/api/posts', postsRoutes)
-app.use('/api/admin', adminModeratorsRoutes)
 app.use('/api/admin/stats', adminStatsRoutes)
+app.use('/api/admin/dashboard', adminDashboardRoutes)
+app.use('/api/admin', adminModeratorsRoutes)
 app.use('/api/subscriptions', subscriptionRoutes)
 app.use('/api/payments', paymentRouter)
 app.use('/api/notifications', notificationRoutes)
 app.use('/api/test', emailTest)
 app.use('/api/moderation', moderationRoutes)
-app.use('/api/admin/dashboard', adminDashboardRoutes)
+
 
 // GP webpay (feature flag)
 const gpEnabled =
