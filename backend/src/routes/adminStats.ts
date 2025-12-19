@@ -6,6 +6,10 @@ import { Role, PaymentStatus, ContentStatus } from '@prisma/client'
 
 const router = Router()
 
+router.get('/_ping', (_req, res) => {
+  res.json({ ok: true, where: 'adminStats router mounted' })
+})
+
 function isAdmin(req: Request): boolean {
   const r = (req.user as any)?.role
   return r === Role.ADMIN || r === 'ADMIN'
