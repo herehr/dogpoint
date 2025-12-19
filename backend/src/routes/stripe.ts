@@ -9,13 +9,10 @@ import { linkPaidOrRecentPledgesToUser } from '../controllers/authExtra'
 /* ------------------------------------------------------------------ */
 /* Stripe client                                                      */
 /* ------------------------------------------------------------------ */
-const stripeSecret =
-  process.env.STRIPE_SECRET_KEY || process.env.STRIPE_SECRET || ''
+const stripeSecret = process.env.STRIPE_SECRET_KEY || process.env.STRIPE_SECRET || ''
 
 if (!stripeSecret) {
-  console.warn(
-    '[stripe] Missing STRIPE_SECRET_KEY. Checkout will fail until set.'
-  )
+  console.warn('[stripe] Missing STRIPE_SECRET_KEY. Checkout will fail until set.')
 }
 
 // Stripe client is optional; routes must check it before use
@@ -47,6 +44,55 @@ function normalizeEmail(x?: string | null): string | undefined {
   return s ? s : undefined
 }
 
+/**
+ * IMPORTANT FIX:
+ * If there exists at least one PAID payment linked to a subscription,
+ * then that subscription must be ACTIVE (not PENDING).
+ *
+ * This repairs "Subscription=PENDING but Payment=PAID" forever.
+ */
+async function activatePendingSubscriptionsFromPaidPayments(opts: {
+  userId: string
+  animalId?: string
+}) {
+  const { userId, animalId } = opts
+
+  // Find PAID payments whose subscription is still PENDING for this user
+  const paid = await prisma.payment.findMany({
+    where: {
+      status: 'PAID' as any,
+      subscription: {
+        userId,
+        status: 'PENDING' as any,
+        ...(animalId ? { animalId } : {}),
+      },
+    },
+    select: {
+      createdAt: true,
+      subscriptionId: true,
+    },
+    orderBy: { createdAt: 'asc' },
+  })
+
+  if (!paid.length) return
+
+  // For each subscription, use the first PAID payment timestamp as startedAt
+  const firstBySub = new Map<string, Date>()
+  for (const p of paid) {
+    if (!firstBySub.has(p.subscriptionId)) firstBySub.set(p.subscriptionId, p.createdAt)
+  }
+
+  for (const [subscriptionId, startedAt] of firstBySub.entries()) {
+    await prisma.subscription.update({
+      where: { id: subscriptionId },
+      data: {
+        status: 'ACTIVE' as any,
+        startedAt,
+      },
+    })
+  }
+}
+
 /* =========================================================================
  * RAW router (webhook needs raw body; mount BEFORE express.json())
  * ========================================================================= */
@@ -74,10 +120,7 @@ rawRouter.post(
         try {
           event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret)
         } catch (err: any) {
-          console.error(
-            '[stripe webhook] signature verification failed:',
-            err?.message
-          )
+          console.error('[stripe webhook] signature verification failed:', err?.message)
           res.status(400).send(`Webhook Error: ${err?.message}`)
           return
         }
@@ -99,19 +142,15 @@ rawRouter.post(
 
       if (event.type === 'checkout.session.completed') {
         const session = event.data.object as Stripe.Checkout.Session
-        const pledgeId = (session.metadata as any)?.pledgeId as
-          | string
-          | undefined
+        const meta = (session.metadata || {}) as Record<string, string | undefined>
+
+        const pledgeId = meta.pledgeId as string | undefined
+        const animalId = meta.animalId as string | undefined
 
         const stripeEmail =
-          normalizeEmail(
-            // the most reliable field after checkout:
-            (session as any).customer_details?.email
-          ) ||
+          normalizeEmail((session as any).customer_details?.email) ||
           normalizeEmail(session.customer_email) ||
-          normalizeEmail(
-            ((session.customer as any)?.email as string | undefined)
-          )
+          normalizeEmail(((session.customer as any)?.email as string | undefined))
 
         const paymentStatus = session.payment_status as string | undefined
         const isPaid = paymentStatus === 'paid'
@@ -168,7 +207,16 @@ rawRouter.post(
               data: { email: emailToUse, role: 'USER' },
             })
           }
+
           await linkPaidOrRecentPledgesToUser(user.id, user.email)
+
+          // ✅ PERMANENT FIX: if payment(s) are PAID but subscription is still PENDING → activate it
+          if (isPaid) {
+            await activatePendingSubscriptionsFromPaidPayments({
+              userId: user.id,
+              animalId,
+            })
+          }
         }
       }
 
@@ -201,9 +249,7 @@ jsonRouter.use(express.json())
 jsonRouter.get('/ping', (_req: Request, res: Response) => {
   res.json({
     ok: true,
-    stripeKey: !!(
-      process.env.STRIPE_SECRET_KEY || process.env.STRIPE_SECRET
-    ),
+    stripeKey: !!(process.env.STRIPE_SECRET_KEY || process.env.STRIPE_SECRET),
     frontendBase: frontendBase(),
   })
 })
@@ -221,8 +267,7 @@ jsonRouter.post('/checkout-session', async (req: Request, res: Response) => {
       return
     }
 
-    const { animalId, amountCZK, email, name, password } = (req.body ||
-      {}) as {
+    const { animalId, amountCZK, email, name, password } = (req.body || {}) as {
       animalId?: string
       amountCZK?: number
       email?: string
@@ -246,15 +291,11 @@ jsonRouter.post('/checkout-session', async (req: Request, res: Response) => {
     // Uses Prisma field "passwordHash" (your actual schema)
     // -------------------------------------------------------------
     if (safeEmail && safeEmail !== 'pending+unknown@local') {
-      const pwd =
-        typeof password === 'string' && password.length >= 6
-          ? password
-          : undefined
+      const pwd = typeof password === 'string' && password.length >= 6 ? password : undefined
 
       if (pwd) {
         const passwordHash = await bcrypt.hash(pwd, 10)
 
-        // NOTE: Prisma User model: passwordHash: string | null
         let existing = await prisma.user.findUnique({
           where: { email: safeEmail },
         })
@@ -285,25 +326,17 @@ jsonRouter.post('/checkout-session', async (req: Request, res: Response) => {
         interval: 'MONTHLY' as any,
         method: 'CARD' as any,
         status: 'PENDING' as any,
-        // providerId is set after we create the Stripe session
       } as any,
       select: { id: true },
     })
 
     const FRONTEND_BASE = frontendBase()
 
-    // ✅ After payment → back to detail /zvire/:id with sid + paid=1
-    const successUrl = `${FRONTEND_BASE}/zvire/${encodeURIComponent(
-      animalId
-    )}?paid=1&sid={CHECKOUT_SESSION_ID}`
-
-    // ❌ User cancels payment → back to public detail (locked)
-    const cancelUrl = `${FRONTEND_BASE}/zvire/${encodeURIComponent(
-      animalId
-    )}?canceled=1`
+    const successUrl = `${FRONTEND_BASE}/zvire/${encodeURIComponent(animalId)}?paid=1&sid={CHECKOUT_SESSION_ID}`
+    const cancelUrl = `${FRONTEND_BASE}/zvire/${encodeURIComponent(animalId)}?canceled=1`
 
     const session = await stripe.checkout.sessions.create({
-      mode: 'subscription', // recurring
+      mode: 'subscription',
       payment_method_types: ['card'],
       locale: 'cs',
       success_url: successUrl,
@@ -320,9 +353,7 @@ jsonRouter.post('/checkout-session', async (req: Request, res: Response) => {
           price_data: {
             currency: 'czk',
             product_data: {
-              name: name
-                ? `Měsíční dar: ${name}`
-                : 'Měsíční dar na péči o psa',
+              name: name ? `Měsíční dar: ${name}` : 'Měsíční dar na péči o psa',
               description: `Pravidelný měsíční příspěvek pro zvíře (${animalId})`,
             },
             unit_amount: Math.round(amountCZK * 100),
@@ -385,15 +416,11 @@ jsonRouter.get('/confirm', async (req: Request, res: Response) => {
     const stripeEmail =
       normalizeEmail((session as any).customer_details?.email) ||
       normalizeEmail(session.customer_email) ||
-      normalizeEmail(
-        ((session.customer as any)?.email as string | undefined)
-      )
+      normalizeEmail(((session.customer as any)?.email as string | undefined))
 
-    const meta = (session.metadata || {}) as Record<
-      string,
-      string | undefined
-    >
+    const meta = (session.metadata || {}) as Record<string, string | undefined>
     const pledgeId = meta.pledgeId
+    const animalId = meta.animalId
 
     // Mark pledge PAID or PENDING and patch email if we have it
     try {
@@ -422,7 +449,7 @@ jsonRouter.get('/confirm', async (req: Request, res: Response) => {
       /* ignore */
     }
 
-    // ---------- resolve email: prefer Stripe → then pledge.providerId match ----------
+    // resolve email: prefer Stripe → then pledge.providerId match
     let resolvedEmail: string | undefined = stripeEmail
     if (!resolvedEmail) {
       const p = await prisma.pledge.findFirst({
@@ -431,7 +458,6 @@ jsonRouter.get('/confirm', async (req: Request, res: Response) => {
       })
       if (p?.email) resolvedEmail = normalizeEmail(p.email)
     }
-
     if (resolvedEmail) resolvedEmail = normalizeEmail(resolvedEmail)
 
     let token: string | undefined
@@ -447,15 +473,22 @@ jsonRouter.get('/confirm', async (req: Request, res: Response) => {
         })
       }
 
-      // This links both PAID and recent PENDING pledges to subscriptions
       await linkPaidOrRecentPledgesToUser(user.id, user.email)
+
+      // ✅ PERMANENT FIX: activate subscription(s) that already have PAID payments
+      if (isPaid) {
+        await activatePendingSubscriptionsFromPaidPayments({
+          userId: user.id,
+          animalId,
+        })
+      }
 
       token = signToken({
         id: user.id,
         role: user.role,
         email: user.email,
       })
-      returnedEmail = user.email // normalized from DB
+      returnedEmail = user.email
     }
 
     res.json({

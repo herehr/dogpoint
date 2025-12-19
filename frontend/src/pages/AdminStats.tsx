@@ -18,7 +18,7 @@ import {
   TableBody,
   Box,
 } from '@mui/material'
-import { getJSON } from '../services/api'
+import { getJSON, qs } from '../services/api'
 
 function ymRangeOf(date = new Date()) {
   const y = date.getFullYear()
@@ -39,32 +39,37 @@ type Props = { embedded?: boolean }
 
 export default function AdminStats({ embedded = false }: Props) {
   const [tab, setTab] = useState<'payments' | 'pledges' | 'expected'>('payments')
-  const [range, setRange] = useState<any>(ymRangeOf())
+  const [range, setRange] = useState<{ from?: string; to?: string }>(ymRangeOf())
   const [loading, setLoading] = useState(false)
-  const [err, setErr] = useState<any>(null)
+  const [err, setErr] = useState<string | null>(null)
 
   const [payments, setPayments] = useState<any>(null)
   const [pledges, setPledges] = useState<any>(null)
   const [expected, setExpected] = useState<any>(null)
 
   const params = useMemo(() => {
-    const p: any = {}
+    const p: Record<string, string> = {}
     if (range?.from) p.from = range.from
     if (range?.to) p.to = range.to
     return p
   }, [range])
 
+  const endpoint = useMemo(() => {
+    if (tab === 'payments') return '/api/admin/stats/payments'
+    if (tab === 'pledges') return '/api/admin/stats/pledges'
+    return '/api/admin/stats/expected'
+  }, [tab])
+
   async function load() {
     setErr(null)
     setLoading(true)
     try {
-      if (tab === 'payments') {
-        setPayments(await getJSON('/api/admin/stats/payments', params))
-      } else if (tab === 'pledges') {
-        setPledges(await getJSON('/api/admin/stats/pledges', params))
-      } else {
-        setExpected(await getJSON('/api/admin/stats/expected', params))
-      }
+      const url = `${endpoint}${qs(params)}`
+      const data = await getJSON<any>(url)
+
+      if (tab === 'payments') setPayments(data)
+      else if (tab === 'pledges') setPledges(data)
+      else setExpected(data)
     } catch (e: any) {
       setErr(e?.message || 'Chyba načítání statistik')
     } finally {
@@ -72,16 +77,12 @@ export default function AdminStats({ embedded = false }: Props) {
     }
   }
 
-  useEffect(() => {
-    load()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab])
-
+  // Reload when tab or date-range changes
   useEffect(() => {
     const t = setTimeout(load, 150)
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [params])
+  }, [tab, params.from, params.to])
 
   const content = (
     <>
@@ -94,15 +95,23 @@ export default function AdminStats({ embedded = false }: Props) {
       <Paper sx={{ p: 2, mb: 2, borderRadius: 3 }}>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center">
           <ToggleButtonGroup
-            exclusive
-            value={tab}
-            onChange={(_, v) => v && setTab(v)}
-            size="small"
-          >
-            <ToggleButton value="payments">Platby</ToggleButton>
-            <ToggleButton value="pledges">Přísliby</ToggleButton>
-            <ToggleButton value="expected">Očekávané</ToggleButton>
-          </ToggleButtonGroup>
+  exclusive
+  value={tab}
+  onChange={(_, v) => v && setTab(v)}
+  size="small"
+>
+  <ToggleButton value="payments">
+    Předplatné (uhrazené)
+  </ToggleButton>
+
+  <ToggleButton value="pledges">
+    Neuhrazené přísliby
+  </ToggleButton>
+
+  <ToggleButton value="expected">
+    Očekávaný měsíční příjem
+  </ToggleButton>
+</ToggleButtonGroup>
 
           <Divider orientation="vertical" flexItem sx={{ display: { xs: 'none', sm: 'block' } }} />
 
@@ -111,7 +120,9 @@ export default function AdminStats({ embedded = false }: Props) {
             label="Od"
             size="small"
             value={range?.from || ''}
-            onChange={(e) => setRange((r: any) => ({ ...(r || {}), from: e.target.value || undefined }))}
+            onChange={(e) =>
+              setRange((r) => ({ ...(r || {}), from: e.target.value || undefined }))
+            }
             InputLabelProps={{ shrink: true }}
           />
           <TextField
@@ -119,7 +130,9 @@ export default function AdminStats({ embedded = false }: Props) {
             label="Do"
             size="small"
             value={range?.to || ''}
-            onChange={(e) => setRange((r: any) => ({ ...(r || {}), to: e.target.value || undefined }))}
+            onChange={(e) =>
+              setRange((r) => ({ ...(r || {}), to: e.target.value || undefined }))
+            }
             InputLabelProps={{ shrink: true }}
           />
 
