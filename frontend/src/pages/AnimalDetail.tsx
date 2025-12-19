@@ -13,7 +13,15 @@ import {
   Button,
   Divider,
   TextField,
+  Dialog,
+  IconButton,
+  useMediaQuery,
 } from '@mui/material'
+import { useTheme } from '@mui/material/styles'
+import CloseIcon from '@mui/icons-material/Close'
+import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
+import ChevronRightIcon from '@mui/icons-material/ChevronRight'
+import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline'
 import NotificationsIcon from '@mui/icons-material/Notifications'
 
 import { fetchAnimal } from '../api'
@@ -41,7 +49,6 @@ type LocalAnimal = {
   bornYear?: number | null
 }
 
-// type for posts used by notifications / polling
 interface AnimalPost {
   id: string
   title: string
@@ -56,7 +63,6 @@ interface AnimalPost {
   }[]
 }
 
-// Base URL for backend (same as other places in your app)
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api'
 
 function asUrl(x: string | Media | undefined | null): string | null {
@@ -65,12 +71,22 @@ function asUrl(x: string | Media | undefined | null): string | null {
   return x.url || null
 }
 
+// --- Basic media type guess (works even if backend does not send `type`) ---
+function guessMediaType(url: string): 'image' | 'video' {
+  const u = (url || '').split('?')[0].toLowerCase()
+  if (/\.(mp4|webm|mov|m4v|ogg)$/i.test(u)) return 'video'
+  return 'image'
+}
+
 function formatAge(a: LocalAnimal): string {
   const bd = a.birthDate ? new Date(a.birthDate) : null
   if (bd && !Number.isNaN(bd.getTime())) {
     const now = new Date()
     let years = now.getFullYear() - bd.getFullYear()
-    if (now.getMonth() < bd.getMonth() || (now.getMonth() === bd.getMonth() && now.getDate() < bd.getDate())) {
+    if (
+      now.getMonth() < bd.getMonth() ||
+      (now.getMonth() === bd.getMonth() && now.getDate() < bd.getDate())
+    ) {
       years -= 1
     }
     return `${years} r`
@@ -83,10 +99,15 @@ function formatAge(a: LocalAnimal): string {
   return 'neuvedeno'
 }
 
+type LightboxItem = { url: string; type: 'image' | 'video' }
+
 export default function AnimalDetail() {
   const { id } = useParams<{ id: string }>()
   const location = useLocation()
   const navigate = useNavigate()
+
+  const theme = useTheme()
+  const isSmDown = useMediaQuery(theme.breakpoints.down('sm'))
 
   const { hasAccess, grantAccess, resetAccess } = useAccess()
   const { role, user, login } = useAuth()
@@ -99,15 +120,16 @@ export default function AnimalDetail() {
   const [showAfterPay, setShowAfterPay] = useState(false)
   const [afterPayEmail, setAfterPayEmail] = useState('')
 
-  // amount picker
   const [amount, setAmount] = useState<number>(200)
 
-  // state for posts + notification tracking
   const [posts, setPosts] = useState<AnimalPost[]>([])
   const [hasNewPosts, setHasNewPosts] = useState(false)
   const [lastPostCount, setLastPostCount] = useState<number>(0)
 
-  // Read Stripe return flags ONCE
+  // --- Lightbox state ---
+  const [lbOpen, setLbOpen] = useState(false)
+  const [lbIndex, setLbIndex] = useState(0)
+
   const { paid, sid } = useMemo(() => {
     const p = new URLSearchParams(location.search)
     return {
@@ -121,7 +143,6 @@ export default function AnimalDetail() {
     return !!(id && hasAccess(id)) && !forceLocked
   }, [isStaff, id, hasAccess, forceLocked])
 
-  // initial load of animal
   useEffect(() => {
     let alive = true
     if (!id) return
@@ -138,52 +159,33 @@ export default function AnimalDetail() {
     }
   }, [id])
 
-  // helper: load posts via fetch
-  const loadPosts = useCallback(
-    async (animalId: string) => {
-      const url = `${API_BASE}/api/posts/public?animalId=${encodeURIComponent(animalId)}`
-      console.log('[notify] fetch posts from', url)
-      const res = await fetch(url)
-      if (!res.ok) {
-        console.warn('[notify] posts fetch failed', res.status, res.statusText)
-        throw new Error(`Posts fetch failed: ${res.status}`)
-      }
-      const data: AnimalPost[] = await res.json()
-      console.log('[notify] received posts', data.length)
-      return data
-    },
-    []
-  )
+  const loadPosts = useCallback(async (animalId: string) => {
+    const url = `${API_BASE}/api/posts/public?animalId=${encodeURIComponent(animalId)}`
+    const res = await fetch(url)
+    if (!res.ok) throw new Error(`Posts fetch failed: ${res.status}`)
+    const data: AnimalPost[] = await res.json()
+    return data
+  }, [])
 
-  // initial load of posts for this animal (for notification tracking)
   useEffect(() => {
     if (!id) return
-
     let canceled = false
-
     const run = async () => {
       try {
         const data = await loadPosts(id)
         if (canceled) return
-
         setPosts(data)
         setLastPostCount(data.length)
-        console.log('[notify] initial posts count', data.length)
       } catch (e) {
-        if (!canceled) {
-          console.warn('[AnimalDetail] Nepodařilo se načíst příspěvky pro notifikace', e)
-        }
+        if (!canceled) console.warn('[AnimalDetail] posts load failed', e)
       }
     }
-
     run()
-
     return () => {
       canceled = true
     }
   }, [id, loadPosts])
 
-  // Poll every 30 s for new posts – based on COUNT difference
   useEffect(() => {
     if (!id) return
 
@@ -191,18 +193,14 @@ export default function AnimalDetail() {
       try {
         const data = await loadPosts(id)
         const newCount = data.length
-        console.log('[notify] poll: oldCount=', lastPostCount, 'newCount=', newCount)
 
-        // First time after mount – initialize and do nothing
         if (lastPostCount === 0) {
           setPosts(data)
           setLastPostCount(newCount)
           return
         }
 
-        // NEW POSTS detected
         if (newCount > lastPostCount) {
-          console.log('[notify] NEW posts detected!')
           setHasNewPosts(true)
           setPosts(data)
           setLastPostCount(newCount)
@@ -220,7 +218,6 @@ export default function AnimalDetail() {
     return () => clearInterval(interval)
   }, [id, lastPostCount, loadPosts])
 
-  // Prefill email for after-payment (prefer logged-in, else stashed)
   const prefillEmail = useMemo(() => {
     try {
       if (user?.email) return user.email
@@ -235,7 +232,6 @@ export default function AnimalDetail() {
     return ''
   }, [user?.email])
 
-  // On return from Stripe: confirm session → if token, go to /user, otherwise stay blurred
   useEffect(() => {
     if (!id || paid !== '1') return
 
@@ -254,21 +250,18 @@ export default function AnimalDetail() {
           }
         }
 
-        // Clean URL so paid/sid do not re-trigger on refresh
         const p = new URLSearchParams(location.search)
         p.delete('paid')
         p.delete('sid')
         const clean = `${window.location.pathname}${p.toString() ? `?${p}` : ''}`
         window.history.replaceState({}, '', clean)
 
-        // If backend returned a token → auto-login via AuthContext and go straight to /user
         if (token) {
           login(token, 'USER')
           navigate('/user', { replace: true })
           return
         }
 
-        // Optional: show after-payment dialog so user can finish account setup
         if (confirmedEmail) {
           setAfterPayEmail(confirmedEmail)
           setShowAfterPay(true)
@@ -280,7 +273,6 @@ export default function AnimalDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, paid, sid])
 
-  // go to pre-checkout page instead of Stripe directly
   const handleAdoptNow = useCallback(() => {
     if (!id || !animal) {
       alert('Zkuste stránku znovu načíst (chybí ID zvířete).')
@@ -296,25 +288,21 @@ export default function AnimalDetail() {
 
   const onCancelAdoption = useCallback(async () => {
     if (!animal) return
-
     const confirmed = window.confirm(
       'Opravdu chcete zrušit adopci tohoto zvířete? Tím ukončíte pravidelnou podporu.'
     )
     if (!confirmed) return
 
     try {
-      // 1) Tell backend to cancel the subscription
       await cancelAdoption(animal.id)
-
-      // 2) Clear local unlock for this animal → detail will be locked again
       resetAccess(animal.id)
       setForceLocked(true)
 
-      // 3) Clean up any local flags / media (optional)
       try {
         localStorage.removeItem(`adopt:${animal.id}`)
         sessionStorage.removeItem(`adopt:${animal.id}`)
       } catch {}
+
       document.querySelectorAll('video').forEach((v) => {
         try {
           v.pause()
@@ -352,10 +340,12 @@ export default function AnimalDetail() {
   const desc = animal.popis || animal.description || 'Bez popisu.'
 
   const urls = Array.from(
-    new Set([
-      asUrl(animal.main) || undefined,
-      ...((animal.galerie || []).map((g) => asUrl(g) || undefined)),
-    ].filter(Boolean))
+    new Set(
+      [
+        asUrl(animal.main) || undefined,
+        ...((animal.galerie || []).map((g) => asUrl(g) || undefined)),
+      ].filter(Boolean)
+    )
   ) as string[]
 
   const mainUrl = urls[0] || '/no-image.jpg'
@@ -363,6 +353,31 @@ export default function AnimalDetail() {
 
   const lockTag = isUnlocked ? 'u1' : 'l1'
   const withBust = (u: string) => `${u}${u.includes('?') ? '&' : '?'}v=${lockTag}`
+
+  // Build lightbox list (main first, then extras), detect type
+  const lightboxItems: LightboxItem[] = useMemo(() => {
+    const list = [mainUrl, ...extraUrls].filter(Boolean)
+    return list.map((u) => ({ url: u, type: guessMediaType(u) }))
+  }, [mainUrl, extraUrls])
+
+  const openLightboxAt = useCallback((index: number) => {
+    setLbIndex(Math.max(0, Math.min(index, lightboxItems.length - 1)))
+    setLbOpen(true)
+  }, [lightboxItems.length])
+
+  const closeLightbox = useCallback(() => {
+    setLbOpen(false)
+  }, [])
+
+  const lbPrev = useCallback(() => {
+    setLbIndex((i) => (i <= 0 ? 0 : i - 1))
+  }, [])
+
+  const lbNext = useCallback(() => {
+    setLbIndex((i) => (i >= lightboxItems.length - 1 ? i : i + 1))
+  }, [lightboxItems.length])
+
+  const lbItem = lightboxItems[lbIndex]
 
   return (
     <Container sx={{ py: 4 }}>
@@ -373,7 +388,6 @@ export default function AnimalDetail() {
             {title}
           </Typography>
 
-          {/* Small counter so we SEE that polling reads posts */}
           <Chip
             size="small"
             label={posts.length}
@@ -382,7 +396,6 @@ export default function AnimalDetail() {
             sx={{ mr: 0.5 }}
           />
 
-          {/* Notification icon – blinks when hasNewPosts === true */}
           <NotificationsIcon
             className={hasNewPosts ? 'notification-icon blink' : 'notification-icon'}
             titleAccess={hasNewPosts ? 'Nový příspěvek' : 'Příspěvky'}
@@ -395,21 +408,20 @@ export default function AnimalDetail() {
         </Stack>
 
         {animal.charakteristik && (
-           <div
-          style={{
-          fontWeight: 700,
-          padding: '6px 10px',
-          borderRadius: 12,
-          display: 'inline-block',
-          background: '#e0f7fa', // světle tyrkysové pozadí
-          // ❌ remove color: 'white'
-          boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
-          maxWidth: '100%',
-          wordBreak: 'break-word',
-          }}
-         >
-           <SafeHTML>{animal.charakteristik}</SafeHTML>
-         </div>
+          <div
+            style={{
+              fontWeight: 700,
+              padding: '6px 10px',
+              borderRadius: 12,
+              display: 'inline-block',
+              background: '#e0f7fa',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
+              maxWidth: '100%',
+              wordBreak: 'break-word',
+            }}
+          >
+            <SafeHTML>{animal.charakteristik}</SafeHTML>
+          </div>
         )}
 
         <Stack direction="row" spacing={1} alignItems="center">
@@ -432,26 +444,63 @@ export default function AnimalDetail() {
       <Box sx={{ mt: 3 }}>
         <Grid container spacing={2}>
           <Grid item xs={12} md={6}>
+            {/* ✅ Main media preview (click → lightbox) */}
             <Box
-              component="a"
-              href={mainUrl}
-              target="_blank"
-              rel="noreferrer"
+              role="button"
+              tabIndex={0}
+              onClick={() => openLightboxAt(0)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') openLightboxAt(0)
+              }}
               sx={{
-                display: 'block',
-                borderRadius: 2,
+                cursor: 'zoom-in',
+                borderRadius: 2.5,
                 overflow: 'hidden',
                 border: '1px solid',
                 borderColor: 'divider',
+                height: { xs: 280, sm: 360, md: 420 }, // bigger on desktop
+                position: 'relative',
+                backgroundColor: 'rgba(0,0,0,0.04)',
               }}
             >
-              <img
-                src={withBust(mainUrl)}
-                alt="main"
-                style={{ width: '100%', height: 320, objectFit: 'cover' }}
-              />
+              {guessMediaType(mainUrl) === 'video' ? (
+                <>
+                  <video
+                    src={withBust(mainUrl)}
+                    muted
+                    playsInline
+                    preload="metadata"
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'contain', // keep portrait aspect
+                      display: 'block',
+                      background: 'black',
+                    }}
+                  />
+                  <Box
+                    sx={{
+                      position: 'absolute',
+                      inset: 0,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      pointerEvents: 'none',
+                    }}
+                  >
+                    <PlayCircleOutlineIcon sx={{ fontSize: 72, opacity: 0.85, color: 'white' }} />
+                  </Box>
+                </>
+              ) : (
+                <img
+                  src={withBust(mainUrl)}
+                  alt="main"
+                  style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                />
+              )}
             </Box>
           </Grid>
+
           <Grid item xs={12} md={6}>
             <Typography variant="h6" sx={{ fontWeight: 800, mb: 1 }}>
               Popis
@@ -462,7 +511,6 @@ export default function AnimalDetail() {
 
             <Divider sx={{ my: 2 }} />
 
-            {/* Adoption / amount picker / go to pre-checkout */}
             <Box id="adopce">
               <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>
                 {isUnlocked ? 'Podpořit zvíře' : 'Chci adoptovat'}
@@ -491,9 +539,7 @@ export default function AnimalDetail() {
                       type="number"
                       label="Částka (Kč)"
                       value={amount}
-                      onChange={(e) =>
-                        setAmount(Math.max(0, parseInt(e.target.value || '0', 10)))
-                      }
+                      onChange={(e) => setAmount(Math.max(0, parseInt(e.target.value || '0', 10)))}
                       inputProps={{ min: 50, step: 10 }}
                       sx={{ width: 160 }}
                     />
@@ -527,14 +573,24 @@ export default function AnimalDetail() {
             <Grid container spacing={1.5}>
               {extraUrls.map((u, i) => {
                 const src = withBust(u)
+                const idx = i + 1 // because main is 0
+                const t = guessMediaType(u)
+
                 return (
                   <Grid item xs={6} sm={4} md={3} key={`${i}-${lockTag}`}>
                     <Box
-                      component={isUnlocked ? 'a' : 'div'}
-                      {...(isUnlocked
-                        ? { href: u, target: '_blank', rel: 'noreferrer' }
-                        : {})}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => {
+                        if (!isUnlocked) return
+                        openLightboxAt(idx)
+                      }}
+                      onKeyDown={(e) => {
+                        if (!isUnlocked) return
+                        if (e.key === 'Enter' || e.key === ' ') openLightboxAt(idx)
+                      }}
                       sx={{
+                        position: 'relative',
                         display: 'block',
                         width: '100%',
                         height: 160,
@@ -542,14 +598,45 @@ export default function AnimalDetail() {
                         overflow: 'hidden',
                         border: '1px solid',
                         borderColor: 'divider',
+                        cursor: isUnlocked ? 'zoom-in' : 'default',
                       }}
                       className={!isUnlocked ? 'lockedMedia' : undefined}
                     >
-                      <img
-                        src={src}
-                        alt={`media-${i + 1}`}
-                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                      />
+                      {t === 'video' ? (
+                        <>
+                          <video
+                            src={src}
+                            muted
+                            playsInline
+                            preload="metadata"
+                            style={{
+                              width: '100%',
+                              height: '100%',
+                              objectFit: 'contain', // keep portrait aspect in thumb too
+                              display: 'block',
+                              background: 'black',
+                            }}
+                          />
+                          <Box
+                            sx={{
+                              position: 'absolute',
+                              inset: 0,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              pointerEvents: 'none',
+                            }}
+                          >
+                            <PlayCircleOutlineIcon sx={{ fontSize: 44, opacity: 0.9, color: 'white' }} />
+                          </Box>
+                        </>
+                      ) : (
+                        <img
+                          src={src}
+                          alt={`media-${i + 1}`}
+                          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                        />
+                      )}
                     </Box>
                   </Grid>
                 )
@@ -580,7 +667,7 @@ export default function AnimalDetail() {
         )}
       </Box>
 
-      {/* After-payment dialog (email + password) */}
+      {/* After-payment dialog */}
       <AfterPaymentPasswordDialog
         open={showAfterPay}
         onClose={() => setShowAfterPay(false)}
@@ -591,11 +678,108 @@ export default function AnimalDetail() {
           navigate('/user', { replace: true })
         }}
       />
+
+      {/* ✅ Lightbox dialog */}
+      <Dialog
+        open={lbOpen}
+        onClose={closeLightbox}
+        fullWidth
+        maxWidth="lg"
+        PaperProps={{
+          sx: {
+            borderRadius: 3,
+            overflow: 'hidden',
+            bgcolor: 'black',
+          },
+        }}
+      >
+        <Box
+          sx={{
+            position: 'relative',
+            width: '100%',
+            height: isSmDown ? '70vh' : '80vh',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            bgcolor: 'black',
+          }}
+        >
+          {/* close */}
+          <IconButton
+            onClick={closeLightbox}
+            sx={{ position: 'absolute', top: 8, right: 8, color: 'white', zIndex: 2 }}
+          >
+            <CloseIcon />
+          </IconButton>
+
+          {/* prev */}
+          <IconButton
+            onClick={lbPrev}
+            disabled={lbIndex <= 0}
+            sx={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: 'white', zIndex: 2 }}
+          >
+            <ChevronLeftIcon />
+          </IconButton>
+
+          {/* next */}
+          <IconButton
+            onClick={lbNext}
+            disabled={lbIndex >= lightboxItems.length - 1}
+            sx={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', color: 'white', zIndex: 2 }}
+          >
+            <ChevronRightIcon />
+          </IconButton>
+
+          {/* media */}
+          {lbItem?.type === 'video' ? (
+            <video
+              src={withBust(lbItem.url)}
+              controls
+              playsInline
+              style={{
+                maxWidth: '100%',
+                maxHeight: '100%',
+                width: 'auto',
+                height: 'auto',
+                objectFit: 'contain', // keep portrait exactly
+                background: 'black',
+              }}
+            />
+          ) : (
+            <img
+              src={withBust(lbItem?.url || '')}
+              alt="preview"
+              style={{
+                maxWidth: '100%',
+                maxHeight: '100%',
+                width: 'auto',
+                height: 'auto',
+                objectFit: 'contain',
+                display: 'block',
+              }}
+            />
+          )}
+
+          {/* counter */}
+          <Box
+            sx={{
+              position: 'absolute',
+              bottom: 10,
+              left: '50%',
+              transform: 'translateX(-50%)',
+              color: 'white',
+              fontSize: 13,
+              opacity: 0.8,
+            }}
+          >
+            {lbIndex + 1} / {lightboxItems.length}
+          </Box>
+        </Box>
+      </Dialog>
     </Container>
   )
 }
 
-// Browser notification helper
 function triggerBrowserNotification(title: string, options?: NotificationOptions) {
   if (typeof window === 'undefined') return
   if (!('Notification' in window)) return

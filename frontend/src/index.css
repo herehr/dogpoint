@@ -38,7 +38,7 @@
   font-display: swap;
 }
 
-/* Blogger Sans – italic (fallback for all italic weights) */
+/* Blogger Sans – italic */
 @font-face {
   font-family: 'Blogger Sans';
   src: url('/fonts/BloggerSans-Italic.woff') format('woff');
@@ -79,13 +79,26 @@ body {
   background-color: #f9f9f9;
 }
 
+/* Ensure images & videos never overflow containers */
+img,
+video {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* Videos: preserve original aspect ratio (portrait stays portrait) */
+video {
+  object-fit: contain;
+  background-color: #000; /* avoids white bars in dialogs */
+}
 
 /* All MUI text by default = Blogger Sans */
 .MuiTypography-root {
   font-family: 'Blogger Sans', system-ui, sans-serif;
 }
 
-/* Headings (HTML + MUI variants) = Open Sans */
+/* Headings = Open Sans */
 h1, h2, h3, h4, h5, h6,
 .MuiTypography-h1,
 .MuiTypography-h2,
@@ -126,20 +139,10 @@ h1, h2, h3, h4, h5, h6,
   );
 }
 
-@keyframes notifPulse {
-  0% {
-    transform: scale(1);
-    opacity: 1;
-  }
-  50% {
-    transform: scale(1.4);
-    opacity: 0.7;
-  }
-  100% {
-    transform: scale(1);
-    opacity: 1;
-  }
-}
+/* ============================
+   Notifications
+   ============================ */
+
 .notification-icon {
   cursor: pointer;
 }
