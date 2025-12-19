@@ -117,7 +117,7 @@ async function doFetch<T>(path: string, opts: FetchOpts = {}): Promise<T> {
         : opts.body !== undefined
           ? JSON.stringify(opts.body)
           : undefined,
-      credentials: 'omit',
+      credentials: 'include',
       signal,
     })
 
