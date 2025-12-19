@@ -10,6 +10,10 @@ router.get('/_ping', (_req, res) => {
   res.json({ ok: true, where: 'adminStats router mounted' })
 })
 
+router.get('/_version', (_req, res) => {
+  res.json({ ok: true, build: 'dev-adminStats-2025-12-19-0918' })
+})
+
 function isAdmin(req: Request): boolean {
   const r = (req.user as any)?.role
   return r === Role.ADMIN || r === 'ADMIN'

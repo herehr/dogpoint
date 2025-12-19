@@ -18,7 +18,18 @@ export function setToken(token: string) {
 }
 export function getToken(): string | null {
   try {
-    return sessionStorage.getItem(tokenKey)
+    // primary
+    const t = sessionStorage.getItem(tokenKey)
+    if (t) return t
+
+    // fallbacks (older keys)
+    return (
+      sessionStorage.getItem('adminToken') ||
+      sessionStorage.getItem('moderatorToken') ||
+      sessionStorage.getItem('token') ||
+      localStorage.getItem('dp:token') ||
+      localStorage.getItem('token')
+    )
   } catch {
     return null
   }
