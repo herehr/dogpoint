@@ -95,15 +95,23 @@ export default function AdminStats({ embedded = false }: Props) {
       <Paper sx={{ p: 2, mb: 2, borderRadius: 3 }}>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center">
           <ToggleButtonGroup
-            exclusive
-            value={tab}
-            onChange={(_, v) => v && setTab(v)}
-            size="small"
-          >
-            <ToggleButton value="payments">Platby</ToggleButton>
-            <ToggleButton value="pledges">Přísliby</ToggleButton>
-            <ToggleButton value="expected">Očekávané</ToggleButton>
-          </ToggleButtonGroup>
+  exclusive
+  value={tab}
+  onChange={(_, v) => v && setTab(v)}
+  size="small"
+>
+  <ToggleButton value="payments">
+    Předplatné (uhrazené)
+  </ToggleButton>
+
+  <ToggleButton value="pledges">
+    Neuhrazené přísliby
+  </ToggleButton>
+
+  <ToggleButton value="expected">
+    Očekávaný měsíční příjem
+  </ToggleButton>
+</ToggleButtonGroup>
 
           <Divider orientation="vertical" flexItem sx={{ display: { xs: 'none', sm: 'block' } }} />
 

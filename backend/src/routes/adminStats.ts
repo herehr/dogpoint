@@ -230,25 +230,41 @@ router.get('/payments', async (req: Request, res: Response) => {
 router.get('/pledges', async (req: Request, res: Response) => {
   try {
     const range = normalizeRange(req.query)
-    const where = range ? { createdAt: range } : {}
 
-    const pledges = await prisma.pledge.findMany({
-      where: where as any,
-      orderBy: { createdAt: 'desc' },
+    // ✅ only pending pledges
+    const where: any = { status: PS.PENDING }
+    if (range) where.createdAt = range
+
+    const [rows, agg] = await Promise.all([
+      prisma.pledge.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          createdAt: true,
+          email: true,
+          animalId: true,
+          amount: true,
+          status: true,
+          method: true,
+          interval: true,
+          providerId: true,
+        },
+      }),
+      prisma.pledge.aggregate({
+        where,
+        _count: { _all: true },
+        _sum: { amount: true },
+      }),
+    ])
+
+    res.json({
+      ok: true,
+      count: agg._count._all || 0,
+      sum: agg._sum.amount || 0,
+      rows,
+      byStatus: { PENDING: { count: agg._count._all || 0, sum: agg._sum.amount || 0 } },
     })
-
-    const count = pledges.length
-    const sum = pledges.reduce((s, p: any) => s + (p.amount || 0), 0)
-
-    const byStatus: Record<string, { count: number; sum: number }> = {}
-    for (const p of pledges as any[]) {
-      const key = String(p.status)
-      byStatus[key] = byStatus[key] || { count: 0, sum: 0 }
-      byStatus[key].count += 1
-      byStatus[key].sum += p.amount || 0
-    }
-
-    res.json({ ok: true, count, sum, byStatus, rows: pledges })
   } catch (e: any) {
     console.error('GET /api/admin/stats/pledges error', e)
     res.status(500).json({ error: 'internal error' })
