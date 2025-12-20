@@ -52,7 +52,8 @@ model Animal {
   posts            Post[]
   subscriptions    Subscription[]
 
-  // --- Approval workflow fields ---
+  notifications    Notification[]   // ✅ ADD THIS
+
   status       ContentStatus @default(PENDING_REVIEW)
   createdById  String?
   createdBy    User?         @relation("AnimalCreatedBy", fields: [createdById], references: [id])
@@ -108,6 +109,16 @@ model Post {
   animal      Animal      @relation(fields: [animalId], references: [id], onDelete: Cascade)
   author      User?       @relation("AuthorPosts", fields: [authorId], references: [id])
   media       PostMedia[]
+
+  notifications Notification[]   // ✅ ADD THIS
+
+  status       ContentStatus @default(PENDING_REVIEW)
+  createdById  String?
+  createdBy    User?         @relation("PostCreatedBy", fields: [createdById], references: [id])
+  approvedById String?
+  approvedBy   User?         @relation("PostApprovedBy", fields: [approvedById], references: [id])
+  updatedAt    DateTime      @default(now()) @updatedAt
+}
 
   // --- Approval workflow fields ---
   status       ContentStatus @default(PENDING_REVIEW)
@@ -175,17 +186,31 @@ model Payment {
 }
 
 model Notification {
-  id     String @id @default(uuid())
-  user   User   @relation(fields: [userId], references: [id])
-  userId String
+  id        String   @id @default(uuid())
 
-  type      String // e.g. 'ADOPTION_CREATED', 'ADOPTION_CANCELLED'
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+
+  // what caused it
+  type      String   // e.g. 'NEW_POST'
   title     String
   message   String
-  readAt    DateTime? // null = unread
-  createdAt DateTime  @default(now())
-}
 
+  // relations (optional but recommended)
+  animalId  String?
+  animal    Animal? @relation(fields: [animalId], references: [id])
+
+  postId    String?
+  post      Post?   @relation(fields: [postId], references: [id])
+
+  // UX
+  readAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId, readAt])
+  @@index([userId, createdAt])
+  @@unique([userId, postId]) // prevents duplicates for same post
+}
 model WebhookEvent {
   id         String          @id @default(cuid())
   provider   PaymentProvider
