@@ -1,5 +1,6 @@
 // backend/src/routes/notification.ts
 import { Router } from 'express'
+import { requireAuth } from '../middleware/authJwt'
 import {
   listMyNotifications,
   markNotificationRead,
@@ -8,9 +9,9 @@ import {
 const router = Router()
 
 // GET /api/notifications
-router.get('/', listMyNotifications)
+router.get('/', requireAuth, listMyNotifications)
 
 // POST /api/notifications/:id/read
-router.post('/:id/read', markNotificationRead)
+router.post('/:id/read', requireAuth, markNotificationRead)
 
 export default router
