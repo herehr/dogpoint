@@ -1,45 +1,32 @@
-// backend/src/services/notifyAdoptionStarted.ts
 import { prisma } from '../prisma'
-import { sendEmail } from './email'
+import { sendEmail as defaultSendEmail } from './email'
 
-type Args = {
-  userId: string
-  animalId: string
-  monthlyAmount?: number | null
-  provider?: string | null
+type Opts = {
+  sendEmail?: boolean
+  sendEmailFn?: (to: string, subject: string, html: string) => Promise<any>
 }
 
-export async function notifyAdoptionStarted(args: Args) {
-  const { userId, animalId, monthlyAmount, provider } = args
+export async function notifyAdoptionStarted(userId: string, animalId: string, opts: Opts = {}) {
+  const user = await prisma.user.findUnique({ where: { id: userId } })
+  const animal = await prisma.animal.findUnique({ where: { id: animalId } })
 
-  // Load user + animal for nicer text/email
-  const [user, animal] = await Promise.all([
-    prisma.user.findUnique({ where: { id: userId } }),
-    prisma.animal.findUnique({ where: { id: animalId } }),
-  ])
-
-  const animalName = animal?.jmeno || animal?.name || 'zvíře'
-  const amountText =
-    typeof monthlyAmount === 'number' ? `${monthlyAmount} Kč / měsíc` : 'měsíční podpora'
-  const providerText = provider ? ` (${provider})` : ''
-
+  const animalName = (animal as any)?.jmeno || (animal as any)?.name || 'zvíře'
   const title = 'Děkujeme za adopci! ❤️'
-  const message = `Vaše adopce pro "${animalName}" byla úspěšně spuštěna: ${amountText}${providerText}.`
+  const message = `Vaše adopce pro "${animalName}" byla úspěšně spuštěna.`
 
-  // Create in-app notification
+  // In-app notification (adjust fields if your Notification model differs)
   await prisma.notification.create({
     data: {
       userId,
       title,
       message,
-      // if your schema has these fields, keep them; if not, delete them
       animalId,
       type: 'ADOPTION_STARTED',
     } as any,
   })
 
-  // Optional email (only if user has email and EMAIL_* env is configured)
-  if (user?.email) {
+  if (opts.sendEmail && user?.email) {
+    const send = opts.sendEmailFn ?? defaultSendEmail
     const subject = 'Dogpoint – adopce byla spuštěna'
     const html = `
       <div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.4">
@@ -48,6 +35,6 @@ export async function notifyAdoptionStarted(args: Args) {
         <p style="margin:0">Děkujeme,<br/>Dogpoint</p>
       </div>
     `
-    await sendEmail(user.email, subject, html)
+    await send(user.email, subject, html)
   }
 }

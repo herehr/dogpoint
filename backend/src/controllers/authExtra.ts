@@ -75,7 +75,7 @@ export async function linkPaidOrRecentPledgesToUser(
     provider: 'STRIPE' as any,
     status: pledge.status === 'PAID' ? ('ACTIVE' as any) : ('PENDING' as any),
     startedAt: new Date() as any,
-    // interval removed (Subscription has no interval field in Prisma)
+    // interval removed (Subscription model has no interval field)
   } as any,
 })
         } catch (err) {
