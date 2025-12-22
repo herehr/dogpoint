@@ -68,16 +68,16 @@ export async function linkPaidOrRecentPledgesToUser(
         // no subscription yet -> create one
         try {
           sub = await prisma.subscription.create({
-            data: {
-              userId,
-              animalId: pledge.animalId,
-              monthlyAmount: monthlyAmount as any,
-              provider: 'STRIPE' as any,
-              status: pledge.status === 'PAID' ? ('ACTIVE' as any) : ('PENDING' as any),
-              startedAt: new Date() as any,
-              interval: pledge.interval as any,
-            } as any,
-          })
+  data: {
+    userId,
+    animalId: pledge.animalId,
+    monthlyAmount: monthlyAmount as any,
+    provider: 'STRIPE' as any,
+    status: pledge.status === 'PAID' ? ('ACTIVE' as any) : ('PENDING' as any),
+    startedAt: new Date() as any,
+    // interval removed (Subscription has no interval field in Prisma)
+  } as any,
+})
         } catch (err) {
           console.error(
             '[linkPaidOrRecentPledgesToUser] create subscription with pledge info failed, retrying minimal:',
