@@ -3,9 +3,8 @@ import { Request, Response } from 'express'
 import { PrismaClient, SubscriptionStatus, PaymentProvider } from '@prisma/client'
 import { signToken, verifyToken, JwtPayload } from '../utils/jwt'
 
-// ✅ notifications + e-mail
+// ✅ notifications + e-mail (handled inside notifyAdoption.ts via mailer)
 import { notifyAdoptionStarted, notifyAdoptionCancelled } from '../services/notifyAdoption'
-import { sendEmail } from '../services/email'
 
 const prisma = new PrismaClient()
 
@@ -82,13 +81,13 @@ export async function startAdoption(req: Req, res: Response) {
   if (!userId) {
     if (!email) return res.status(401).json({ error: 'email required when not logged in' })
 
-    // find or create USER
     let user = await prisma.user.findUnique({ where: { email } })
     if (!user) {
       user = await prisma.user.create({
         data: { email, role: 'USER', passwordHash: null },
       })
     }
+
     userId = user.id
     const token = signToken({ id: user.id, role: user.role as any })
 
@@ -99,17 +98,14 @@ export async function startAdoption(req: Req, res: Response) {
         monthlyAmount: monthly ?? 200,
         provider: PaymentProvider.FIO,
         status: SubscriptionStatus.ACTIVE,
+        // optional: keep name/message somewhere else if needed
       },
       select: { id: true, status: true },
     })
 
-    // ✅ Notification + email (never break the response)
+    // ✅ Notification + email (best-effort)
     try {
-      await notifyAdoptionStarted(userId, animalId, {
-        monthlyAmount: monthly ?? 200,
-        sendEmail: true,
-        sendEmailFn: sendEmail,
-      })
+      await notifyAdoptionStarted(userId, animalId)
     } catch (e) {
       console.warn('[notifyAdoptionStarted] failed', e)
     }
@@ -136,13 +132,9 @@ export async function startAdoption(req: Req, res: Response) {
     select: { id: true, status: true },
   })
 
-  // ✅ Notification + email
+  // ✅ Notification + email (best-effort)
   try {
-    await notifyAdoptionStarted(userId, animalId, {
-      monthlyAmount: monthly ?? 200,
-      sendEmail: true,
-      sendEmailFn: sendEmail,
-    })
+    await notifyAdoptionStarted(userId, animalId)
   } catch (e) {
     console.warn('[notifyAdoptionStarted] failed', e)
   }
@@ -178,12 +170,9 @@ export async function endAdoption(req: Req, res: Response) {
     return res.status(404).json({ error: 'Aktivní adopce nenalezena' })
   }
 
-  // ✅ Notification + email
+  // ✅ Notification + email (best-effort)
   try {
-    await notifyAdoptionCancelled(auth.id, animalId, {
-      sendEmail: true,
-      sendEmailFn: sendEmail,
-    })
+    await notifyAdoptionCancelled(auth.id, animalId)
   } catch (e) {
     console.warn('[notifyAdoptionCancelled] failed', e)
   }

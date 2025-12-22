@@ -115,7 +115,7 @@ router.post('/posts/:id/approve', requireAuth, async (req: Request, res: Respons
     // ✅ create Notification rows (+ optionally send emails)
     // NOTE: this must never break approving the post
     try {
-      await notifyUsersAboutNewPost(updated.id, { sendEmail: true, mailer })
+      await notifyUsersAboutNewPost(updated.id, true)
     } catch (err) {
       console.warn('[notifyUsersAboutNewPost] failed', err)
     }
