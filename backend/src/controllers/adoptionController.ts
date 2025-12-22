@@ -1,7 +1,11 @@
+// backend/src/controllers/adoptionController.ts
 import { Request, Response } from 'express'
 import { PrismaClient, SubscriptionStatus, PaymentProvider } from '@prisma/client'
 import { signToken, verifyToken, JwtPayload } from '../utils/jwt'
-import { notifyUser } from './notificationController'   // ✅ NEW
+
+// ✅ notifications + e-mail
+import { notifyAdoptionStarted, notifyAdoptionCancelled } from '../services/notifyAdoption'
+import { sendEmail } from '../services/email'
 
 const prisma = new PrismaClient()
 
@@ -26,7 +30,7 @@ export async function getAccess(req: Req, res: Response) {
     where: {
       userId: auth.id,
       animalId,
-      status: SubscriptionStatus.ACTIVE, // use enum for clarity
+      status: SubscriptionStatus.ACTIVE,
     },
     select: { id: true },
   })
@@ -45,7 +49,6 @@ export async function getMe(req: Req, res: Response) {
     select: { id: true, email: true, role: true },
   })
 
-  // only ACTIVE subscriptions are considered for access
   const subs = await prisma.subscription.findMany({
     where: { userId: auth.id, status: SubscriptionStatus.ACTIVE },
     select: { animalId: true },
@@ -61,8 +64,6 @@ export async function getMe(req: Req, res: Response) {
 
 // POST /api/adoption/start
 // body: { animalId, email?, name?, monthly? }
-// If not logged in and email is given, create/find user and return {token} so your frontend stores accessToken.
-// Creates a Subscription: BANK -> ACTIVE; CARD via Stripe would be PENDING (wire later).
 export async function startAdoption(req: Req, res: Response) {
   const { animalId, email, name, monthly } = (req.body || {}) as {
     animalId: string
@@ -72,7 +73,6 @@ export async function startAdoption(req: Req, res: Response) {
   }
   if (!animalId) return res.status(400).json({ error: 'animalId required' })
 
-  // who is the user?
   let auth = getAuth(req)
   let userId = auth?.id
 
@@ -92,24 +92,27 @@ export async function startAdoption(req: Req, res: Response) {
     userId = user.id
     const token = signToken({ id: user.id, role: user.role as any })
 
-    // Create subscription as ACTIVE (BANK/FIO default)
     const sub = await prisma.subscription.create({
       data: {
         userId,
         animalId,
         monthlyAmount: monthly ?? 200,
-        provider: PaymentProvider.FIO, // BANK by default; swap to STRIPE when integrating card flow
+        provider: PaymentProvider.FIO,
         status: SubscriptionStatus.ACTIVE,
       },
       select: { id: true, status: true },
     })
 
-    // ✅ NEW: create notification + e-mail
-    await notifyUser(userId, {
-      type: 'ADOPTION_CREATED',
-      title: 'Nová adopce byla založena',
-      message: `Děkujeme za vaši podporu. Vaše adopce byla založena pro zvíře ${animalId}.`,
-    })
+    // ✅ Notification + email (never break the response)
+    try {
+      await notifyAdoptionStarted(userId, animalId, {
+        monthlyAmount: monthly ?? 200,
+        sendEmail: true,
+        sendEmailFn: sendEmail,
+      })
+    } catch (e) {
+      console.warn('[notifyAdoptionStarted] failed', e)
+    }
 
     return res.json({
       ok: true,
@@ -127,18 +130,22 @@ export async function startAdoption(req: Req, res: Response) {
       userId,
       animalId,
       monthlyAmount: monthly ?? 200,
-      provider: PaymentProvider.FIO, // BANK default
+      provider: PaymentProvider.FIO,
       status: SubscriptionStatus.ACTIVE,
     },
     select: { id: true, status: true },
   })
 
-  // ✅ NEW: notify logged-in user
-  await notifyUser(userId, {
-    type: 'ADOPTION_CREATED',
-    title: 'Nová adopce byla založena',
-    message: `Děkujeme za vaši podporu. Vaše adopce byla založena pro zvíře ${animalId}.`,
-  })
+  // ✅ Notification + email
+  try {
+    await notifyAdoptionStarted(userId, animalId, {
+      monthlyAmount: monthly ?? 200,
+      sendEmail: true,
+      sendEmailFn: sendEmail,
+    })
+  } catch (e) {
+    console.warn('[notifyAdoptionStarted] failed', e)
+  }
 
   return res.json({
     ok: true,
@@ -148,7 +155,6 @@ export async function startAdoption(req: Req, res: Response) {
 
 // POST /api/adoption/end
 // body: { animalId }
-// Cancel *all* ACTIVE subscriptions for this user+animal
 export async function endAdoption(req: Req, res: Response) {
   const auth = getAuth(req)
   if (!auth) return res.status(401).json({ error: 'Unauthorized' })
@@ -156,7 +162,6 @@ export async function endAdoption(req: Req, res: Response) {
   const { animalId } = (req.body || {}) as { animalId: string }
   if (!animalId) return res.status(400).json({ error: 'animalId required' })
 
-  // Cancel ALL active subs for this user & animal (avoid duplicates staying ACTIVE)
   const result = await prisma.subscription.updateMany({
     where: {
       userId: auth.id,
@@ -173,12 +178,15 @@ export async function endAdoption(req: Req, res: Response) {
     return res.status(404).json({ error: 'Aktivní adopce nenalezena' })
   }
 
-  // ✅ NEW: notify user about cancellation
-  await notifyUser(auth.id, {
-    type: 'ADOPTION_CANCELLED',
-    title: 'Adopce byla zrušena',
-    message: `Vaše adopce pro zvíře ${animalId} byla zrušena. Mrzí nás to – kdykoliv se k nám můžete vrátit.`,
-  })
+  // ✅ Notification + email
+  try {
+    await notifyAdoptionCancelled(auth.id, animalId, {
+      sendEmail: true,
+      sendEmailFn: sendEmail,
+    })
+  } catch (e) {
+    console.warn('[notifyAdoptionCancelled] failed', e)
+  }
 
   return res.json({ ok: true, canceledCount: result.count })
 }
