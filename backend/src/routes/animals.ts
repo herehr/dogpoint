@@ -1,7 +1,7 @@
 // backend/src/routes/animals.ts
 import { Router, Request, Response } from 'express'
 import { prisma } from '../prisma'
-import { requireAuth } from '../middleware/authJwt'   // ✅ use JWT-based auth
+import { requireAuth } from '../middleware/authJwt' // ✅ use JWT-based auth
 import { ContentStatus, Role } from '@prisma/client'
 import { notifyApproversAboutNewAnimal } from '../services/moderationNotifications'
 import { notifyAnimalUpdated } from '../services/notifyAnimalUpdated'
@@ -11,10 +11,11 @@ const router = Router()
 type BodyMedia = { url?: string; typ?: string } | string
 
 function parseGalerie(input: any): Array<{ url: string; typ?: string }> {
-  const arr: BodyMedia[] =
-    Array.isArray(input?.galerie) ? input.galerie
-    : Array.isArray(input?.gallery) ? input.gallery
-    : []
+  const arr: BodyMedia[] = Array.isArray(input?.galerie)
+    ? input.galerie
+    : Array.isArray(input?.gallery)
+      ? input.gallery
+      : []
   return arr
     .map((x) => (typeof x === 'string' ? { url: x } : { url: x?.url, typ: x?.typ }))
     .filter((m): m is { url: string; typ?: string } => !!m.url)
@@ -22,12 +23,7 @@ function parseGalerie(input: any): Array<{ url: string; typ?: string }> {
 }
 
 function isStaff(role?: Role | string): boolean {
-  return (
-    role === Role.ADMIN ||
-    role === Role.MODERATOR ||
-    role === 'ADMIN' ||
-    role === 'MODERATOR'
-  )
+  return role === Role.ADMIN || role === Role.MODERATOR || role === 'ADMIN' || role === 'MODERATOR'
 }
 
 /* =========================
@@ -71,48 +67,44 @@ router.get('/', async (_req: Request, res: Response): Promise<void> => {
    ========================= */
 
 // MUST be before '/:id'
-router.get(
-  '/pending',
-  requireAuth,
-  async (req: Request, res: Response): Promise<void> => {
-    // req.user is populated by authJwt
-    const user = (req as any).user as { id: string; role: Role | string } | undefined
-    if (!user || !isStaff(user.role)) {
-      res.status(403).json({ error: 'Forbidden' })
-      return
-    }
+router.get('/pending', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  // req.user is populated by authJwt
+  const user = (req as any).user as { id: string; role: Role | string } | undefined
+  if (!user || !isStaff(user.role)) {
+    res.status(403).json({ error: 'Forbidden' })
+    return
+  }
 
-    try {
-      const animals = await prisma.animal.findMany({
-        where: {
-          // ✅ show ALL animals waiting for approval (from ANY moderator)
-          status: ContentStatus.PENDING_REVIEW,
+  try {
+    const animals = await prisma.animal.findMany({
+      where: {
+        // ✅ show ALL animals waiting for approval (from ANY moderator)
+        status: ContentStatus.PENDING_REVIEW,
+      },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        galerie: {
+          select: { url: true, typ: true },
+          orderBy: { id: 'asc' },
         },
-        orderBy: { createdAt: 'desc' },
-        include: {
-          galerie: {
-            select: { url: true, typ: true },
-            orderBy: { id: 'asc' },
-          },
-        },
-      })
+      },
+    })
 
-      const shaped = animals.map((a) => ({
-        ...a,
-        main: a.main ?? a.galerie?.[0]?.url ?? null,
-      }))
-      res.json(shaped)
-    } catch (e: any) {
-      console.error('GET /api/animals/pending error:', {
-        message: e?.message,
-        code: e?.code,
-        meta: e?.meta,
-        stack: e?.stack,
-      })
-      res.status(500).json({ error: 'Internal error fetching pending animals' })
-    }
-  },
-)
+    const shaped = animals.map((a) => ({
+      ...a,
+      main: a.main ?? a.galerie?.[0]?.url ?? null,
+    }))
+    res.json(shaped)
+  } catch (e: any) {
+    console.error('GET /api/animals/pending error:', {
+      message: e?.message,
+      code: e?.code,
+      meta: e?.meta,
+      stack: e?.stack,
+    })
+    res.status(500).json({ error: 'Internal error fetching pending animals' })
+  }
+})
 
 /* =========================
    READ – ONE PUBLIC
@@ -168,17 +160,15 @@ router.post('/', requireAuth, async (req: Request, res: Response): Promise<void>
   }
 
   const isAdmin = user.role === Role.ADMIN || user.role === 'ADMIN'
-  const initialStatus = isAdmin
-    ? ContentStatus.PUBLISHED
-    : ContentStatus.PENDING_REVIEW
+  const initialStatus = isAdmin ? ContentStatus.PUBLISHED : ContentStatus.PENDING_REVIEW
 
   // Safe coercions
   const parsedBornYear =
     body.bornYear === null || body.bornYear === undefined || body.bornYear === ''
       ? null
       : Number.isFinite(Number(body.bornYear))
-      ? Number(body.bornYear)
-      : null
+        ? Number(body.bornYear)
+        : null
 
   const parsedBirthDate = body.birthDate ? new Date(body.birthDate) : null
 
@@ -233,11 +223,7 @@ router.post('/', requireAuth, async (req: Request, res: Response): Promise<void>
 
     // If a moderator created the animal -> notify approvers
     if (!isAdmin) {
-      notifyApproversAboutNewAnimal(
-        result.id,
-        result.jmeno ?? result.name ?? 'Bez jména',
-        user.id,
-      ).catch((e) => {
+      notifyApproversAboutNewAnimal(result.id, result.jmeno ?? result.name ?? 'Bez jména', user.id).catch((e) => {
         console.error('[notifyApproversAboutNewAnimal] failed', e?.message)
       })
     }
@@ -263,16 +249,13 @@ router.patch('/:id', requireAuth, async (req: Request, res: Response): Promise<v
   const body = (req.body || {}) as any
   const media = parseGalerie(body)
 
-  const parsedBornYear =
-    Object.prototype.hasOwnProperty.call(body, 'bornYear')
-      ? body.bornYear === null ||
-        body.bornYear === '' ||
-        body.bornYear === undefined
-        ? null
-        : Number.isFinite(Number(body.bornYear))
+  const parsedBornYear = Object.prototype.hasOwnProperty.call(body, 'bornYear')
+    ? body.bornYear === null || body.bornYear === '' || body.bornYear === undefined
+      ? null
+      : Number.isFinite(Number(body.bornYear))
         ? Number(body.bornYear)
         : null
-      : undefined
+    : undefined
 
   const parsedBirthDate = Object.prototype.hasOwnProperty.call(body, 'birthDate')
     ? body.birthDate
@@ -282,13 +265,13 @@ router.patch('/:id', requireAuth, async (req: Request, res: Response): Promise<v
 
   try {
     const hasOwnMain = Object.prototype.hasOwnProperty.call(body, 'main')
-    const willReplaceGallery =
-      Array.isArray(body.galerie) || Array.isArray(body.gallery)
+    const willReplaceGallery = Array.isArray(body.galerie) || Array.isArray(body.gallery)
+
     const mainUpdate = hasOwnMain
       ? { main: body.main ?? null }
       : willReplaceGallery && media.length
-      ? { main: media[0].url }
-      : {}
+        ? { main: media[0].url }
+        : {}
 
     const baseUpdate: any = {
       name: body.name ?? undefined,
@@ -306,6 +289,7 @@ router.patch('/:id', requireAuth, async (req: Request, res: Response): Promise<v
       const updated = await prisma.$transaction(async (tx) => {
         await tx.animal.update({ where: { id }, data: baseUpdate })
         await tx.galerieMedia.deleteMany({ where: { animalId: id } })
+
         if (media.length) {
           await tx.galerieMedia.createMany({
             data: media.map((g) => ({
@@ -315,6 +299,7 @@ router.patch('/:id', requireAuth, async (req: Request, res: Response): Promise<v
             })),
           })
         }
+
         const fresh = await tx.animal.findUnique({
           where: { id },
           include: { galerie: true },
@@ -322,15 +307,18 @@ router.patch('/:id', requireAuth, async (req: Request, res: Response): Promise<v
         if (!fresh) return null
         return { ...fresh, main: fresh.main ?? fresh.galerie[0]?.url ?? null }
       })
+
       if (!updated) {
         res.status(404).json({ error: 'Not found' })
         return
       }
-        try {
-    await notifyAnimalUpdated(id)
-  } catch (e) {
-    console.warn('[notifyAnimalUpdated] failed', e)
-  }
+
+      try {
+        await notifyAnimalUpdated(id)
+      } catch (e) {
+        console.warn('[notifyAnimalUpdated] failed', e)
+      }
+
       res.json(updated)
       return
     }
@@ -340,11 +328,13 @@ router.patch('/:id', requireAuth, async (req: Request, res: Response): Promise<v
       data: baseUpdate,
       include: { galerie: true },
     })
+
     try {
-  await notifyAnimalUpdated(id)
-} catch (e) {
-  console.warn('[notifyAnimalUpdated] failed', e)
-}
+      await notifyAnimalUpdated(id)
+    } catch (e) {
+      console.warn('[notifyAnimalUpdated] failed', e)
+    }
+
     res.json({
       ...updated,
       main: updated.main ?? updated.galerie[0]?.url ?? null,

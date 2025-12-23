@@ -7,12 +7,23 @@ type Opts = {
   sendEmailFn?: (to: string, subject: string, html: string) => Promise<any>
 }
 
-function stripHtml(s: string): string {
+function toStr(x: unknown): string {
+  if (typeof x === 'string') return x
+  if (x === null || x === undefined) return ''
+  try {
+    return String(x)
+  } catch {
+    return ''
+  }
+}
+
+function stripHtml(input: unknown): string {
+  const s = toStr(input)
   return s.replace(/<[^>]*>/g, '').trim()
 }
 
-function takeExcerpt(s: string, max = 180): string {
-  const clean = stripHtml(s)
+function takeExcerpt(input: unknown, max = 180): string {
+  const clean = stripHtml(input)
   return clean.length > max ? clean.slice(0, max).trim() + '…' : clean
 }
 
@@ -20,10 +31,9 @@ function takeExcerpt(s: string, max = 180): string {
  * Notify all ACTIVE adopters of an animal that a post was published/approved.
  * Idempotent: won't create duplicates for same (userId, postId, type).
  */
-export async function notifyUsersAboutNewPost(
-  postId: string,
-  opts: Opts = {}
-): Promise<{ notified: number }> {
+export async function notifyUsersAboutNewPost(postId: string, opts: Opts = {}): Promise<{ notified: number }> {
+  console.log('[notifyUsersAboutNewPost] start', { postId })
+
   // Use "any" to avoid Prisma typing mismatches across different schema variants
   const post = (await (prisma as any).post.findUnique({
     where: { id: postId },
@@ -32,7 +42,7 @@ export async function notifyUsersAboutNewPost(
       animalId: true,
       title: true,
       status: true,
-      // These might differ in your schema; we fetch what exists and normalize below.
+      // possible text fields
       content: true,
       text: true,
       body: true,
@@ -41,11 +51,17 @@ export async function notifyUsersAboutNewPost(
     },
   })) as any
 
-  if (!post?.animalId) return { notified: 0 }
+  if (!post?.animalId) {
+    console.log('[notifyUsersAboutNewPost] no post or no animalId', { postId })
+    return { notified: 0 }
+  }
 
   const status = String(post.status || '')
   const okStatus = status === 'PUBLISHED' || status === 'APPROVED'
-  if (!okStatus) return { notified: 0 }
+  if (!okStatus) {
+    console.log('[notifyUsersAboutNewPost] post not published', { postId, status })
+    return { notified: 0 }
+  }
 
   const animal = await prisma.animal.findUnique({
     where: { id: post.animalId },
@@ -64,21 +80,26 @@ export async function notifyUsersAboutNewPost(
     (typeof post.obsah === 'string' && post.obsah) ||
     ''
 
-  const message = rawText
-    ? takeExcerpt(rawText, 180)
-    : 'Byla zveřejněna nová aktualita.'
+  const message = rawText ? takeExcerpt(rawText, 180) : 'Byla zveřejněna nová aktualita.'
 
   // All ACTIVE adopters for this animal
-  const subs = await prisma.subscription.findMany({
-    where: { animalId: post.animalId, status: 'ACTIVE' as any } as any,
+  const subs = await (prisma as any).subscription.findMany({
+    where: { animalId: post.animalId, status: 'ACTIVE' },
     select: { userId: true },
   })
-  if (!subs.length) return { notified: 0 }
 
-  const userIds = [...new Set(subs.map((s) => s.userId))]
+  const uniqueUserIds: string[] = Array.from(new Set((subs || []).map((s: any) => s.userId).filter(Boolean)))
+
+  console.log('[notifyUsersAboutNewPost] recipients', {
+    animalId: post.animalId,
+    subs: subs?.length ?? 0,
+    uniqueUsers: uniqueUserIds.length,
+  })
+
+  if (!uniqueUserIds.length) return { notified: 0 }
 
   const users = await prisma.user.findMany({
-    where: { id: { in: userIds } },
+    where: { id: { in: uniqueUserIds } },
     select: { id: true, email: true },
   })
 
@@ -127,5 +148,6 @@ export async function notifyUsersAboutNewPost(
     }
   }
 
+  console.log('[notifyUsersAboutNewPost] done', { postId, notified })
   return { notified }
 }
