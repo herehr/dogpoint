@@ -1,3 +1,4 @@
+// backend/src/services/notifyAdoptionStarted.ts
 import { prisma } from '../prisma'
 import { sendEmail as defaultSendEmail } from './email'
 
@@ -6,7 +7,11 @@ type Opts = {
   sendEmailFn?: (to: string, subject: string, html: string) => Promise<any>
 }
 
-export async function notifyAdoptionStarted(userId: string, animalId: string, opts: Opts = {}) {
+export async function notifyAdoptionStarted(
+  userId: string,
+  animalId: string,
+  opts: Opts = {}
+) {
   const user = await prisma.user.findUnique({ where: { id: userId } })
   const animal = await prisma.animal.findUnique({ where: { id: animalId } })
 
@@ -14,16 +19,27 @@ export async function notifyAdoptionStarted(userId: string, animalId: string, op
   const title = 'Děkujeme za adopci! ❤️'
   const message = `Vaše adopce pro "${animalName}" byla úspěšně spuštěna.`
 
-  // In-app notification (adjust fields if your Notification model differs)
-  await prisma.notification.create({
-    data: {
+  // ✅ Idempotent: don’t create duplicates
+  const existing = await prisma.notification.findFirst({
+    where: {
       userId,
-      title,
-      message,
       animalId,
-      type: 'ADOPTION_STARTED',
+      type: 'ADOPTION_STARTED' as any,
     } as any,
+    select: { id: true },
   })
+
+  if (!existing) {
+    await prisma.notification.create({
+      data: {
+        userId,
+        title,
+        message,
+        animalId,
+        type: 'ADOPTION_STARTED' as any,
+      } as any,
+    })
+  }
 
   if (opts.sendEmail && user?.email) {
     const send = opts.sendEmailFn ?? defaultSendEmail
