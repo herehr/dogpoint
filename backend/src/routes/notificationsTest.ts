@@ -8,7 +8,7 @@ const router = Router()
 router.post('/test', requireAuth, async (req, res) => {
   const userId = req.user!.id
 
-  const n = await prisma.notification.create({
+  const notification = await prisma.notification.create({
     data: {
       userId,
       title: 'Test notification 🔔',
@@ -16,7 +16,7 @@ router.post('/test', requireAuth, async (req, res) => {
     },
   })
 
-  res.json({ ok: true, notification: n })
+  res.json({ ok: true, notification })
 })
 
 export default router
