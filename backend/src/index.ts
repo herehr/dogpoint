@@ -20,6 +20,7 @@ import paymentRouter from './routes/paymentRoutes'
 import gpwebpayRoutes from './routes/gpwebpay'
 import notificationRoutes from './routes/notification'
 import moderationRoutes from './routes/moderation' 
+import notificationTestRoutes from './routes/notificationsTest'
 
 import { prisma } from './prisma'
 
@@ -97,6 +98,7 @@ app.use('/api/notifications', notificationRoutes)
 app.use('/api/test', emailTest)
 app.use('/api/moderation', moderationRoutes)
 app.use('/api/email', emailTestRoutes)
+app.use('/api/notifications', notificationTestRoutes)
 
 
 // GP webpay (feature flag)
