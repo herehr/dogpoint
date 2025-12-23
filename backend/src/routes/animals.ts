@@ -4,6 +4,7 @@ import { prisma } from '../prisma'
 import { requireAuth } from '../middleware/authJwt'   // ✅ use JWT-based auth
 import { ContentStatus, Role } from '@prisma/client'
 import { notifyApproversAboutNewAnimal } from '../services/moderationNotifications'
+import { notifyAnimalUpdated } from '../services/notifyAnimalUpdated'
 
 const router = Router()
 
@@ -325,6 +326,11 @@ router.patch('/:id', requireAuth, async (req: Request, res: Response): Promise<v
         res.status(404).json({ error: 'Not found' })
         return
       }
+        try {
+    await notifyAnimalUpdated(id)
+  } catch (e) {
+    console.warn('[notifyAnimalUpdated] failed', e)
+  }
       res.json(updated)
       return
     }
@@ -334,6 +340,11 @@ router.patch('/:id', requireAuth, async (req: Request, res: Response): Promise<v
       data: baseUpdate,
       include: { galerie: true },
     })
+    try {
+  await notifyAnimalUpdated(id)
+} catch (e) {
+  console.warn('[notifyAnimalUpdated] failed', e)
+}
     res.json({
       ...updated,
       main: updated.main ?? updated.galerie[0]?.url ?? null,

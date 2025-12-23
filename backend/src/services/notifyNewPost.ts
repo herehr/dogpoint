@@ -1,100 +1,115 @@
 // backend/src/services/notifyNewPost.ts
 import { prisma } from '../prisma'
-import { ContentStatus, SubscriptionStatus } from '@prisma/client'
-import { sendEmail } from './email'
+import { sendEmail as defaultSendEmail } from './email'
 
-function frontendBase(): string {
-  return (process.env.FRONTEND_BASE_URL || process.env.PUBLIC_WEB_BASE_URL || '').replace(/\/+$/, '')
+type Opts = {
+  sendEmail?: boolean
+  sendEmailFn?: (to: string, subject: string, html: string) => Promise<any>
 }
 
-export async function notifyUsersAboutNewPost(postId: string, sendEmails = true) {
+/**
+ * Notify all ACTIVE adopters of an animal that a post was published/approved.
+ * Idempotent: won't create duplicates for same (userId, postId, type).
+ */
+export async function notifyUsersAboutNewPost(
+  postId: string,
+  opts: Opts = {}
+): Promise<{ notified: number }> {
   const post = await prisma.post.findUnique({
     where: { id: postId },
     select: {
       id: true,
       title: true,
-      status: true,
+      content: true,
       animalId: true,
-      animal: { select: { jmeno: true, name: true } },
-    },
+      status: true,
+    } as any,
   })
 
-  if (!post || post.status !== ContentStatus.PUBLISHED) {
-    return { ok: false as const, created: 0, emailed: 0 }
-  }
+  if (!post?.animalId) return { notified: 0 }
 
-  const animalName = post.animal?.jmeno || post.animal?.name || 'Zvíře'
+  // Only notify for published/approved posts (adjust if your enum differs)
+  const status = String((post as any).status || '')
+  const okStatus = status === 'PUBLISHED' || status === 'APPROVED'
+  if (!okStatus) return { notified: 0 }
 
+  // All active adopters for this animal
   const subs = await prisma.subscription.findMany({
     where: {
       animalId: post.animalId,
-      status: SubscriptionStatus.ACTIVE,
-      user: {
-        is: {
-          email: { not: '' },
-        },
-      },
-    },
-    select: {
-      userId: true,
-      user: { select: { email: true } },
-    },
+      status: 'ACTIVE' as any,
+    } as any,
+    select: { userId: true },
   })
 
-  let created = 0
-  let emailed = 0
+  if (!subs.length) return { notified: 0 }
 
-  const base = frontendBase()
-  const url = base ? `${base}/zvire/${post.animalId}#posts` : ''
+  const userIds = [...new Set(subs.map(s => s.userId))]
 
-  for (const s of subs) {
-    const email = s.user?.email || ''
+  const animal = await prisma.animal.findUnique({
+    where: { id: post.animalId },
+    select: { jmeno: true, name: true } as any,
+  })
+  const animalName = (animal as any)?.jmeno || (animal as any)?.name || 'zvíře'
 
-    try {
-      await prisma.notification.create({
-        data: {
-          userId: s.userId,
-          type: 'NEW_POST',
-          title: `Nový příspěvek: ${animalName}`,
-          message: post.title || 'Byl přidán nový příspěvek.',
-          animalId: post.animalId,
-          postId: post.id,
-        },
-      })
-      created++
+  const title = `Novinka o ${animalName}`
+  const excerpt =
+    (post.content || '')
+      .replace(/<[^>]*>/g, '')
+      .trim()
+      .slice(0, 180) || 'Byla zveřejněna nová aktualita.'
 
-      if (sendEmails && email) {
-        await sendEmail(
-          email,
-          `Dogpoint – nový příspěvek (${animalName})`,
-          `
-            <div style="font-family:Arial,sans-serif;line-height:1.5">
-              <p>Dobrý den,</p>
-              <p>u vašeho adoptovaného zvířete <b>${animalName}</b> byl přidán nový příspěvek:</p>
-              <p><b>${escapeHtml(post.title || '')}</b></p>
-              ${url ? `<p><a href="${url}">Zobrazit příspěvek</a></p>` : ''}
-              <p>Děkujeme,<br/>Dogpoint</p>
-            </div>
-          `
-        )
-        emailed++
-      }
-    } catch (e: any) {
-      // ignore duplicates (unique constraint userId + postId)
-      if (e?.code !== 'P2002') {
-        console.warn('[notifyUsersAboutNewPost] create/send failed:', e?.message || e)
+  // Load users (for email + creating notifications)
+  const users = await prisma.user.findMany({
+    where: { id: { in: userIds } },
+    select: { id: true, email: true },
+  })
+
+  let notified = 0
+
+  for (const u of users) {
+    // ✅ idempotency: same user + same post + same type
+    const exists = await prisma.notification.findFirst({
+      where: {
+        userId: u.id,
+        postId: post.id,
+        type: 'NEW_POST' as any,
+      } as any,
+      select: { id: true },
+    })
+
+    if (exists) continue
+
+    await prisma.notification.create({
+      data: {
+        userId: u.id,
+        type: 'NEW_POST' as any,
+        title,
+        message: excerpt,
+        animalId: post.animalId,
+        postId: post.id,
+      } as any,
+    })
+
+    notified++
+
+    if (opts.sendEmail && u.email) {
+      try {
+        const send = opts.sendEmailFn ?? defaultSendEmail
+        const subject = `Dogpoint – ${title}`
+        const html = `
+          <div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.4">
+            <h2 style="margin:0 0 12px 0">${title}</h2>
+            <p style="margin:0 0 8px 0">${excerpt}</p>
+            <p style="margin:0">Děkujeme,<br/>Dogpoint</p>
+          </div>
+        `
+        await send(u.email, subject, html)
+      } catch (e) {
+        console.warn('[notifyUsersAboutNewPost] email failed', e)
       }
     }
   }
 
-  return { ok: true as const, created, emailed }
-}
-
-function escapeHtml(s: string) {
-  return s
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;')
+  return { notified }
 }
