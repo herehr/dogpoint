@@ -1,3 +1,4 @@
+// frontend/src/pages/AnimalsPage.tsx
 import React from 'react'
 import {
   Box,
@@ -5,7 +6,6 @@ import {
   Card,
   CardActions,
   CardContent,
-  CardMedia,
   Container,
   Grid,
   Skeleton,
@@ -14,6 +14,7 @@ import {
 } from '@mui/material'
 import { Link as RouterLink, useNavigate } from 'react-router-dom'
 import { getAnimals } from '../api'
+import MainMedia from '../components/MainMedia'
 
 type Media = {
   url?: string
@@ -39,11 +40,15 @@ type Animal = {
 const FALLBACK_IMG = '/no-image.jpg'
 const SPACE_CDN = 'https://dogpoint.fra1.digitaloceanspaces.com'
 
+function isVideoUrl(url: string): boolean {
+  return /\.(mp4|webm|mov|m4v)(\?|$)/i.test(url || '')
+}
+
 function isVideoMedia(m?: Media | null): boolean {
   const t = String(m?.typ || m?.type || '').toLowerCase()
   if (t.includes('video')) return true
   const u = String(m?.url || m?.key || '').toLowerCase()
-  return /\.(mp4|webm|mov|m4v)(\?|$)/i.test(u)
+  return isVideoUrl(u)
 }
 
 function withBust(url: string): string {
@@ -60,24 +65,29 @@ function pickGallery(a: Animal): Media[] {
   return Array.isArray(g) ? g : []
 }
 
+function normalizeSpaceKey(key: string): string {
+  const base = SPACE_CDN.replace(/\/$/, '')
+  const k = String(key).replace(/^\//, '')
+  return `${base}/${k}`
+}
+
+function resolveUrl(m: Media): string | null {
+  if (m.url) return m.url
+  if (m.key) return normalizeSpaceKey(m.key)
+  return null
+}
+
 function mediaUrl(a: Animal): string {
-  // Prefer explicit main if present and not a video
-  if (a.main && !/\.(mp4|webm|mov|m4v)(\?|$)/i.test(a.main)) return a.main
+  // ✅ Prefer explicit main (can be image OR video)
+  if (a.main && String(a.main).trim()) return a.main
 
   const gal = pickGallery(a)
+  if (!gal.length) return FALLBACK_IMG
 
-  // Prefer first NON-video item
-  const firstImg = gal.find((m) => !isVideoMedia(m)) || gal[0]
-  if (!firstImg) return FALLBACK_IMG
-
-  if (firstImg.url) return firstImg.url
-  if (firstImg.key) {
-    const base = SPACE_CDN.replace(/\/$/, '')
-    const key = String(firstImg.key).replace(/^\//, '')
-    return `${base}/${key}`
-  }
-
-  return FALLBACK_IMG
+  // Prefer first non-video item for thumbnail; fallback to first item (even video)
+  const first = gal.find((m) => !isVideoMedia(m)) || gal[0]
+  const u = first ? resolveUrl(first) : null
+  return u || FALLBACK_IMG
 }
 
 function shortLine(a: Animal): string {
@@ -164,7 +174,9 @@ export default function AnimalsPage() {
           {!loading &&
             items?.map((a) => {
               const name = displayName(a).toUpperCase()
-              const img = mediaUrl(a)
+              const main = mediaUrl(a)
+              const mainBusted = withBust(main)
+
               const detailUrl = `/zvirata/${encodeURIComponent(a.id)}`
               const goDetail = () => navigate(detailUrl)
 
@@ -188,12 +200,14 @@ export default function AnimalsPage() {
                       }}
                       onClick={goDetail}
                     >
-                      <CardMedia
-                        component="img"
-                        height="220"
-                        image={withBust(img)}
+                      {/* ✅ supports image OR video as main */}
+                      <MainMedia
+                        url={mainBusted}
                         alt={name}
-                        sx={{ objectFit: 'cover' }}
+                        height={220}
+                        rounded={0}
+                        variant="card"
+                        mode="cover"
                       />
 
                       <Button
@@ -213,6 +227,7 @@ export default function AnimalsPage() {
                           px: 3,
                           py: 1,
                           boxShadow: 3,
+                          zIndex: 2,
                         }}
                       >
                         {name}

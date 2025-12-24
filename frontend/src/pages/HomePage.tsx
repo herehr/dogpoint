@@ -20,6 +20,7 @@ import PetsIcon from '@mui/icons-material/Pets'
 import FavoriteBorderIcon from '@mui/icons-material/FavoriteBorder'
 import InfoIcon from '@mui/icons-material/Info'
 import { getAnimals } from '../api'
+import MainMedia from '../components/MainMedia'
 
 /* ─────────────────────────────────────────────── */
 /* Types                                           */
@@ -185,12 +186,13 @@ function AnimalCard({ a }: { a: Animal }) {
           <source src={media!.url} type={guessVideoMime(media!.url)} />
         </video>
       ) : (
-        <CardMedia
-          component="img"
-          image={media?.url || '/no-image.jpg'}
-          alt={a.jmeno}
-          sx={{ height: 200, objectFit: 'cover' }}
-        />
+        <MainMedia
+  url={a.main || a.galerie?.[0]?.url || '/no-image.jpg'}
+  alt={a.jmeno || 'Zvíře'}
+  height={200}
+  rounded={0}
+  variant="card"
+/>
       )}
 
       <CardContent sx={{ flexGrow: 1 }}>
