@@ -24,7 +24,6 @@ import { useAuth } from '../context/AuthContext'
 import SafeHTML from '../components/SafeHTML'
 import AfterPaymentPasswordDialog from '../components/AfterPaymentPasswordDialog'
 import { confirmStripeSession, cancelAdoption } from '../services/api'
-import MainMedia from '../components/MainMedia'
 
 type Media = {
   url: string
@@ -78,13 +77,25 @@ function isVideoMedia(m?: Partial<Media> | null): boolean {
   return isVideoUrl(u)
 }
 
+function guessVideoMime(url: string): string {
+  const u = String(url || '').toLowerCase()
+  if (u.includes('.webm')) return 'video/webm'
+  return 'video/mp4'
+}
+
+function stripCache(url?: string | null): string {
+  if (!url) return ''
+  return url.split('?')[0]
+}
+
 function uniqByUrl(list: Media[]): Media[] {
   const seen = new Set<string>()
   const out: Media[] = []
   for (const m of list) {
     if (!m?.url) continue
-    if (seen.has(m.url)) continue
-    seen.add(m.url)
+    const clean = stripCache(m.url)
+    if (seen.has(clean)) continue
+    seen.add(clean)
     out.push(m)
   }
   return out
@@ -95,10 +106,7 @@ function formatAge(a: LocalAnimal): string {
   if (bd && !Number.isNaN(bd.getTime())) {
     const now = new Date()
     let years = now.getFullYear() - bd.getFullYear()
-    if (
-      now.getMonth() < bd.getMonth() ||
-      (now.getMonth() === bd.getMonth() && now.getDate() < bd.getDate())
-    ) {
+    if (now.getMonth() < bd.getMonth() || (now.getMonth() === bd.getMonth() && now.getDate() < bd.getDate())) {
       years -= 1
     }
     return `${Math.max(0, years)} r`
@@ -128,6 +136,119 @@ function withLockBust(url: string, unlocked: boolean): string {
   // stable per lock state (prevents stale cache, but won't re-bust every render)
   const tag = unlocked ? 'u1' : 'l1'
   return url.includes('?') ? `${url}&v=${tag}` : `${url}?v=${tag}`
+}
+
+function findPosterForUrl(gal: Media[], url: string): string | undefined {
+  const clean = stripCache(url)
+  const hit = (Array.isArray(gal) ? gal : []).find((m) => stripCache(m?.url) === clean)
+  return hit?.posterUrl || hit?.poster || undefined
+}
+
+/* ─────────────────────────────────────────────── */
+/* Media renderer                                   */
+/* ─────────────────────────────────────────────── */
+
+function MediaView(props: {
+  url: string
+  alt: string
+  height: number
+  poster?: string
+  variant: 'detail' | 'thumb'
+}) {
+  const { url, alt, height, poster, variant } = props
+  const video = isVideoUrl(url)
+
+  if (video) {
+    // DETAIL: use controls (autoplay often blocked without muted)
+    if (variant === 'detail') {
+      return (
+        <video
+          controls
+          playsInline
+          preload="metadata"
+          poster={poster}
+          style={{
+            width: '100%',
+            height,
+            objectFit: 'cover',
+            display: 'block',
+            background: '#000',
+          }}
+        >
+          <source src={url} type={guessVideoMime(url)} />
+        </video>
+      )
+    }
+
+    // THUMB: muted autoplay loop works on most browsers (incl. iOS) when muted+playsInline
+    return (
+      <Box sx={{ position: 'relative', width: '100%', height, bgcolor: '#000' }}>
+        <video
+          muted
+          playsInline
+          autoPlay
+          loop
+          preload="metadata"
+          poster={poster}
+          controls={false}
+          style={{
+            width: '100%',
+            height,
+            objectFit: 'cover',
+            display: 'block',
+          }}
+        >
+          <source src={url} type={guessVideoMime(url)} />
+        </video>
+
+        {/* subtle play hint */}
+        <Box
+          sx={{
+            position: 'absolute',
+            inset: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            pointerEvents: 'none',
+            opacity: 0.9,
+          }}
+        >
+          <Box
+            sx={{
+              width: 34,
+              height: 34,
+              borderRadius: 999,
+              bgcolor: 'rgba(0,0,0,0.45)',
+              color: '#fff',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: 16,
+              lineHeight: 1,
+            }}
+          >
+            ▶
+          </Box>
+        </Box>
+      </Box>
+    )
+  }
+
+  return (
+    <img
+      src={url}
+      alt={alt}
+      style={{
+        width: '100%',
+        height,
+        objectFit: 'cover',
+        display: 'block',
+      }}
+      onError={(ev) => {
+        ;(ev.currentTarget as HTMLImageElement).style.opacity = '0.35'
+      }}
+    />
+  )
 }
 
 /* ─────────────────────────────────────────────── */
@@ -224,7 +345,7 @@ export default function AnimalDetail() {
     }
   }, [id, loadPosts])
 
-  // polling only when unlocked (or staff) so we don't annoy visitors
+  // polling only when unlocked (or staff)
   useEffect(() => {
     if (!id) return
     if (!isUnlocked) return
@@ -273,7 +394,7 @@ export default function AnimalDetail() {
     return ''
   }, [user?.email])
 
-  // after payment return handler (kept aligned with your finalized logic)
+  // after payment return handler (keep your finalized logic)
   useEffect(() => {
     if (!id || paid !== '1') return
 
@@ -396,9 +517,13 @@ export default function AnimalDetail() {
 
   // ✅ MAIN picks animal.main if exists, else first gallery item (video allowed)
   const mainUrl = animal.main || merged[0]?.url || '/no-image.jpg'
+  const mainPoster = findPosterForUrl(merged, mainUrl)
 
-  // ✅ extras should not duplicate mainUrl
-  const extras = merged.filter((m) => m.url && m.url !== mainUrl)
+  // ✅ extras should not duplicate mainUrl (strip cache compare)
+  const extras = merged.filter((m) => stripCache(m.url) !== stripCache(mainUrl))
+
+  // apply stable cache-bust per lock state
+  const mainSrc = withLockBust(mainUrl, isUnlocked)
 
   return (
     <Container sx={{ py: 4 }}>
@@ -469,15 +594,8 @@ export default function AnimalDetail() {
                 borderColor: 'divider',
               }}
             >
-              {/* ✅ video as main works (starred in manager) */}
-              <MainMedia
-                url={withLockBust(mainUrl, isUnlocked)}
-                alt={title}
-                height={320}
-                rounded={0}
-                variant="detail"
-                mode="cover"
-              />
+              {/* ✅ video plays here now */}
+              <MediaView url={mainSrc} alt={title} height={320} poster={mainPoster} variant="detail" />
             </Box>
           </Grid>
 
@@ -504,11 +622,7 @@ export default function AnimalDetail() {
 
                   <Stack direction="row" spacing={1} sx={{ mb: 1 }}>
                     {[200, 500, 1000].map((v) => (
-                      <Button
-                        key={v}
-                        variant={amount === v ? 'contained' : 'outlined'}
-                        onClick={() => setAmount(v)}
-                      >
+                      <Button key={v} variant={amount === v ? 'contained' : 'outlined'} onClick={() => setAmount(v)}>
                         {v} Kč
                       </Button>
                     ))}
@@ -519,9 +633,7 @@ export default function AnimalDetail() {
                       type="number"
                       label="Částka (Kč)"
                       value={amount}
-                      onChange={(e) =>
-                        setAmount(Math.max(0, parseInt(e.target.value || '0', 10)))
-                      }
+                      onChange={(e) => setAmount(Math.max(0, parseInt(e.target.value || '0', 10)))}
                       inputProps={{ min: 50, step: 10 }}
                       sx={{ width: 160 }}
                     />
@@ -553,31 +665,34 @@ export default function AnimalDetail() {
 
           <BlurBox blurred={!isUnlocked} key={isUnlocked ? 'unlocked-extras' : 'locked-extras'}>
             <Grid container spacing={1.5}>
-              {extras.map((m, i) => (
-                <Grid item xs={6} sm={4} md={3} key={`${m.url}-${i}`}>
-                  <Box
-                    sx={{
-                      width: '100%',
-                      height: 160,
-                      borderRadius: 2,
-                      overflow: 'hidden',
-                      border: '1px solid',
-                      borderColor: 'divider',
-                    }}
-                    className={!isUnlocked ? 'lockedMedia' : undefined}
-                  >
-                    {/* ✅ handles both image & video */}
-                    <MainMedia
-                      url={withLockBust(m.url, isUnlocked)}
-                      alt={`media-${i + 1}`}
-                      height={160}
-                      rounded={0}
-                      variant="thumb"
-                      mode="cover"
-                    />
-                  </Box>
-                </Grid>
-              ))}
+              {extras.map((m, i) => {
+                const src = withLockBust(m.url, isUnlocked)
+                const poster = findPosterForUrl(merged, m.url)
+                return (
+                  <Grid item xs={6} sm={4} md={3} key={`${m.url}-${i}`}>
+                    <Box
+                      sx={{
+                        width: '100%',
+                        height: 160,
+                        borderRadius: 2,
+                        overflow: 'hidden',
+                        border: '1px solid',
+                        borderColor: 'divider',
+                        bgcolor: '#000',
+                      }}
+                      className={!isUnlocked ? 'lockedMedia' : undefined}
+                    >
+                      <MediaView
+                        url={src}
+                        alt={`media-${i + 1}`}
+                        height={160}
+                        poster={poster}
+                        variant="thumb"
+                      />
+                    </Box>
+                  </Grid>
+                )
+              })}
             </Grid>
           </BlurBox>
 

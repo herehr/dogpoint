@@ -10,7 +10,6 @@ import {
   Grid,
   Card,
   CardContent,
-  CardMedia,
   Chip,
   Divider,
   Skeleton,
@@ -20,7 +19,6 @@ import PetsIcon from '@mui/icons-material/Pets'
 import FavoriteBorderIcon from '@mui/icons-material/FavoriteBorder'
 import InfoIcon from '@mui/icons-material/Info'
 import { getAnimals } from '../api'
-import MainMedia from '../components/MainMedia'
 
 /* ─────────────────────────────────────────────── */
 /* Types                                           */
@@ -42,31 +40,55 @@ type Animal = {
   popis?: string
   main?: string
   galerie?: Media[]
+  gallery?: Media[]
   active?: boolean
 }
 
 /* ─────────────────────────────────────────────── */
-/* Media helpers (CRITICAL for Chrome)              */
+/* Media helpers                                    */
 /* ─────────────────────────────────────────────── */
+
+function isVideoUrl(url: string): boolean {
+  return /\.(mp4|webm|m4v|mov)(\?|$)/i.test(url || '')
+}
 
 function isVideoMedia(m?: Media | null): boolean {
   if (!m?.url) return false
   const t = String(m.typ || m.type || '').toLowerCase()
   if (t.includes('video')) return true
-  return /\.(mp4|webm|m4v|mov)(\?|$)/i.test(m.url)
+  return isVideoUrl(m.url)
 }
 
 function guessVideoMime(url: string): string {
   const u = (url || '').toLowerCase()
-  if (u.endsWith('.webm')) return 'video/webm'
-  // your backend transcodes → mp4/h264
+  if (u.includes('.webm')) return 'video/webm'
   return 'video/mp4'
 }
 
-function pickHeroMedia(a: Animal): Media | undefined {
-  const gal = a.galerie || []
-  if (!gal.length && a.main) return { url: a.main }
-  return gal[0]
+function stripCache(url?: string | null): string {
+  if (!url) return ''
+  return url.split('?')[0]
+}
+
+function withLockBust(url: string): string {
+  // a simple stable bust so DO Spaces / CDN doesn't keep stale metadata
+  const tag = 'h1'
+  return url.includes('?') ? `${url}&v=${tag}` : `${url}?v=${tag}`
+}
+
+function pickHeroUrl(a: Animal): string {
+  const gal = (a.galerie || a.gallery || []) as Media[]
+  // main can be image OR video
+  if (a.main) return a.main
+  if (gal.length && gal[0]?.url) return gal[0].url
+  return '/no-image.jpg'
+}
+
+function findPosterForUrl(a: Animal, url: string): string | undefined {
+  const gal = ((a.galerie || a.gallery || []) as Media[]) || []
+  const clean = stripCache(url)
+  const hit = gal.find((m) => stripCache(m?.url) === clean)
+  return hit?.posterUrl || hit?.poster || undefined
 }
 
 /* ─────────────────────────────────────────────── */
@@ -166,33 +188,55 @@ export default function HomePage() {
 /* ─────────────────────────────────────────────── */
 
 function AnimalCard({ a }: { a: Animal }) {
-  const media = pickHeroMedia(a)
-  const isVideo = isVideoMedia(media)
-  const poster = media?.posterUrl || media?.poster || undefined
+  const heroUrl = pickHeroUrl(a)
+  const heroIsVideo = isVideoUrl(heroUrl) || isVideoMedia({ url: heroUrl } as any)
+  const poster = heroIsVideo ? findPosterForUrl(a, heroUrl) : undefined
+  const src = withLockBust(heroUrl)
 
   return (
-    <Card
-      variant="outlined"
-      sx={{ height: '100%', display: 'flex', flexDirection: 'column', borderRadius: 3 }}
-    >
-      {isVideo ? (
-        <video
-          controls
-          preload="metadata"
-          playsInline
-          poster={poster}
-          style={{ width: '100%', height: 200, objectFit: 'cover' }}
-        >
-          <source src={media!.url} type={guessVideoMime(media!.url)} />
-        </video>
+    <Card variant="outlined" sx={{ height: '100%', display: 'flex', flexDirection: 'column', borderRadius: 3 }}>
+      {heroIsVideo ? (
+        // Autoplay is often blocked unless muted. For homepage cards, this is the most reliable:
+        <Box sx={{ position: 'relative', width: '100%', height: 200, bgcolor: '#000' }}>
+          <video
+            muted
+            playsInline
+            autoPlay
+            loop
+            preload="metadata"
+            poster={poster}
+            controls={false}
+            style={{ width: '100%', height: 200, objectFit: 'cover', display: 'block' }}
+          >
+            <source src={src} type={guessVideoMime(src)} />
+          </video>
+
+          <Box
+            sx={{
+              position: 'absolute',
+              bottom: 8,
+              left: 8,
+              px: 0.75,
+              py: 0.25,
+              borderRadius: 1,
+              fontSize: 11,
+              bgcolor: 'rgba(0,0,0,0.55)',
+              color: '#fff',
+              pointerEvents: 'none',
+            }}
+          >
+            VIDEO
+          </Box>
+        </Box>
       ) : (
-        <MainMedia
-  url={a.main || a.galerie?.[0]?.url || '/no-image.jpg'}
-  alt={a.jmeno || 'Zvíře'}
-  height={200}
-  rounded={0}
-  variant="card"
-/>
+        <img
+          src={src}
+          alt={a.jmeno || 'Zvíře'}
+          style={{ width: '100%', height: 200, objectFit: 'cover', display: 'block' }}
+          onError={(ev) => {
+            ;(ev.currentTarget as HTMLImageElement).style.opacity = '0.35'
+          }}
+        />
       )}
 
       <CardContent sx={{ flexGrow: 1 }}>
