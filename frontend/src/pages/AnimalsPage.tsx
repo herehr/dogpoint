@@ -58,11 +58,6 @@ function guessVideoMime(url: string): string {
   return 'video/mp4'
 }
 
-function withBust(url: string): string {
-  const v = `v=${Date.now()}`
-  return url.includes('?') ? `${url}&${v}` : `${url}?${v}`
-}
-
 function displayName(a: Animal): string {
   return String(a.jmeno || a.name || 'Zvíře')
 }
@@ -72,9 +67,13 @@ function pickGallery(a: Animal): Media[] {
   return Array.isArray(g) ? g : []
 }
 
+function mediaUrl(m?: Media | null): string {
+  return String(m?.url || m?.key || '')
+}
+
 function firstImageFromGallery(gal: Media[]): string | null {
-  const img = gal.find((m) => !isVideoUrl(m.url || m.key || ''))
-  return (img?.url || img?.key || null) as any
+  const img = gal.find((m) => !isVideoUrl(mediaUrl(m)))
+  return img ? mediaUrl(img) : null
 }
 
 function shortLine(a: Animal): string {
@@ -163,12 +162,12 @@ export default function AnimalsPage() {
               const name = displayName(a).toUpperCase()
               const gal = pickGallery(a)
 
-              // ✅ If a.main exists, use it even if it's a video.
-              const main = a.main ? a.main : firstImageFromGallery(gal) || gal[0]?.url || FALLBACK_IMG
+              // ✅ MAIN always wins (image OR video)
+              const main = a.main ? a.main : firstImageFromGallery(gal) || mediaUrl(gal[0]) || FALLBACK_IMG
               const mainIsVideo = isVideoUrl(main)
 
-              // best effort poster (if main matches an entry with poster)
-              const mainEntry = gal.find((m) => stripCache(m.url) === stripCache(main))
+              // ✅ poster lookup works for url OR key
+              const mainEntry = gal.find((m) => stripCache(mediaUrl(m)) === stripCache(main))
               const poster = mainEntry?.posterUrl || mainEntry?.poster || undefined
 
               const detailUrl = `/zvirata/${encodeURIComponent(a.id)}`
@@ -197,7 +196,8 @@ export default function AnimalsPage() {
                       onClick={goDetail}
                     >
                       {mainIsVideo ? (
-                        <Box sx={{ position: 'relative', width: '100%', height: 220 }}>
+                        <Box sx={{ position: 'relative', width: '100%', height: 220, bgcolor: '#000' }}>
+                          {/* NOTE: no Date.now cache-bust here (public listing) */}
                           <video
                             muted
                             playsInline
@@ -205,10 +205,9 @@ export default function AnimalsPage() {
                             poster={poster}
                             style={{ width: '100%', height: 220, objectFit: 'cover', display: 'block' }}
                           >
-                            <source src={withBust(main)} type={guessVideoMime(main)} />
+                            <source src={main} type={guessVideoMime(main)} />
                           </video>
 
-                          {/* play overlay so it looks like a video even without poster */}
                           <Box
                             sx={{
                               position: 'absolute',
@@ -217,7 +216,9 @@ export default function AnimalsPage() {
                               alignItems: 'center',
                               justifyContent: 'center',
                               pointerEvents: 'none',
-                              background: poster ? 'none' : 'linear-gradient(180deg, rgba(0,0,0,0.10), rgba(0,0,0,0.25))',
+                              background: poster
+                                ? 'none'
+                                : 'linear-gradient(180deg, rgba(0,0,0,0.10), rgba(0,0,0,0.25))',
                             }}
                           >
                             <PlayCircleOutlineIcon sx={{ fontSize: 56, color: 'rgba(255,255,255,0.92)' }} />
@@ -227,7 +228,7 @@ export default function AnimalsPage() {
                         <CardMedia
                           component="img"
                           height="220"
-                          image={withBust(main)}
+                          image={main}
                           alt={name}
                           sx={{ objectFit: 'cover' }}
                         />
