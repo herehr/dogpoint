@@ -314,7 +314,8 @@ router.patch('/:id', requireAuth, async (req: Request, res: Response): Promise<v
       }
 
       try {
-        await notifyAnimalUpdated(id)
+        const r = await notifyAnimalUpdated(id, { sendEmail: true })
+        console.log('[notifyAnimalUpdated] result', { animalId: id, ...r })
       } catch (e) {
         console.warn('[notifyAnimalUpdated] failed', e)
       }
@@ -330,7 +331,8 @@ router.patch('/:id', requireAuth, async (req: Request, res: Response): Promise<v
     })
 
     try {
-      await notifyAnimalUpdated(id)
+      const r = await notifyAnimalUpdated(id, { sendEmail: true })
+      console.log('[notifyAnimalUpdated] result', { animalId: id, ...r })
     } catch (e) {
       console.warn('[notifyAnimalUpdated] failed', e)
     }
