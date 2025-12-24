@@ -97,10 +97,14 @@ function stripCache(url?: string | null): string {
   return url.split('?')[0]
 }
 
-/** pick first image if you need an image fallback (NOT used when main is set) */
-function firstImageUrlFromGallery(
-  gal?: { url: string; typ?: string; type?: string }[]
-): string | null {
+/** add cache-buster so prod shows updated media immediately */
+function withBust(url: string): string {
+  const v = Date.now()
+  return url.includes('?') ? `${url}&v=${v}` : `${url}?v=${v}`
+}
+
+/** pick first image only for fallback situations */
+function firstImageUrlFromGallery(gal?: { url: string; typ?: string; type?: string }[]): string | null {
   const list = Array.isArray(gal) ? gal : []
   const hit = list.find((x) => x?.url && !isVideoMedia(x))
   return hit?.url || null
@@ -115,122 +119,29 @@ function resolveMainUrl(a: any): string | null {
   return first?.url ? String(first.url) : null
 }
 
-function findPosterForUrl(gal: any[], url: string): string | undefined {
-  const clean = stripCache(url)
-  const hit = (Array.isArray(gal) ? gal : []).find((m: any) => stripCache(m?.url) === clean)
-  return hit?.posterUrl || hit?.poster || undefined
-}
-
-/** tries to extract a poster image (first frame) from the video */
-function useVideoPoster(url?: string, seekSeconds = 0.2) {
-  const [poster, setPoster] = React.useState<string | null>(null)
-
-  React.useEffect(() => {
-    let cancelled = false
-    if (!url) {
-      setPoster(null)
-      return
-    }
-
-    ;(async () => {
-      try {
-        const video = document.createElement('video')
-        video.crossOrigin = 'anonymous'
-        video.muted = true
-        video.playsInline = true
-        video.preload = 'metadata'
-        video.src = url
-
-        await new Promise<void>((resolve, reject) => {
-          const ok = () => resolve()
-          const bad = () => reject(new Error('video metadata failed'))
-          video.addEventListener('loadedmetadata', ok, { once: true })
-          video.addEventListener('error', bad, { once: true })
-        })
-
-        const t = Math.min(
-          Math.max(seekSeconds, 0),
-          Math.max(0, (video.duration || 1) - 0.05)
-        )
-        try {
-          video.currentTime = t
-        } catch {
-          video.currentTime = 0
-        }
-
-        await new Promise<void>((resolve) => {
-          const done = () => resolve()
-          video.addEventListener('seeked', done, { once: true })
-          setTimeout(done, 800)
-        })
-
-        const w = video.videoWidth || 640
-        const h = video.videoHeight || 360
-        const canvas = document.createElement('canvas')
-        canvas.width = w
-        canvas.height = h
-
-        const ctx = canvas.getContext('2d')
-        if (!ctx) throw new Error('no canvas context')
-
-        ctx.drawImage(video, 0, 0, w, h)
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.72)
-
-        if (!cancelled) setPoster(dataUrl)
-      } catch {
-        if (!cancelled) setPoster(null)
-      }
-    })()
-
-    return () => {
-      cancelled = true
-    }
-  }, [url, seekSeconds])
-
-  return poster
-}
-
-function VideoThumb({
-  url,
-  poster,
-  height,
-}: {
-  url: string
-  poster?: string
-  height: number
-}) {
-  const generatedPoster = useVideoPoster(url)
-  const effectivePoster = poster || generatedPoster
-
+/** muted looping video preview (reliable, no CORS/canvas poster tricks) */
+function VideoThumb({ url, height }: { url: string; height: number }) {
   return (
-    <Box sx={{ position: 'relative', width: '100%', height, bgcolor: '#f7f7f7' }}>
-      {/* Best UX: render as <img> when we have a poster (real preview frame) */}
-      {effectivePoster ? (
-        <img
-          src={effectivePoster}
-          alt="video preview"
-          style={{ width: '100%', height, objectFit: 'cover', display: 'block', pointerEvents: 'none' }}
-        />
-      ) : (
-        /* Fallback if poster generation blocked (CORS/canvas): show the video element */
-        <video
-          muted
-          playsInline
-          preload="metadata"
-          controls={false}
-          style={{
-            width: '100%',
-            height,
-            objectFit: 'cover',
-            display: 'block',
-            pointerEvents: 'none',
-          }}
-        >
-          <source src={url} type={guessVideoMime(url)} />
-        </video>
-      )}
+    <Box sx={{ position: 'relative', width: '100%', height, bgcolor: '#000' }}>
+      <video
+        muted
+        playsInline
+        preload="metadata"
+        autoPlay
+        loop
+        controls={false}
+        style={{
+          width: '100%',
+          height,
+          objectFit: 'cover',
+          display: 'block',
+          pointerEvents: 'none', // keep star/delete clickable
+        }}
+      >
+        <source src={withBust(url)} type={guessVideoMime(url)} />
+      </video>
 
-      {/* Always show play overlay */}
+      {/* play overlay */}
       <Box
         sx={{
           position: 'absolute',
@@ -259,6 +170,24 @@ function VideoThumb({
           ▶
         </Box>
       </Box>
+
+      {/* badge */}
+      <Box
+        sx={{
+          position: 'absolute',
+          bottom: 6,
+          left: 6,
+          px: 0.75,
+          py: 0.25,
+          borderRadius: 1,
+          fontSize: 11,
+          bgcolor: 'rgba(0,0,0,0.55)',
+          color: '#fff',
+          pointerEvents: 'none',
+        }}
+      >
+        VIDEO
+      </Box>
     </Box>
   )
 }
@@ -269,7 +198,6 @@ export default function AnimalsManager() {
   const [err, setErr] = useState<string | null>(null)
   const [ok, setOk] = useState<string | null>(null)
 
-  // Dialog: animal create/edit
   const [open, setOpen] = useState(false)
   const [form, setForm] = useState<FormAnimal>({
     jmeno: '',
@@ -283,7 +211,6 @@ export default function AnimalsManager() {
   })
   const isEdit = useMemo(() => !!form.id, [form.id])
 
-  // Upload state (animal dialog)
   const [uploading, setUploading] = useState(false)
   const [uploadNote, setUploadNote] = useState<string>('')
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -292,7 +219,6 @@ export default function AnimalsManager() {
   const navigate = useNavigate()
   const { logout } = useAuth()
 
-  // Post composer dialog
   const [postOpen, setPostOpen] = useState(false)
   const [postAnimalId, setPostAnimalId] = useState<string | null>(null)
   const [postTitle, setPostTitle] = useState('')
@@ -349,7 +275,6 @@ export default function AnimalsManager() {
       }))
       .filter((g) => g.url)
 
-    // ✅ main can be image OR video
     const main = (a as any).main || gallery[0]?.url || null
 
     setForm({
@@ -387,7 +312,6 @@ export default function AnimalsManager() {
     try {
       const cleanGallery = (form.galerie || []).filter((x) => (x.url || '').trim() !== '')
 
-      // ✅ main can be video; if missing, pick first item
       let main = form.main || null
       if (!main && cleanGallery.length) main = cleanGallery[0].url
 
@@ -663,8 +587,6 @@ export default function AnimalsManager() {
           const gal: any[] = (a as any).galerie || (a as any).gallery || []
           const mainUrl = resolveMainUrl(a) || firstImageUrlFromGallery(gal) || '/no-image.jpg'
           const mainIsVideo = isVideoUrl(String(mainUrl))
-          const poster = mainIsVideo ? findPosterForUrl(gal, String(mainUrl)) : undefined
-
           const isActive = (a as any).active !== false
 
           return (
@@ -695,13 +617,12 @@ export default function AnimalsManager() {
                   />
                 )}
 
-                {/* ✅ Admin grid: show VIDEO preview if main is video */}
                 {mainIsVideo ? (
-                  <VideoThumb url={String(mainUrl)} poster={poster} height={160} />
+                  <VideoThumb url={String(mainUrl)} height={160} />
                 ) : (
                   <CardMedia
                     component="img"
-                    image={String(mainUrl)}
+                    image={withBust(String(mainUrl))}
                     alt={(a as any).jmeno || 'Zvíře'}
                     sx={{ height: 160, objectFit: 'cover' }}
                   />
@@ -726,12 +647,7 @@ export default function AnimalsManager() {
                     <IconButton size="small" onClick={() => editAnimal(a)} title="Upravit">
                       <EditIcon fontSize="small" />
                     </IconButton>
-                    <IconButton
-                      size="small"
-                      color="error"
-                      onClick={() => removeAnimal(a.id)}
-                      title="Smazat"
-                    >
+                    <IconButton size="small" color="error" onClick={() => removeAnimal(a.id)} title="Smazat">
                       <DeleteIcon fontSize="small" />
                     </IconButton>
                   </span>
@@ -805,10 +721,7 @@ export default function AnimalsManager() {
 
                 <FormControlLabel
                   control={
-                    <Checkbox
-                      checked={!!form.active}
-                      onChange={(e) => setForm((f) => ({ ...f, active: e.target.checked }))}
-                    />
+                    <Checkbox checked={!!form.active} onChange={(e) => setForm((f) => ({ ...f, active: e.target.checked }))} />
                   }
                   label="Aktivní (zobrazit na webu)"
                 />
@@ -823,20 +736,9 @@ export default function AnimalsManager() {
                   <Button onClick={() => fileInputRef.current?.click()} startIcon={<UploadIcon />} variant="outlined">
                     Vybrat soubory
                   </Button>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    hidden
-                    multiple
-                    accept="image/*,video/*"
-                    onChange={onPickFiles}
-                  />
+                  <input ref={fileInputRef} type="file" hidden multiple accept="image/*,video/*" onChange={onPickFiles} />
 
-                  <Button
-                    onClick={() => cameraInputRef.current?.click()}
-                    startIcon={<PhotoCameraIcon />}
-                    variant="outlined"
-                  >
+                  <Button onClick={() => cameraInputRef.current?.click()} startIcon={<PhotoCameraIcon />} variant="outlined">
                     Vyfotit (telefon)
                   </Button>
                   <input
@@ -881,7 +783,6 @@ export default function AnimalsManager() {
                     const url = g.url
                     const isMain = !!form.main && stripCache(form.main) === stripCache(url)
                     const isVideo = isVideoMedia(g)
-                    const poster = (g as any).posterUrl || (g as any).poster || undefined
 
                     return (
                       <Grid item xs={6} sm={4} md={3} key={`${url}-${i}`}>
@@ -896,10 +797,10 @@ export default function AnimalsManager() {
                         >
                           <Box sx={{ position: 'relative', width: '100%', height: 120, bgcolor: '#f7f7f7' }}>
                             {isVideo ? (
-                              <VideoThumb url={url} poster={poster} height={120} />
+                              <VideoThumb url={url} height={120} />
                             ) : (
                               <img
-                                src={url}
+                                src={withBust(url)}
                                 alt={`media-${i}`}
                                 style={{ width: '100%', height: 120, objectFit: 'cover', display: 'block' }}
                                 onError={(ev) => {
@@ -908,7 +809,6 @@ export default function AnimalsManager() {
                               />
                             )}
 
-                            {/* ✅ STAR works for image AND video */}
                             <Tooltip title={isMain ? 'Hlavní médium' : 'Nastavit jako hlavní'}>
                               <IconButton
                                 size="small"
@@ -921,11 +821,7 @@ export default function AnimalsManager() {
                                   bgcolor: 'rgba(255,255,255,0.92)',
                                 }}
                               >
-                                {isMain ? (
-                                  <StarIcon fontSize="small" color="warning" />
-                                ) : (
-                                  <StarBorderIcon fontSize="small" />
-                                )}
+                                {isMain ? <StarIcon fontSize="small" color="warning" /> : <StarBorderIcon fontSize="small" />}
                               </IconButton>
                             </Tooltip>
                           </Box>
@@ -973,20 +869,14 @@ export default function AnimalsManager() {
         </form>
       </Dialog>
 
-      {/* Create Post dialog (unchanged except thumbnails are safe) */}
+      {/* Create Post dialog */}
       <Dialog open={postOpen} onClose={closePost} fullWidth maxWidth="md">
         <DialogTitle>Přidat příspěvek</DialogTitle>
         <form onSubmit={submitPost}>
           <DialogContent>
             <Stack spacing={2}>
               <TextField label="Titulek" value={postTitle} onChange={(e) => setPostTitle(e.target.value)} />
-              <TextField
-                label="Text"
-                value={postBody}
-                onChange={(e) => setPostBody(e.target.value)}
-                multiline
-                minRows={3}
-              />
+              <TextField label="Text" value={postBody} onChange={(e) => setPostBody(e.target.value)} multiline minRows={3} />
 
               <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', mb: 1 }}>
                 {EMOJIS.map((emo) => (
@@ -1005,26 +895,12 @@ export default function AnimalsManager() {
                   <Button onClick={() => postFileRef.current?.click()} startIcon={<UploadIcon />} variant="outlined">
                     Vybrat soubory
                   </Button>
-                  <input
-                    ref={postFileRef}
-                    type="file"
-                    hidden
-                    multiple
-                    accept="image/*,video/*"
-                    onChange={postPickFiles}
-                  />
+                  <input ref={postFileRef} type="file" hidden multiple accept="image/*,video/*" onChange={postPickFiles} />
 
                   <Button onClick={() => postCameraRef.current?.click()} startIcon={<PhotoCameraIcon />} variant="outlined">
                     Vyfotit (telefon)
                   </Button>
-                  <input
-                    ref={postCameraRef}
-                    type="file"
-                    hidden
-                    accept="image/*"
-                    capture="environment"
-                    onChange={postPickCamera}
-                  />
+                  <input ref={postCameraRef} type="file" hidden accept="image/*" capture="environment" onChange={postPickCamera} />
                 </Stack>
 
                 <Box
@@ -1073,7 +949,7 @@ export default function AnimalsManager() {
                               <VideoThumb url={m.url} height={140} />
                             ) : (
                               <img
-                                src={m.url}
+                                src={withBust(m.url)}
                                 alt={`post-media-${i}`}
                                 style={{ width: '100%', height: 140, objectFit: 'cover', display: 'block' }}
                               />
@@ -1107,7 +983,7 @@ export default function AnimalsManager() {
           <DialogActions>
             <Button onClick={closePost}>Zrušit</Button>
             <Button type="submit" variant="contained" disabled={postSaving || postUploading || !postAnimalId}>
-              {postSaving ? 'Ukládám…' : 'Vytvořit příspěvek'}
+              {postSaving ? 'Ukládám…' : 'Vytvořit'}
             </Button>
           </DialogActions>
         </form>
