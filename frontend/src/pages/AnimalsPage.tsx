@@ -6,21 +6,24 @@ import {
   Card,
   CardActions,
   CardContent,
+  CardMedia,
   Container,
   Grid,
   Skeleton,
   Stack,
   Typography,
 } from '@mui/material'
+import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline'
 import { Link as RouterLink, useNavigate } from 'react-router-dom'
 import { getAnimals } from '../api'
-import MainMedia from '../components/MainMedia'
 
 type Media = {
   url?: string
   key?: string
   type?: 'image' | 'video' | string
   typ?: 'image' | 'video' | string
+  poster?: string | null
+  posterUrl?: string | null
 }
 
 type Animal = {
@@ -38,21 +41,25 @@ type Animal = {
 }
 
 const FALLBACK_IMG = '/no-image.jpg'
-const SPACE_CDN = 'https://dogpoint.fra1.digitaloceanspaces.com'
 
-function isVideoUrl(url: string): boolean {
-  return /\.(mp4|webm|mov|m4v)(\?|$)/i.test(url || '')
+function stripCache(url?: string | null): string {
+  if (!url) return ''
+  return url.split('?')[0]
 }
 
-function isVideoMedia(m?: Media | null): boolean {
-  const t = String(m?.typ || m?.type || '').toLowerCase()
-  if (t.includes('video')) return true
-  const u = String(m?.url || m?.key || '').toLowerCase()
-  return isVideoUrl(u)
+function isVideoUrl(url?: string | null): boolean {
+  const u = String(url || '').toLowerCase()
+  return /\.(mp4|webm|mov|m4v)(\?|$)/i.test(u)
+}
+
+function guessVideoMime(url: string): string {
+  const u = (url || '').toLowerCase()
+  if (u.includes('.webm')) return 'video/webm'
+  return 'video/mp4'
 }
 
 function withBust(url: string): string {
-  const v = 'v=' + Date.now()
+  const v = `v=${Date.now()}`
   return url.includes('?') ? `${url}&${v}` : `${url}?${v}`
 }
 
@@ -65,29 +72,9 @@ function pickGallery(a: Animal): Media[] {
   return Array.isArray(g) ? g : []
 }
 
-function normalizeSpaceKey(key: string): string {
-  const base = SPACE_CDN.replace(/\/$/, '')
-  const k = String(key).replace(/^\//, '')
-  return `${base}/${k}`
-}
-
-function resolveUrl(m: Media): string | null {
-  if (m.url) return m.url
-  if (m.key) return normalizeSpaceKey(m.key)
-  return null
-}
-
-function mediaUrl(a: Animal): string {
-  // ✅ Prefer explicit main (can be image OR video)
-  if (a.main && String(a.main).trim()) return a.main
-
-  const gal = pickGallery(a)
-  if (!gal.length) return FALLBACK_IMG
-
-  // Prefer first non-video item for thumbnail; fallback to first item (even video)
-  const first = gal.find((m) => !isVideoMedia(m)) || gal[0]
-  const u = first ? resolveUrl(first) : null
-  return u || FALLBACK_IMG
+function firstImageFromGallery(gal: Media[]): string | null {
+  const img = gal.find((m) => !isVideoUrl(m.url || m.key || ''))
+  return (img?.url || img?.key || null) as any
 }
 
 function shortLine(a: Animal): string {
@@ -174,8 +161,15 @@ export default function AnimalsPage() {
           {!loading &&
             items?.map((a) => {
               const name = displayName(a).toUpperCase()
-              const main = mediaUrl(a)
-              const mainBusted = withBust(main)
+              const gal = pickGallery(a)
+
+              // ✅ If a.main exists, use it even if it's a video.
+              const main = a.main ? a.main : firstImageFromGallery(gal) || gal[0]?.url || FALLBACK_IMG
+              const mainIsVideo = isVideoUrl(main)
+
+              // best effort poster (if main matches an entry with poster)
+              const mainEntry = gal.find((m) => stripCache(m.url) === stripCache(main))
+              const poster = mainEntry?.posterUrl || mainEntry?.poster || undefined
 
               const detailUrl = `/zvirata/${encodeURIComponent(a.id)}`
               const goDetail = () => navigate(detailUrl)
@@ -195,20 +189,49 @@ export default function AnimalsPage() {
                       sx={{
                         position: 'relative',
                         height: 220,
-                        overflow: 'visible',
+                        overflow: 'hidden',
                         cursor: 'pointer',
+                        borderTopLeftRadius: 4,
+                        borderTopRightRadius: 4,
                       }}
                       onClick={goDetail}
                     >
-                      {/* ✅ supports image OR video as main */}
-                      <MainMedia
-                        url={mainBusted}
-                        alt={name}
-                        height={220}
-                        rounded={0}
-                        variant="card"
-                        mode="cover"
-                      />
+                      {mainIsVideo ? (
+                        <Box sx={{ position: 'relative', width: '100%', height: 220 }}>
+                          <video
+                            muted
+                            playsInline
+                            preload="metadata"
+                            poster={poster}
+                            style={{ width: '100%', height: 220, objectFit: 'cover', display: 'block' }}
+                          >
+                            <source src={withBust(main)} type={guessVideoMime(main)} />
+                          </video>
+
+                          {/* play overlay so it looks like a video even without poster */}
+                          <Box
+                            sx={{
+                              position: 'absolute',
+                              inset: 0,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              pointerEvents: 'none',
+                              background: poster ? 'none' : 'linear-gradient(180deg, rgba(0,0,0,0.10), rgba(0,0,0,0.25))',
+                            }}
+                          >
+                            <PlayCircleOutlineIcon sx={{ fontSize: 56, color: 'rgba(255,255,255,0.92)' }} />
+                          </Box>
+                        </Box>
+                      ) : (
+                        <CardMedia
+                          component="img"
+                          height="220"
+                          image={withBust(main)}
+                          alt={name}
+                          sx={{ objectFit: 'cover' }}
+                        />
+                      )}
 
                       <Button
                         onClick={(e) => {
@@ -227,7 +250,6 @@ export default function AnimalsPage() {
                           px: 3,
                           py: 1,
                           boxShadow: 3,
-                          zIndex: 2,
                         }}
                       >
                         {name}

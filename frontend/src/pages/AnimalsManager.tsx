@@ -55,7 +55,6 @@ type FormAnimal = {
   popis?: string
   active?: boolean
   main?: string | null
-  // keep url + typ so we can render videos too
   galerie?: {
     url: string
     typ?: 'image' | 'video'
@@ -64,8 +63,8 @@ type FormAnimal = {
     posterUrl?: string | null
   }[]
   charakteristik?: string
-  birthDate?: string // yyyy-mm-dd
-  bornYear?: string // string in UI, number on submit
+  birthDate?: string
+  bornYear?: string
 }
 
 type PostMedia = { url: string; type?: 'image' | 'video' }
@@ -92,18 +91,84 @@ function guessVideoMime(url: string): string {
   return 'video/mp4'
 }
 
-/* Utility: compare URLs without cache-buster */
+/** compare URLs without cache buster */
 function stripCache(url?: string | null): string {
   if (!url) return ''
-  const [u] = url.split('?')
-  return u
+  return url.split('?')[0]
 }
 
-// pick first NON-video as image for cards/main
-function firstImageUrlFromGallery(gal?: { url: string; typ?: string; type?: string }[]): string | null {
+/** pick first image if you need an image fallback (NOT used when main is set) */
+function firstImageUrlFromGallery(
+  gal?: { url: string; typ?: string; type?: string }[]
+): string | null {
   const list = gal || []
-  const firstImg = list.find((x) => !isVideoMedia(x)) || list[0]
+  const firstImg = list.find((x) => !isVideoMedia(x))
   return firstImg?.url || null
+}
+
+function resolveMainUrl(a: any): string | null {
+  const gal: any[] = a?.galerie || a?.gallery || []
+  return a?.main || gal?.[0]?.url || null
+}
+
+function findPosterForUrl(gal: any[], url: string): string | undefined {
+  const clean = stripCache(url)
+  const hit = (gal || []).find((m: any) => stripCache(m?.url) === clean)
+  return hit?.posterUrl || hit?.poster || undefined
+}
+
+function VideoThumb({ url, poster, height }: { url: string; poster?: string; height: number }) {
+  // IMPORTANT: no controls + pointerEvents none so overlays never block star/delete taps
+  return (
+    <Box sx={{ position: 'relative', width: '100%', height }}>
+      <video
+        muted
+        playsInline
+        preload="metadata"
+        controls={false}
+        poster={poster}
+        style={{
+          width: '100%',
+          height,
+          objectFit: 'cover',
+          display: 'block',
+          pointerEvents: 'none',
+        }}
+      >
+        <source src={url} type={guessVideoMime(url)} />
+      </video>
+
+      {/* Play overlay (so it still looks like a video even without poster) */}
+      <Box
+        sx={{
+          position: 'absolute',
+          inset: 0,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          pointerEvents: 'none',
+          opacity: 0.9,
+        }}
+      >
+        <Box
+          sx={{
+            width: 34,
+            height: 34,
+            borderRadius: 999,
+            bgcolor: 'rgba(0,0,0,0.45)',
+            color: '#fff',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: 16,
+            lineHeight: 1,
+          }}
+        >
+          ▶
+        </Box>
+      </Box>
+    </Box>
+  )
 }
 
 export default function AnimalsManager() {
@@ -192,7 +257,7 @@ export default function AnimalsManager() {
       }))
       .filter((g) => g.url)
 
-    // main can be image OR video (you requested video star too)
+    // ✅ main can be image OR video
     const main = (a as any).main || gallery[0]?.url || null
 
     setForm({
@@ -230,7 +295,7 @@ export default function AnimalsManager() {
     try {
       const cleanGallery = (form.galerie || []).filter((x) => (x.url || '').trim() !== '')
 
-      // main can be image OR video; if missing, pick first item
+      // ✅ main can be video; if missing, pick first item
       let main = form.main || null
       if (!main && cleanGallery.length) main = cleanGallery[0].url
 
@@ -355,7 +420,7 @@ export default function AnimalsManager() {
     setForm((f) => ({ ...f, main: url }))
   }
 
-  /* ---------- Posts: open composer for an animal ---------- */
+  /* ---------- Posts ---------- */
 
   function openPostFor(animalId: string) {
     setPostAnimalId(animalId)
@@ -503,12 +568,10 @@ export default function AnimalsManager() {
 
       <Grid container spacing={2}>
         {rows.map((a) => {
-          const gal: any[] = (a as any).galerie || []
-          const main =
-            firstImageUrlFromGallery(gal) ||
-            (a as any).main ||
-            gal?.[0]?.url ||
-            '/no-image.jpg'
+          const gal: any[] = (a as any).galerie || (a as any).gallery || []
+          const mainUrl = resolveMainUrl(a) || firstImageUrlFromGallery(gal) || '/no-image.jpg'
+          const mainIsVideo = isVideoUrl(String(mainUrl))
+          const poster = mainIsVideo ? findPosterForUrl(gal, String(mainUrl)) : undefined
 
           const isActive = (a as any).active !== false
 
@@ -535,16 +598,23 @@ export default function AnimalsManager() {
                       left: 8,
                       bgcolor: 'warning.light',
                       color: '#000',
-                      zIndex: 1,
+                      zIndex: 2,
                     }}
                   />
                 )}
-                <CardMedia
-                  component="img"
-                  image={main}
-                  alt={(a as any).jmeno || 'Zvíře'}
-                  sx={{ height: 160, objectFit: 'cover' }}
-                />
+
+                {/* ✅ Admin grid: show VIDEO preview if main is video */}
+                {mainIsVideo ? (
+                  <VideoThumb url={String(mainUrl)} poster={poster} height={160} />
+                ) : (
+                  <CardMedia
+                    component="img"
+                    image={String(mainUrl)}
+                    alt={(a as any).jmeno || 'Zvíře'}
+                    sx={{ height: 160, objectFit: 'cover' }}
+                  />
+                )}
+
                 <CardContent sx={{ flexGrow: 1 }}>
                   <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
                     {(a as any).jmeno || (a as any).name || '—'}
@@ -553,6 +623,7 @@ export default function AnimalsManager() {
                     {isActive ? 'Aktivní' : 'Neaktivní'}
                   </Typography>
                 </CardContent>
+
                 <CardActions sx={{ justifyContent: 'space-between' }}>
                   <Tooltip title="Přidat příspěvek">
                     <IconButton size="small" onClick={() => openPostFor(a.id)}>
@@ -593,7 +664,6 @@ export default function AnimalsManager() {
         <form onSubmit={onSubmit}>
           <DialogContent>
             <Stack spacing={3}>
-              {/* Basic fields */}
               <Stack spacing={2}>
                 <TextField
                   label="Jméno"
@@ -617,7 +687,6 @@ export default function AnimalsManager() {
                   helperText="Krátká věta, kterou můžete zvýraznit formátováním."
                 />
 
-                {/* Birth info row */}
                 <Grid container spacing={2}>
                   <Grid item xs={12} sm={6}>
                     <TextField
@@ -653,7 +722,6 @@ export default function AnimalsManager() {
                 />
               </Stack>
 
-              {/* Uploader controls */}
               <Stack spacing={1}>
                 <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
                   Galerie
@@ -735,66 +803,13 @@ export default function AnimalsManager() {
                           }}
                         >
                           <Box sx={{ position: 'relative', width: '100%', height: 120, bgcolor: '#f7f7f7' }}>
-                            {/* ✅ IMPORTANT: no native controls in thumbnail (prevents iOS overlay stealing taps) */}
                             {isVideo ? (
-                              <Box sx={{ position: 'relative', width: '100%', height: 120 }}>
-                                <video
-                                  muted
-                                  playsInline
-                                  preload="metadata"
-                                  controls={false}
-                                  poster={poster}
-                                  style={{
-                                    width: '100%',
-                                    height: 120,
-                                    objectFit: 'cover',
-                                    display: 'block',
-                                    pointerEvents: 'none',
-                                  }}
-                                >
-                                  <source src={url} type={guessVideoMime(url)} />
-                                </video>
-
-                                {/* small play hint */}
-                                <Box
-                                  sx={{
-                                    position: 'absolute',
-                                    inset: 0,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    pointerEvents: 'none',
-                                    opacity: 0.9,
-                                  }}
-                                >
-                                  <Box
-                                    sx={{
-                                      width: 34,
-                                      height: 34,
-                                      borderRadius: 999,
-                                      bgcolor: 'rgba(0,0,0,0.45)',
-                                      color: '#fff',
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      justifyContent: 'center',
-                                      fontSize: 16,
-                                      lineHeight: 1,
-                                    }}
-                                  >
-                                    ▶
-                                  </Box>
-                                </Box>
-                              </Box>
+                              <VideoThumb url={url} poster={poster} height={120} />
                             ) : (
                               <img
                                 src={url}
                                 alt={`media-${i}`}
-                                style={{
-                                  width: '100%',
-                                  height: '120px',
-                                  objectFit: 'cover',
-                                  display: 'block',
-                                }}
+                                style={{ width: '100%', height: 120, objectFit: 'cover', display: 'block' }}
                                 onError={(ev) => {
                                   ;(ev.currentTarget as HTMLImageElement).style.opacity = '0.35'
                                 }}
@@ -810,11 +825,15 @@ export default function AnimalsManager() {
                                   position: 'absolute',
                                   top: 6,
                                   right: 6,
-                                  zIndex: 5,
+                                  zIndex: 10,
                                   bgcolor: 'rgba(255,255,255,0.92)',
                                 }}
                               >
-                                {isMain ? <StarIcon fontSize="small" color="warning" /> : <StarBorderIcon fontSize="small" />}
+                                {isMain ? (
+                                  <StarIcon fontSize="small" color="warning" />
+                                ) : (
+                                  <StarBorderIcon fontSize="small" />
+                                )}
                               </IconButton>
                             </Tooltip>
                           </Box>
@@ -833,7 +852,6 @@ export default function AnimalsManager() {
                   })}
                 </Grid>
 
-                {/* Optional manual URL add */}
                 <Box sx={{ mt: 1 }}>
                   <TextField
                     label="Přidat URL do galerie"
@@ -853,6 +871,7 @@ export default function AnimalsManager() {
               </Stack>
             </Stack>
           </DialogContent>
+
           <DialogActions>
             <Button onClick={() => setOpen(false)}>Zrušit</Button>
             <Button type="submit" variant="contained" disabled={loading || uploading}>
@@ -862,7 +881,7 @@ export default function AnimalsManager() {
         </form>
       </Dialog>
 
-      {/* Create Post dialog */}
+      {/* Create Post dialog (unchanged except thumbnails are safe) */}
       <Dialog open={postOpen} onClose={closePost} fullWidth maxWidth="md">
         <DialogTitle>Přidat příspěvek</DialogTitle>
         <form onSubmit={submitPost}>
@@ -877,7 +896,6 @@ export default function AnimalsManager() {
                 minRows={3}
               />
 
-              {/* Emoji bar */}
               <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', mb: 1 }}>
                 {EMOJIS.map((emo) => (
                   <Button key={emo} size="small" variant="text" onClick={() => addPostEmoji(emo)} sx={{ minWidth: 36 }}>
@@ -886,11 +904,11 @@ export default function AnimalsManager() {
                 ))}
               </Stack>
 
-              {/* Media uploader */}
               <Stack spacing={1}>
                 <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
                   Fotky / Videa
                 </Typography>
+
                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center">
                   <Button onClick={() => postFileRef.current?.click()} startIcon={<UploadIcon />} variant="outlined">
                     Vybrat soubory
@@ -903,6 +921,7 @@ export default function AnimalsManager() {
                     accept="image/*,video/*"
                     onChange={postPickFiles}
                   />
+
                   <Button onClick={() => postCameraRef.current?.click()} startIcon={<PhotoCameraIcon />} variant="outlined">
                     Vyfotit (telefon)
                   </Button>
@@ -959,52 +978,7 @@ export default function AnimalsManager() {
                             }}
                           >
                             {isVideo ? (
-                              // thumbnails: no controls so delete button stays reachable on mobile
-                              <Box sx={{ position: 'relative', width: '100%', height: 140 }}>
-                                <video
-                                  muted
-                                  playsInline
-                                  preload="metadata"
-                                  controls={false}
-                                  style={{
-                                    width: '100%',
-                                    height: 140,
-                                    objectFit: 'cover',
-                                    display: 'block',
-                                    pointerEvents: 'none',
-                                  }}
-                                >
-                                  <source src={m.url} type={guessVideoMime(m.url)} />
-                                </video>
-                                <Box
-                                  sx={{
-                                    position: 'absolute',
-                                    inset: 0,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    pointerEvents: 'none',
-                                    opacity: 0.9,
-                                  }}
-                                >
-                                  <Box
-                                    sx={{
-                                      width: 34,
-                                      height: 34,
-                                      borderRadius: 999,
-                                      bgcolor: 'rgba(0,0,0,0.45)',
-                                      color: '#fff',
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      justifyContent: 'center',
-                                      fontSize: 16,
-                                      lineHeight: 1,
-                                    }}
-                                  >
-                                    ▶
-                                  </Box>
-                                </Box>
-                              </Box>
+                              <VideoThumb url={m.url} height={140} />
                             ) : (
                               <img
                                 src={m.url}
@@ -1021,7 +995,7 @@ export default function AnimalsManager() {
                                   position: 'absolute',
                                   top: 6,
                                   right: 6,
-                                  zIndex: 5,
+                                  zIndex: 10,
                                   bgcolor: 'rgba(255,255,255,0.9)',
                                 }}
                               >
@@ -1037,6 +1011,7 @@ export default function AnimalsManager() {
               </Stack>
             </Stack>
           </DialogContent>
+
           <DialogActions>
             <Button onClick={closePost}>Zrušit</Button>
             <Button type="submit" variant="contained" disabled={postSaving || postUploading || !postAnimalId}>
