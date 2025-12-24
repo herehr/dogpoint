@@ -49,7 +49,6 @@ function isVideoMedia(m: PostMedia): boolean {
 function guessVideoMime(url: string): string {
   const u = (url || '').toLowerCase()
   if (u.includes('.webm')) return 'video/webm'
-  // we always prefer mp4 after transcode; for old files still try mp4
   return 'video/mp4'
 }
 
@@ -62,10 +61,7 @@ export default function ModeratorPostsList() {
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
 
-  // For now we only implement the pending queue,
-  // because backend currently has /api/posts/pending ready.
   const isPendingTab = tab === 'pending'
-
   const token = useMemo(() => sessionStorage.getItem('moderatorToken'), [])
 
   const load = useCallback(async () => {
@@ -78,7 +74,6 @@ export default function ModeratorPostsList() {
     }
 
     if (!isPendingTab) {
-      // until we add backend endpoints for approved/rejected
       setItems([])
       return
     }
@@ -264,6 +259,7 @@ export default function ModeratorPostsList() {
                             <video
                               controls
                               preload="metadata"
+                              playsInline
                               poster={poster}
                               style={{ width: '100%', borderRadius: 8 }}
                             >

@@ -1,5 +1,5 @@
 // frontend/src/components/PostsSection.tsx
-import React, { useEffect, useState, useRef } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
   Box,
@@ -20,14 +20,18 @@ import UploadIcon from '@mui/icons-material/UploadFile'
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera'
 import DeleteIcon from '@mui/icons-material/Delete'
 import EditIcon from '@mui/icons-material/Edit'
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 
 import { useAccess } from '../context/AccessContext'
 import { useAuth } from '../context/AuthContext'
 import RichTextEditor from './RichTextEditor'
-import { getJSON, postJSON, delJSON, apiUrl } from '../services/api'
+import SafeHTML from './SafeHTML'
+import { apiUrl } from '../services/api'
 
-// ✅ One consistent auth header for all roles
-function token() {
+// ─────────────────────────────────────────────────────────────
+// Auth helpers (one consistent header for all roles)
+// ─────────────────────────────────────────────────────────────
+function readToken(): string | null {
   if (typeof window === 'undefined') return null
   return (
     sessionStorage.getItem('accessToken') ||
@@ -37,27 +41,68 @@ function token() {
   )
 }
 function authHeader(): Record<string, string> {
-  const t = token()
+  const t = readToken()
   return t ? { Authorization: `Bearer ${t}` } : {}
 }
 
-type NewMedia = { url: string; type?: 'image' | 'video' }
+// ─────────────────────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────────────────────
+type NewMedia = { url: string; type?: 'image' | 'video'; poster?: string | null }
 
-// ✅ existing media from backend MUST include id + typ
-type ExistingPostMedia = { id: string; url: string; typ: string }
+type ExistingPostMedia = {
+  id: string
+  url: string
+  typ?: string
+  type?: string
+  poster?: string | null
+  posterUrl?: string | null
+}
 
 type Post = {
   id: string
   animalId: string
-  authorId?: string
   title: string
-  body?: string
-  media?: ExistingPostMedia[]
+  body?: string | null
   createdAt: string
   active?: boolean
+  media?: ExistingPostMedia[]
 }
 
 const EMOJIS = ['🐾', '❤️', '😊', '🥰', '👏', '🎉', '😍', '🤗', '🌟', '👍']
+
+function isVideoUrl(url: string): boolean {
+  return /\.(mp4|webm|m4v|mov)(\?|$)/i.test(url || '')
+}
+function isVideoMedia(m: { url?: string; typ?: string; type?: string }): boolean {
+  const t = String(m.typ || m.type || '').toLowerCase()
+  if (t.includes('video')) return true
+  return isVideoUrl(String(m.url || ''))
+}
+function guessTypeFromUrl(u: string): 'image' | 'video' | undefined {
+  const lc = (u || '').toLowerCase()
+  if (/\.(mp4|webm|mov|m4v)(\?|$)/.test(lc)) return 'video'
+  if (/\.(jpg|jpeg|png|gif|webp|avif)(\?|$)/.test(lc)) return 'image'
+  return undefined
+}
+function guessVideoMime(url: string): string {
+  const u = (url || '').toLowerCase()
+  if (u.includes('.webm')) return 'video/webm'
+  return 'video/mp4'
+}
+
+async function readJson<T>(res: Response): Promise<T> {
+  const text = await res.text().catch(() => '')
+  if (!res.ok) {
+    throw new Error(text || `HTTP ${res.status}`)
+  }
+  try {
+    return JSON.parse(text) as T
+  } catch {
+    // if backend returned empty string but ok
+    return (undefined as unknown) as T
+  }
+}
 
 export default function PostsSection({ animalId }: { animalId: string }) {
   const { hasAccess } = useAccess()
@@ -69,7 +114,7 @@ export default function PostsSection({ animalId }: { animalId: string }) {
   // staff can create/delete posts
   const canWrite = isStaff
 
-  // ✅ Only ADMIN can edit + manage media
+  // ONLY ADMIN can edit + manage post media
   const canEdit = role === 'ADMIN'
 
   const [posts, setPosts] = useState<Post[]>([])
@@ -88,26 +133,32 @@ export default function PostsSection({ animalId }: { animalId: string }) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
 
-  // Edit dialog (existing post)
+  // Edit dialog
   const [editOpen, setEditOpen] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
   const [editTitle, setEditTitle] = useState('')
   const [editBody, setEditBody] = useState('')
   const [editSaving, setEditSaving] = useState(false)
 
-  // Upload helpers (edit post media)
   const [editUploading, setEditUploading] = useState(false)
   const [editUploadNote, setEditUploadNote] = useState('')
   const editFileInputRef = useRef<HTMLInputElement>(null)
   const editCameraInputRef = useRef<HTMLInputElement>(null)
   const [editNewMedia, setEditNewMedia] = useState<NewMedia[]>([])
 
+  const editPost = useMemo(() => posts.find((p) => p.id === editId) || null, [posts, editId])
+
+  // ─────────────────────────────────────────────────────────────
+  // Load posts (public)
+  // ─────────────────────────────────────────────────────────────
   async function refresh() {
     setErr(null)
     try {
-      const list = await getJSON<Post[]>(
-        `/api/posts/public?animalId=${encodeURIComponent(animalId)}`,
+      const res = await fetch(
+        apiUrl(`/api/posts/public?animalId=${encodeURIComponent(animalId)}`),
+        { method: 'GET' },
       )
+      const list = await readJson<Post[]>(res)
       setPosts(list || [])
     } catch (e: any) {
       console.error('[PostsSection] list error', e)
@@ -123,40 +174,18 @@ export default function PostsSection({ animalId }: { animalId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [animalId])
 
-  function addEmoji(emoji: string) {
-    setBody((prev) => (prev ? `${prev} ${emoji}` : emoji))
-  }
-
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!canWrite) return
-    if (!title.trim() && !body.trim() && media.length === 0) return
-    setSaving(true)
-    setErr(null)
-    try {
-      await postJSON('/api/posts', {
-        animalId,
-        title: title.trim() || 'Bez názvu',
-        body: body.trim() || undefined,
-        media: media.length
-          ? media.map((m) => ({ url: m.url, typ: m.type || 'image' }))
-          : undefined,
-      })
-      setTitle('')
-      setBody('')
-      setMedia([])
-      await refresh()
-    } catch (e: any) {
-      console.error('[PostsSection] create error', e)
-      setErr(e?.message || 'Uložení selhalo')
-    } finally {
-      setSaving(false)
-    }
-  }
-
+  // ─────────────────────────────────────────────────────────────
+  // Upload (shared: new/edit)
+  // ─────────────────────────────────────────────────────────────
   async function uploadFilesToSpace(files: FileList | File[], into: 'new' | 'edit') {
     const arr = Array.from(files).filter((f) => f && f.size > 0)
     if (arr.length === 0) return
+
+    const t = readToken()
+    if (!t) {
+      setErr('Chybí přihlášení. Přihlaste se prosím znovu.')
+      return
+    }
 
     if (into === 'new') {
       setUploading(true)
@@ -170,6 +199,7 @@ export default function PostsSection({ animalId }: { animalId: string }) {
 
     try {
       const now = Date.now()
+
       for (let i = 0; i < arr.length; i += 1) {
         const f = arr[i]
         const note = `Nahrávám ${i + 1} / ${arr.length}…`
@@ -185,13 +215,10 @@ export default function PostsSection({ animalId }: { animalId: string }) {
           body: fd,
         })
 
-        if (!res.ok) {
-          const txt = await res.text().catch(() => '')
-          throw new Error(`Nahrání selhalo (${res.status}): ${txt || res.statusText}`)
-        }
+        const json = await readJson<{ url: string }>(res)
+        const url = String(json?.url || '')
 
-        const json = await res.json()
-        const url = String(json.url)
+        if (!url) throw new Error('Upload vrátil prázdnou URL.')
 
         const item: NewMedia = {
           url: `${url}${url.includes('?') ? '&' : '?'}v=${now}`,
@@ -213,6 +240,183 @@ export default function PostsSection({ animalId }: { animalId: string }) {
         setEditUploadNote('')
       }
     }
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // Create post
+  // ─────────────────────────────────────────────────────────────
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!canWrite) return
+    if (!title.trim() && !body.trim() && media.length === 0) return
+
+    const t = readToken()
+    if (!t) {
+      setErr('Chybí přihlášení. Přihlaste se prosím znovu.')
+      return
+    }
+
+    setSaving(true)
+    setErr(null)
+    try {
+      const payload = {
+        animalId,
+        title: title.trim() || 'Bez názvu',
+        body: body.trim() || undefined,
+        media: media.length
+          ? media.map((m) => ({
+              url: m.url,
+              typ: m.type || guessTypeFromUrl(m.url) || 'image',
+            }))
+          : undefined,
+      }
+
+      const res = await fetch(apiUrl('/api/posts'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
+        body: JSON.stringify(payload),
+      })
+      await readJson(res)
+
+      setTitle('')
+      setBody('')
+      setMedia([])
+      await refresh()
+    } catch (e: any) {
+      console.error('[PostsSection] create error', e)
+      setErr(e?.message || 'Uložení selhalo')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // Delete post (staff)
+  // ─────────────────────────────────────────────────────────────
+  async function handleDelete(postId: string) {
+    if (!canWrite) return
+    const ok = window.confirm('Opravdu chcete tento příspěvek smazat?')
+    if (!ok) return
+
+    const t = readToken()
+    if (!t) {
+      setErr('Chybí přihlášení. Přihlaste se prosím znovu.')
+      return
+    }
+
+    try {
+      const res = await fetch(apiUrl(`/api/posts/${encodeURIComponent(postId)}`), {
+        method: 'DELETE',
+        headers: { ...authHeader() },
+      })
+      await readJson(res)
+      setPosts((prev) => prev.filter((p) => p.id !== postId))
+    } catch (e: any) {
+      console.error('[PostsSection] delete error', e)
+      setErr(e?.message || 'Smazání příspěvku selhalo.')
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // Edit (admin)
+  // ─────────────────────────────────────────────────────────────
+  function openEdit(p: Post) {
+    if (!canEdit) return
+    setEditId(p.id)
+    setEditTitle(p.title || '')
+    setEditBody(p.body || '')
+    setEditNewMedia([])
+    setEditOpen(true)
+  }
+
+  function closeEdit() {
+    setEditOpen(false)
+    setEditId(null)
+    setEditNewMedia([])
+  }
+
+  async function saveEdit() {
+    if (!canEdit || !editId) return
+
+    const t = readToken()
+    if (!t) {
+      setErr('Chybí přihlášení (admin). Přihlaste se prosím znovu.')
+      return
+    }
+
+    setEditSaving(true)
+    setErr(null)
+    try {
+      // 1) patch text/title
+      const res = await fetch(apiUrl(`/api/posts/${encodeURIComponent(editId)}`), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
+        body: JSON.stringify({
+          title: editTitle.trim() || 'Bez názvu',
+          body: editBody.trim() || undefined,
+        }),
+      })
+      await readJson(res)
+
+      // 2) add newly uploaded media (if any)
+      if (editNewMedia.length > 0) {
+        const res2 = await fetch(apiUrl(`/api/posts/${encodeURIComponent(editId)}/media`), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeader() },
+          body: JSON.stringify({
+            media: editNewMedia.map((m) => ({
+              url: m.url,
+              typ: m.type || guessTypeFromUrl(m.url) || 'image',
+            })),
+          }),
+        })
+        await readJson(res2)
+      }
+
+      closeEdit()
+      await refresh()
+    } catch (e: any) {
+      console.error('[PostsSection] edit save error', e)
+      setErr(e?.message || 'Uložení změn selhalo')
+    } finally {
+      setEditSaving(false)
+    }
+  }
+
+  async function deleteExistingMedia(postId: string, mediaId: string) {
+    if (!canEdit) return
+    const ok = window.confirm('Opravdu chcete smazat toto médium?')
+    if (!ok) return
+
+    const t = readToken()
+    if (!t) {
+      setErr('Chybí přihlášení (admin). Přihlaste se prosím znovu.')
+      return
+    }
+
+    try {
+      const res = await fetch(
+        apiUrl(
+          `/api/posts/${encodeURIComponent(postId)}/media/${encodeURIComponent(mediaId)}`,
+        ),
+        {
+          method: 'DELETE',
+          headers: { ...authHeader() },
+        },
+      )
+      await readJson(res)
+      await refresh()
+    } catch (e: any) {
+      console.error('[PostsSection] delete media error', e)
+      setErr(e?.message || 'Smazání média selhalo.')
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // UI handlers
+  // ─────────────────────────────────────────────────────────────
+  function addEmoji(emoji: string) {
+    setBody((prev) => (prev ? `${prev} ${emoji}` : emoji))
   }
 
   function onPickFiles(e: React.ChangeEvent<HTMLInputElement>) {
@@ -237,121 +441,6 @@ export default function PostsSection({ animalId }: { animalId: string }) {
     setMedia((list) => list.filter((_, idx) => idx !== i))
   }
 
-  async function handleDelete(postId: string) {
-    if (!canWrite) return
-    const ok = window.confirm('Opravdu chcete tento příspěvek smazat?')
-    if (!ok) return
-
-    try {
-      await delJSON<void>(`/api/posts/${encodeURIComponent(postId)}`)
-      setPosts((prev) => prev.filter((p) => p.id !== postId))
-    } catch (e: any) {
-      console.error('[PostsSection] delete error', e)
-      setErr(e?.message || 'Smazání příspěvku selhalo.')
-    }
-  }
-
-  function openEdit(p: Post) {
-    if (!canEdit) return
-    setEditId(p.id)
-    setEditTitle(p.title || '')
-    setEditBody(p.body || '')
-    setEditNewMedia([])
-    setEditOpen(true)
-  }
-
-  function closeEdit() {
-    setEditOpen(false)
-    setEditId(null)
-    setEditNewMedia([])
-  }
-
-  async function saveEdit() {
-    if (!canEdit || !editId) return
-    setEditSaving(true)
-    setErr(null)
-
-    const t = token()
-    if (!t) {
-      setErr('Chybí přihlášení (admin). Přihlaste se prosím znovu.')
-      setEditSaving(false)
-      return
-    }
-
-    try {
-      // 1) patch text/title
-      const res = await fetch(apiUrl(`/api/posts/${encodeURIComponent(editId)}`), {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          ...authHeader(),
-        },
-        body: JSON.stringify({
-          title: editTitle.trim() || 'Bez názvu',
-          body: editBody.trim() || undefined,
-        }),
-      })
-      if (!res.ok) {
-        const txt = await res.text().catch(() => '')
-        throw new Error(`Uložení selhalo (${res.status}): ${txt || res.statusText}`)
-      }
-
-      // 2) add newly uploaded media (if any)
-      if (editNewMedia.length > 0) {
-        const res2 = await fetch(apiUrl(`/api/posts/${encodeURIComponent(editId)}/media`), {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...authHeader(),
-          },
-          body: JSON.stringify({
-            media: editNewMedia.map((m) => ({ url: m.url, typ: m.type || 'image' })),
-          }),
-        })
-        if (!res2.ok) {
-          const txt = await res2.text().catch(() => '')
-          throw new Error(`Uložení médií selhalo (${res2.status}): ${txt || res2.statusText}`)
-        }
-      }
-
-      closeEdit()
-      await refresh()
-    } catch (e: any) {
-      console.error('[PostsSection] edit save error', e)
-      setErr(e?.message || 'Uložení změn selhalo')
-    } finally {
-      setEditSaving(false)
-    }
-  }
-
-  async function deleteExistingMedia(postId: string, mediaId: string) {
-    if (!canEdit) return
-    const ok = window.confirm('Opravdu chcete smazat toto médium?')
-    if (!ok) return
-
-    try {
-      // ✅ correct backend route:
-      // DELETE /api/posts/:id/media/:mediaId
-      const res = await fetch(
-        apiUrl(`/api/posts/${encodeURIComponent(postId)}/media/${encodeURIComponent(mediaId)}`),
-        {
-          method: 'DELETE',
-          headers: { ...authHeader() },
-        },
-      )
-
-      if (!res.ok) {
-        const txt = await res.text().catch(() => '')
-        throw new Error(`Smazání média selhalo (${res.status}): ${txt || res.statusText}`)
-      }
-
-      await refresh()
-    } catch (e: any) {
-      console.error('[PostsSection] delete media error', e)
-      setErr(e?.message || 'Smazání média selhalo.')
-    }
-  }
-
   function onEditPickFiles(e: React.ChangeEvent<HTMLInputElement>) {
     if (e.target.files) uploadFilesToSpace(e.target.files, 'edit')
     e.target.value = ''
@@ -364,12 +453,11 @@ export default function PostsSection({ animalId }: { animalId: string }) {
     setEditNewMedia((list) => list.filter((_, idx) => idx !== i))
   }
 
+  // ─────────────────────────────────────────────────────────────
+  // Render
+  // ─────────────────────────────────────────────────────────────
   return (
-    <Box sx={{ mt: 5 }}>
-      <Typography variant="h6" sx={{ fontWeight: 800, mb: 1 }}>
-        Příspěvky
-      </Typography>
-
+    <Box sx={{ mt: 2 }}>
       {err && (
         <Alert severity="error" sx={{ mb: 2 }}>
           {err}
@@ -425,20 +513,20 @@ export default function PostsSection({ animalId }: { animalId: string }) {
                 </Stack>
               )}
 
-              <Typography sx={{ fontWeight: 700 }}>{p.title}</Typography>
-
+              <Typography sx={{ fontWeight: 800 }}>{p.title}</Typography>
               <Typography
                 variant="caption"
                 color="text.secondary"
                 sx={{ display: 'block', mb: 1 }}
               >
-                {new Date(p.createdAt).toLocaleDateString('cs-CZ')}
+                {new Date(p.createdAt).toLocaleString()}
               </Typography>
 
               {p.media && p.media.length > 0 && (
                 <Grid container spacing={1} sx={{ mb: 1 }}>
                   {p.media.map((m, i) => {
-                    const isVideo = (m.typ || '').toLowerCase().includes('video')
+                    const isVideo = isVideoMedia(m)
+                    const poster = m.posterUrl || m.poster || undefined
                     return (
                       <Grid item xs={6} sm={4} md={3} key={`${m.id}-${i}`}>
                         <Box
@@ -451,18 +539,36 @@ export default function PostsSection({ animalId }: { animalId: string }) {
                           }}
                         >
                           {isVideo ? (
-                            <video controls style={{ width: '100%', height: 140, objectFit: 'cover' }}>
-                              <source src={m.url} />
+                            <video
+                              controls
+                              preload="metadata"
+                              playsInline
+                              poster={poster}
+                              style={{ width: '100%', height: 140, objectFit: 'cover', display: 'block' }}
+                            >
+                              <source src={m.url} type={guessVideoMime(m.url)} />
                             </video>
                           ) : (
-                            <img
-                              src={m.url}
-                              alt=""
-                              style={{ width: '100%', height: 140, objectFit: 'cover', display: 'block' }}
-                            />
+                            <Box
+                              component="a"
+                              href={m.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              sx={{ display: 'block' }}
+                            >
+                              <img
+                                src={m.url}
+                                alt=""
+                                style={{
+                                  width: '100%',
+                                  height: 140,
+                                  objectFit: 'cover',
+                                  display: 'block',
+                                }}
+                              />
+                            </Box>
                           )}
 
-                          {/* ✅ delete existing media (ADMIN only) */}
                           {canEdit && (
                             <Tooltip title="Smazat médium">
                               <IconButton
@@ -475,7 +581,7 @@ export default function PostsSection({ animalId }: { animalId: string }) {
                                   bgcolor: 'rgba(255,255,255,0.9)',
                                 }}
                               >
-                                <DeleteIcon fontSize="small" />
+                                <DeleteOutlineIcon fontSize="small" />
                               </IconButton>
                             </Tooltip>
                           )}
@@ -487,37 +593,92 @@ export default function PostsSection({ animalId }: { animalId: string }) {
               )}
 
               {p.body && (
-                <Typography color="text.secondary" dangerouslySetInnerHTML={{ __html: p.body }} />
+                <Box sx={{ color: 'text.secondary', lineHeight: 1.7 }}>
+                  <SafeHTML>{p.body}</SafeHTML>
+                </Box>
               )}
             </Box>
           ))}
         </Stack>
       )}
 
-      {/* Edit dialog (ADMIN only) */}
+      {/* ───────────── Admin edit dialog ───────────── */}
       <Dialog open={editOpen} onClose={closeEdit} fullWidth maxWidth="md">
         <DialogTitle>Upravit příspěvek</DialogTitle>
         <DialogContent>
-          <Stack spacing={1.5} sx={{ mt: 1 }}>
-            <TextField
-              label="Titulek"
-              value={editTitle}
-              onChange={(e) => setEditTitle(e.target.value)}
-            />
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField label="Titulek" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
             <RichTextEditor label="Text" value={editBody} onChange={setEditBody} />
 
-            {/* ✅ Add new media to existing post */}
-            <Stack spacing={1} sx={{ mt: 1 }}>
+            {/* Existing media (admin can delete) */}
+            {editPost?.media && editPost.media.length > 0 && (
+              <Box>
+                <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 1 }}>
+                  Existující média
+                </Typography>
+                <Grid container spacing={1}>
+                  {editPost.media.map((m) => {
+                    const isVideo = isVideoMedia(m)
+                    const poster = m.posterUrl || m.poster || undefined
+                    return (
+                      <Grid item xs={6} sm={4} md={3} key={m.id}>
+                        <Box
+                          sx={{
+                            position: 'relative',
+                            border: '1px solid',
+                            borderColor: 'divider',
+                            borderRadius: 2,
+                            overflow: 'hidden',
+                          }}
+                        >
+                          {isVideo ? (
+                            <video
+                              controls
+                              preload="metadata"
+                              playsInline
+                              poster={poster}
+                              style={{ width: '100%', height: 140, objectFit: 'cover', display: 'block' }}
+                            >
+                              <source src={m.url} type={guessVideoMime(m.url)} />
+                            </video>
+                          ) : (
+                            <img
+                              src={m.url}
+                              alt=""
+                              style={{ width: '100%', height: 140, objectFit: 'cover', display: 'block' }}
+                            />
+                          )}
+
+                          <Tooltip title="Smazat médium">
+                            <IconButton
+                              size="small"
+                              onClick={() => deleteExistingMedia(editPost.id, m.id)}
+                              sx={{
+                                position: 'absolute',
+                                top: 6,
+                                right: 6,
+                                bgcolor: 'rgba(255,255,255,0.9)',
+                              }}
+                            >
+                              <DeleteOutlineIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        </Box>
+                      </Grid>
+                    )
+                  })}
+                </Grid>
+              </Box>
+            )}
+
+            {/* Add new media */}
+            <Box>
               <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
-                Přidat média k příspěvku
+                Přidat nová média
               </Typography>
 
-              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center">
-                <Button
-                  onClick={() => editFileInputRef.current?.click()}
-                  startIcon={<UploadIcon />}
-                  variant="outlined"
-                >
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center" sx={{ mt: 1 }}>
+                <Button onClick={() => editFileInputRef.current?.click()} startIcon={<UploadIcon />} variant="outlined">
                   Vybrat soubory
                 </Button>
                 <input
@@ -529,11 +690,7 @@ export default function PostsSection({ animalId }: { animalId: string }) {
                   onChange={onEditPickFiles}
                 />
 
-                <Button
-                  onClick={() => editCameraInputRef.current?.click()}
-                  startIcon={<PhotoCameraIcon />}
-                  variant="outlined"
-                >
+                <Button onClick={() => editCameraInputRef.current?.click()} startIcon={<PhotoCameraIcon />} variant="outlined">
                   Vyfotit (telefon)
                 </Button>
                 <input
@@ -556,43 +713,58 @@ export default function PostsSection({ animalId }: { animalId: string }) {
               )}
 
               {editNewMedia.length > 0 && (
-                <Grid container spacing={1.5} sx={{ mt: 0.5 }}>
-                  {editNewMedia.map((m, i) => (
-                    <Grid item xs={6} sm={4} md={3} key={`${m.url}-${i}`}>
-                      <Box
-                        sx={{
-                          position: 'relative',
-                          border: '1px solid',
-                          borderColor: 'divider',
-                          borderRadius: 2,
-                          overflow: 'hidden',
-                        }}
-                      >
-                        <img
-                          src={m.url}
-                          alt=""
-                          style={{ width: '100%', height: 140, objectFit: 'cover', display: 'block' }}
-                        />
-                        <Tooltip title="Odebrat">
-                          <IconButton
-                            size="small"
-                            onClick={() => removeEditNewMediaIndex(i)}
-                            sx={{
-                              position: 'absolute',
-                              top: 6,
-                              right: 6,
-                              bgcolor: 'rgba(255,255,255,0.9)',
-                            }}
-                          >
-                            <DeleteIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      </Box>
-                    </Grid>
-                  ))}
+                <Grid container spacing={1.5} sx={{ mt: 1 }}>
+                  {editNewMedia.map((m, i) => {
+                    const isVideo = isVideoMedia(m)
+                    return (
+                      <Grid item xs={6} sm={4} md={3} key={`${m.url}-${i}`}>
+                        <Box
+                          sx={{
+                            position: 'relative',
+                            border: '1px solid',
+                            borderColor: 'divider',
+                            borderRadius: 2,
+                            overflow: 'hidden',
+                          }}
+                        >
+                          {isVideo ? (
+                            <video
+                              controls
+                              preload="metadata"
+                              playsInline
+                              style={{ width: '100%', height: 140, objectFit: 'cover', display: 'block' }}
+                            >
+                              <source src={m.url} type={guessVideoMime(m.url)} />
+                            </video>
+                          ) : (
+                            <img
+                              src={m.url}
+                              alt=""
+                              style={{ width: '100%', height: 140, objectFit: 'cover', display: 'block' }}
+                            />
+                          )}
+
+                          <Tooltip title="Odebrat">
+                            <IconButton
+                              size="small"
+                              onClick={() => removeEditNewMediaIndex(i)}
+                              sx={{
+                                position: 'absolute',
+                                top: 6,
+                                right: 6,
+                                bgcolor: 'rgba(255,255,255,0.9)',
+                              }}
+                            >
+                              <DeleteOutlineIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        </Box>
+                      </Grid>
+                    )
+                  })}
                 </Grid>
               )}
-            </Stack>
+            </Box>
           </Stack>
         </DialogContent>
         <DialogActions>
@@ -605,22 +777,18 @@ export default function PostsSection({ animalId }: { animalId: string }) {
         </DialogActions>
       </Dialog>
 
-      {/* Composer (staff only) */}
+      {/* ───────────── Staff composer ───────────── */}
       {canWrite && (
         <Box component="form" onSubmit={onSubmit} sx={{ mt: 2 }}>
-          <Stack spacing={1.5}>
-            {/* Media uploader (new post) */}
-            <Stack spacing={1}>
-              <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
-                Fotky / Videa
-              </Typography>
+          <Stack spacing={2}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>
+              Nový příspěvek
+            </Typography>
 
+            {/* Upload */}
+            <Stack spacing={1}>
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center">
-                <Button
-                  onClick={() => fileInputRef.current?.click()}
-                  startIcon={<UploadIcon />}
-                  variant="outlined"
-                >
+                <Button onClick={() => fileInputRef.current?.click()} startIcon={<UploadIcon />} variant="outlined">
                   Vybrat soubory
                 </Button>
                 <input
@@ -632,11 +800,7 @@ export default function PostsSection({ animalId }: { animalId: string }) {
                   onChange={onPickFiles}
                 />
 
-                <Button
-                  onClick={() => cameraInputRef.current?.click()}
-                  startIcon={<PhotoCameraIcon />}
-                  variant="outlined"
-                >
+                <Button onClick={() => cameraInputRef.current?.click()} startIcon={<PhotoCameraIcon />} variant="outlined">
                   Vyfotit (telefon)
                 </Button>
                 <input
@@ -677,66 +841,65 @@ export default function PostsSection({ animalId }: { animalId: string }) {
               )}
 
               {media.length > 0 && (
-                <Grid container spacing={1.5} sx={{ mt: 0.5 }}>
-                  {media.map((m, i) => (
-                    <Grid item xs={6} sm={4} md={3} key={`${m.url}-${i}`}>
-                      <Box
-                        sx={{
-                          position: 'relative',
-                          border: '1px solid',
-                          borderColor: 'divider',
-                          borderRadius: 2,
-                          overflow: 'hidden',
-                        }}
-                      >
-                        <img
-                          src={m.url}
-                          alt=""
-                          style={{ width: '100%', height: 140, objectFit: 'cover', display: 'block' }}
-                        />
-                        <Tooltip title="Odebrat">
-                          <IconButton
-                            size="small"
-                            onClick={() => removeMediaIndex(i)}
-                            sx={{
-                              position: 'absolute',
-                              top: 6,
-                              right: 6,
-                              bgcolor: 'rgba(255,255,255,0.9)',
-                            }}
-                          >
-                            <DeleteIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      </Box>
-                    </Grid>
-                  ))}
+                <Grid container spacing={1.5} sx={{ mt: 1 }}>
+                  {media.map((m, i) => {
+                    const isVideo = isVideoMedia(m)
+                    return (
+                      <Grid item xs={6} sm={4} md={3} key={`${m.url}-${i}`}>
+                        <Box
+                          sx={{
+                            position: 'relative',
+                            border: '1px solid',
+                            borderColor: 'divider',
+                            borderRadius: 2,
+                            overflow: 'hidden',
+                          }}
+                        >
+                          {isVideo ? (
+                            <video
+                              controls
+                              preload="metadata"
+                              playsInline
+                              style={{ width: '100%', height: 140, objectFit: 'cover', display: 'block' }}
+                            >
+                              <source src={m.url} type={guessVideoMime(m.url)} />
+                            </video>
+                          ) : (
+                            <img
+                              src={m.url}
+                              alt=""
+                              style={{ width: '100%', height: 140, objectFit: 'cover', display: 'block' }}
+                            />
+                          )}
+
+                          <Tooltip title="Odebrat">
+                            <IconButton
+                              size="small"
+                              onClick={() => removeMediaIndex(i)}
+                              sx={{
+                                position: 'absolute',
+                                top: 6,
+                                right: 6,
+                                bgcolor: 'rgba(255,255,255,0.9)',
+                              }}
+                            >
+                              <DeleteOutlineIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        </Box>
+                      </Grid>
+                    )
+                  })}
                 </Grid>
               )}
             </Stack>
 
-            <TextField
-              label="Titulek"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              required={!body && media.length === 0}
-            />
-            <RichTextEditor
-              label="Text"
-              value={body}
-              onChange={setBody}
-              helperText="Můžete použít tučné, kurzívu, podtržení a barvu (tyrkysová)."
-            />
+            <TextField label="Titulek" value={title} onChange={(e) => setTitle(e.target.value)} fullWidth />
+            <RichTextEditor label="Text" value={body} onChange={setBody} />
 
-            <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', mt: 1 }}>
+            <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
               {EMOJIS.map((emo) => (
-                <Button
-                  key={emo}
-                  size="small"
-                  variant="text"
-                  onClick={() => addEmoji(emo)}
-                  sx={{ minWidth: 36 }}
-                >
+                <Button key={emo} size="small" variant="text" onClick={() => addEmoji(emo)} sx={{ minWidth: 36 }}>
                   {emo}
                 </Button>
               ))}
@@ -750,12 +913,4 @@ export default function PostsSection({ animalId }: { animalId: string }) {
       )}
     </Box>
   )
-}
-
-/* Helpers */
-function guessTypeFromUrl(u: string): 'image' | 'video' | undefined {
-  const lc = u.toLowerCase()
-  if (/\.(mp4|webm|mov|m4v)(\?|$)/.test(lc)) return 'video'
-  if (/\.(jpg|jpeg|png|gif|webp|avif)(\?|$)/.test(lc)) return 'image'
-  return undefined
 }

@@ -22,11 +22,51 @@ import { useAuth } from '../context/AuthContext'
 import RichTextEditor from '../components/RichTextEditor'
 import { fetchAnimals, type Animal, uploadMedia } from '../api'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '')
 
-type PostMedia = { url: string; type?: 'image' | 'video' }
+// If upload returns { key }, we must build a public URL.
+// Prefer env if you have it; fallback to your known Space CDN.
+const SPACE_PUBLIC_BASE =
+  (import.meta.env.VITE_DO_SPACE_PUBLIC_BASE as string | undefined)?.replace(/\/+$/, '') ||
+  'https://dogpoint.fra1.digitaloceanspaces.com'
+
+type PostMedia = {
+  url: string
+  type?: 'image' | 'video'
+  typ?: 'image' | 'video'
+  poster?: string | null
+  posterUrl?: string | null
+}
 
 const EMOJIS = ['🐾', '❤️', '😊', '🥰', '👏', '🎉', '😍', '🤗', '🌟', '👍']
+
+function isVideoUrl(url: string): boolean {
+  return /\.(mp4|webm|m4v|mov)(\?|$)/i.test(url || '')
+}
+
+function isVideoMedia(m: { url?: string; typ?: string; type?: string }): boolean {
+  const t = String(m.typ || m.type || '').toLowerCase()
+  if (t.includes('video')) return true
+  return isVideoUrl(String(m.url || ''))
+}
+
+function guessVideoMime(url: string): string {
+  const u = (url || '').toLowerCase()
+  if (u.includes('.webm')) return 'video/webm'
+  return 'video/mp4'
+}
+
+function guessTypeFromUrl(u: string): 'image' | 'video' | undefined {
+  const lc = (u || '').toLowerCase()
+  if (/\.(mp4|webm|mov|m4v)(\?|$)/.test(lc)) return 'video'
+  if (/\.(jpg|jpeg|png|gif|webp|avif)(\?|$)/.test(lc)) return 'image'
+  return undefined
+}
+
+function buildPublicUrlFromKey(key: string): string {
+  const cleanKey = String(key || '').replace(/^\//, '')
+  return `${SPACE_PUBLIC_BASE}/${cleanKey}`
+}
 
 export default function ModeratorNewPost() {
   const navigate = useNavigate()
@@ -51,38 +91,67 @@ export default function ModeratorNewPost() {
     ;(async () => {
       try {
         const list = await fetchAnimals()
-        setAnimals(list)
+        setAnimals(list || [])
       } catch (e: any) {
         setError(e?.message || 'Nepodařilo se načíst seznam zvířat')
       }
     })()
   }, [])
 
+  function addEmoji(emoji: string) {
+    setBody((prev) => (prev ? `${prev} ${emoji}` : emoji))
+  }
+
+  function removeMedia(idx: number) {
+    setMedia((list) => list.filter((_, i) => i !== idx))
+  }
+
   /* ---------- Upload helpers ---------- */
 
   async function handleFiles(files: FileList | File[]) {
     const arr = Array.from(files).filter((f) => f && f.size > 0)
     if (!arr.length) return
+
     setUploading(true)
     setError(null)
+
     try {
-      const results: string[] = []
+      const results: Array<{ url: string; type?: 'image' | 'video' }> = []
+      const bust = Date.now()
+
       for (let i = 0; i < arr.length; i++) {
+        const f = arr[i]
         setUploadNote(`Nahrávám ${i + 1} / ${arr.length}…`)
+
         // eslint-disable-next-line no-await-in-loop
-        const one = await uploadMedia(arr[i])
-        const url = (one as any)?.url || (one as any)?.key || ''
-        if (url) results.push(url)
+        const one = await uploadMedia(f)
+
+        // Accept {url} or {key}
+        const rawUrl = String((one as any)?.url || '')
+        const rawKey = String((one as any)?.key || '')
+
+        let publicUrl = rawUrl
+        if (!publicUrl && rawKey) publicUrl = buildPublicUrlFromKey(rawKey)
+
+        if (publicUrl) {
+          const t = (guessTypeFromUrl(publicUrl) || (f.type.startsWith('video/') ? 'video' : 'image')) as
+            | 'image'
+            | 'video'
+          results.push({
+            url: `${publicUrl}${publicUrl.includes('?') ? '&' : '?'}v=${bust}`,
+            type: t,
+          })
+        }
       }
-      const now = Date.now()
-      setMedia((cur) => [
-        ...cur,
-        ...results.map((u) => ({
-          url: `${u}${u.includes('?') ? '&' : '?'}v=${now}`,
-          type: guessTypeFromUrl(u) || 'image',
-        })),
-      ])
+
+      if (results.length) {
+        setMedia((cur) => [
+          ...cur,
+          ...results.map((r) => ({ url: r.url, type: r.type, typ: r.type })),
+        ])
+      }
     } catch (e: any) {
+      console.error('[ModeratorNewPost] upload error', e)
       setError(e?.message || 'Nahrání selhalo')
     } finally {
       setUploading(false)
@@ -110,14 +179,6 @@ export default function ModeratorNewPost() {
   function onDragOver(e: React.DragEvent<HTMLDivElement>) {
     e.preventDefault()
     e.stopPropagation()
-  }
-
-  function removeMedia(idx: number) {
-    setMedia((list) => list.filter((_, i) => i !== idx))
-  }
-
-  function addEmoji(emoji: string) {
-    setBody((prev) => (prev ? `${prev} ${emoji}` : emoji))
   }
 
   /* ---------- SAVE ---------- */
@@ -149,13 +210,11 @@ export default function ModeratorNewPost() {
         media: media.length
           ? media.map((m) => ({
               url: m.url,
-              typ: m.type || guessTypeFromUrl(m.url) || 'image',
+              typ: (m.type || m.typ || guessTypeFromUrl(m.url) || 'image') as 'image' | 'video',
             }))
           : undefined,
       }
 
-      // 🔴 BUG BEFORE: calling `${API_BASE_URL}/posts` (=> /posts 404)
-      // ✅ FIX: use /api/posts + Authorization
       const res = await fetch(`${API_BASE_URL}/api/posts`, {
         method: 'POST',
         headers: {
@@ -166,22 +225,17 @@ export default function ModeratorNewPost() {
       })
 
       if (!res.ok) {
-        const text = await res.text()
+        const text = await res.text().catch(() => '')
         console.error('[ModeratorNewPost] save error', res.status, text)
-        throw new Error(
-          `Uložení selhalo (HTTP ${res.status}): ${
-            text || 'Neznámá chyba'
-          }`,
-        )
+        throw new Error(`Uložení selhalo (HTTP ${res.status}): ${text || 'Neznámá chyba'}`)
       }
 
       setOk('Příspěvek uložen. Pokud jste moderátor, čeká na schválení.')
       setTitle('')
       setBody('')
       setMedia([])
-      // optional: navigate back after short delay
-      // setTimeout(() => navigate('/moderator/animals?tab=pending'), 800)
     } catch (e: any) {
+      console.error('[ModeratorNewPost] save error', e)
       setError(e?.message || 'Uložení příspěvku selhalo')
     } finally {
       setLoading(false)
@@ -227,12 +281,7 @@ export default function ModeratorNewPost() {
             ))}
           </TextField>
 
-          <TextField
-            label="Titulek"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            fullWidth
-          />
+          <TextField label="Titulek" value={title} onChange={(e) => setTitle(e.target.value)} fullWidth />
 
           <RichTextEditor
             label="Text příspěvku"
@@ -262,32 +311,13 @@ export default function ModeratorNewPost() {
               Fotky / videa
             </Typography>
 
-            <Stack
-              direction={{ xs: 'column', sm: 'row' }}
-              spacing={2}
-              alignItems="center"
-            >
-              <Button
-                onClick={() => fileRef.current?.click()}
-                startIcon={<UploadIcon />}
-                variant="outlined"
-              >
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center">
+              <Button onClick={() => fileRef.current?.click()} startIcon={<UploadIcon />} variant="outlined">
                 Vybrat soubory
               </Button>
-              <input
-                ref={fileRef}
-                type="file"
-                hidden
-                multiple
-                accept="image/*,video/*"
-                onChange={onPickFiles}
-              />
+              <input ref={fileRef} type="file" hidden multiple accept="image/*,video/*" onChange={onPickFiles} />
 
-              <Button
-                onClick={() => cameraRef.current?.click()}
-                startIcon={<PhotoCameraIcon />}
-                variant="outlined"
-              >
+              <Button onClick={() => cameraRef.current?.click()} startIcon={<PhotoCameraIcon />} variant="outlined">
                 Vyfotit (telefon)
               </Button>
               <input
@@ -329,60 +359,66 @@ export default function ModeratorNewPost() {
 
             {media.length > 0 && (
               <Grid container spacing={1.5} sx={{ mt: 0.5 }}>
-                {media.map((m, i) => (
-                  <Grid item xs={6} sm={4} md={3} key={`${m.url}-${i}`}>
-                    <Box
-                      sx={{
-                        position: 'relative',
-                        border: '1px solid',
-                        borderColor: 'divider',
-                        borderRadius: 2,
-                        overflow: 'hidden',
-                      }}
-                    >
-                      <img
-                        src={m.url}
-                        alt={`post-media-${i}`}
-                        style={{
-                          width: '100%',
-                          height: 140,
-                          objectFit: 'cover',
-                          display: 'block',
+                {media.map((m, i) => {
+                  const video = isVideoMedia(m)
+                  const poster = m.posterUrl || m.poster || undefined
+
+                  return (
+                    <Grid item xs={6} sm={4} md={3} key={`${m.url}-${i}`}>
+                      <Box
+                        sx={{
+                          position: 'relative',
+                          border: '1px solid',
+                          borderColor: 'divider',
+                          borderRadius: 2,
+                          overflow: 'hidden',
                         }}
-                      />
-                      <Tooltip title="Odebrat">
-                        <IconButton
-                          size="small"
-                          onClick={() => removeMedia(i)}
-                          sx={{
-                            position: 'absolute',
-                            top: 6,
-                            right: 6,
-                            bgcolor: 'rgba(255,255,255,0.9)',
-                          }}
-                        >
-                          <DeleteOutlineIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    </Box>
-                  </Grid>
-                ))}
+                      >
+                        {video ? (
+                          <video
+                            controls
+                            preload="metadata"
+                            playsInline
+                            poster={poster}
+                            style={{ width: '100%', height: 140, objectFit: 'cover', display: 'block' }}
+                          >
+                            <source src={m.url} type={guessVideoMime(m.url)} />
+                          </video>
+                        ) : (
+                          <img
+                            src={m.url}
+                            alt={`post-media-${i}`}
+                            style={{ width: '100%', height: 140, objectFit: 'cover', display: 'block' }}
+                          />
+                        )}
+
+                        <Tooltip title="Odebrat">
+                          <IconButton
+                            size="small"
+                            onClick={() => removeMedia(i)}
+                            sx={{
+                              position: 'absolute',
+                              top: 6,
+                              right: 6,
+                              bgcolor: 'rgba(255,255,255,0.9)',
+                            }}
+                          >
+                            <DeleteOutlineIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </Box>
+                    </Grid>
+                  )
+                })}
               </Grid>
             )}
           </Stack>
 
           <Stack direction="row" spacing={2} justifyContent="flex-end">
-            <Button
-              variant="text"
-              onClick={() => navigate('/moderator/animals?tab=pending')}
-            >
+            <Button variant="text" onClick={() => navigate('/moderator/animals?tab=pending')}>
               Zpět
             </Button>
-            <Button
-              type="submit"
-              variant="contained"
-              disabled={loading || uploading}
-            >
+            <Button type="submit" variant="contained" disabled={loading || uploading}>
               {loading ? 'Ukládám…' : 'Uložit příspěvek'}
             </Button>
           </Stack>
@@ -390,11 +426,4 @@ export default function ModeratorNewPost() {
       </form>
     </Container>
   )
-}
-
-function guessTypeFromUrl(u: string): 'image' | 'video' | undefined {
-  const lc = u.toLowerCase()
-  if (/\.(mp4|webm|mov|m4v)(\?|$)/.test(lc)) return 'video'
-  if (/\.(jpg|jpeg|png|gif|webp|avif)(\?|$)/.test(lc)) return 'image'
-  return undefined
 }

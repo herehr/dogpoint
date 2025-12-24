@@ -1,9 +1,29 @@
 // frontend/src/pages/AnimalsManager.tsx
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Container, Typography, Paper, Stack, Button, TextField, Checkbox, FormControlLabel,
-  Grid, Card, CardMedia, CardContent, CardActions, IconButton, Dialog, DialogTitle,
-  DialogContent, DialogActions, Alert, Box, LinearProgress, Tooltip, Chip
+  Container,
+  Typography,
+  Paper,
+  Stack,
+  Button,
+  TextField,
+  Checkbox,
+  FormControlLabel,
+  Grid,
+  Card,
+  CardMedia,
+  CardContent,
+  CardActions,
+  IconButton,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Alert,
+  Box,
+  LinearProgress,
+  Tooltip,
+  Chip,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import EditIcon from '@mui/icons-material/Edit'
@@ -19,8 +39,13 @@ import { useNavigate } from 'react-router-dom'
 import RichTextEditor from '../components/RichTextEditor'
 
 import {
-  fetchAnimals, type Animal, createAnimal, updateAnimal, deleteAnimal,
-  uploadMedia, createPost
+  fetchAnimals,
+  type Animal,
+  createAnimal,
+  updateAnimal,
+  deleteAnimal,
+  uploadMedia,
+  createPost,
 } from '../api'
 import { useAuth } from '../context/AuthContext'
 
@@ -30,17 +55,51 @@ type FormAnimal = {
   popis?: string
   active?: boolean
   main?: string | null
-  galerie?: { url: string }[]
+  // ✅ keep url + typ so we can render videos too
+  galerie?: { url: string; typ?: 'image' | 'video'; type?: 'image' | 'video'; poster?: string; posterUrl?: string }[]
 
-  // NEW fields
   charakteristik?: string
-  birthDate?: string   // yyyy-mm-dd (HTML date input)
-  bornYear?: string    // keep as string in UI, coerce on submit
+  birthDate?: string // yyyy-mm-dd
+  bornYear?: string // string in UI, number on submit
 }
 
 type PostMedia = { url: string; type?: 'image' | 'video' }
 
-const EMOJIS = ['🐾','❤️','😊','🥰','👏','🎉','😍','🤗','🌟','👍']
+const EMOJIS = ['🐾', '❤️', '😊', '🥰', '👏', '🎉', '😍', '🤗', '🌟', '👍']
+
+function isVideoUrl(url: string): boolean {
+  return /\.(mp4|webm|m4v|mov)(\?|$)/i.test(url || '')
+}
+function isVideoMedia(m: { url?: string; typ?: string; type?: string }): boolean {
+  const t = String(m.typ || m.type || '').toLowerCase()
+  if (t.includes('video')) return true
+  return isVideoUrl(String(m.url || ''))
+}
+function guessTypeFromUrl(u: string): 'image' | 'video' | undefined {
+  const lc = (u || '').toLowerCase()
+  if (/\.(mp4|webm|mov|m4v)(\?|$)/.test(lc)) return 'video'
+  if (/\.(jpg|jpeg|png|gif|webp|avif)(\?|$)/.test(lc)) return 'image'
+  return undefined
+}
+function guessVideoMime(url: string): string {
+  const u = (url || '').toLowerCase()
+  if (u.includes('.webm')) return 'video/webm'
+  return 'video/mp4'
+}
+
+/* Utility: compare URLs without cache-buster */
+function stripCache(url?: string | null): string {
+  if (!url) return ''
+  const [u] = url.split('?')
+  return u
+}
+
+// ✅ pick first NON-video as image for cards/main
+function firstImageUrlFromGallery(gal?: { url: string; typ?: string; type?: string }[]): string | null {
+  const list = gal || []
+  const firstImg = list.find((x) => !isVideoMedia(x)) || list[0]
+  return firstImg?.url || null
+}
 
 export default function AnimalsManager() {
   const [rows, setRows] = useState<Animal[]>([])
@@ -51,8 +110,14 @@ export default function AnimalsManager() {
   // Dialog: animal create/edit
   const [open, setOpen] = useState(false)
   const [form, setForm] = useState<FormAnimal>({
-    jmeno: '', popis: '', active: true, galerie: [], main: null,
-    charakteristik: '', birthDate: '', bornYear: ''
+    jmeno: '',
+    popis: '',
+    active: true,
+    galerie: [],
+    main: null,
+    charakteristik: '',
+    birthDate: '',
+    bornYear: '',
   })
   const isEdit = useMemo(() => !!form.id, [form.id])
 
@@ -88,7 +153,9 @@ export default function AnimalsManager() {
     }
   }
 
-  useEffect(() => { refresh() }, [])
+  useEffect(() => {
+    refresh()
+  }, [])
 
   function onLogout() {
     logout()
@@ -104,31 +171,46 @@ export default function AnimalsManager() {
       main: null,
       charakteristik: '',
       birthDate: '',
-      bornYear: ''
+      bornYear: '',
     })
     setOpen(true)
   }
 
   function editAnimal(a: Animal) {
-    const gallery = (a.galerie || []).map(g => ({ url: g.url }))
-    const main = (a as any).main || gallery[0]?.url || null
+    const rawGallery: any[] = (a as any).galerie || (a as any).gallery || []
+    const gallery = rawGallery.map((g: any) => ({
+      url: String(g.url || g.key || ''),
+      typ: (g.typ || g.type || guessTypeFromUrl(String(g.url || g.key || ''))) as any,
+      poster: g.poster || null,
+      posterUrl: g.posterUrl || null,
+    })).filter((g) => g.url)
+
+    // ✅ main should prefer image (not video)
+    const main =
+      (a as any).main ||
+      firstImageUrlFromGallery(gallery) ||
+      (gallery[0]?.url ?? null)
+
     setForm({
       id: a.id,
-      jmeno: a.jmeno || a.name || '',
-      popis: a.popis || a.description || '',
-      active: a.active ?? true,
+      jmeno: (a as any).jmeno || (a as any).name || '',
+      popis: (a as any).popis || (a as any).description || '',
+      active: (a as any).active ?? true,
       galerie: gallery,
       main,
       charakteristik: (a as any).charakteristik || '',
-      birthDate: (a as any).birthDate ? new Date((a as any).birthDate).toISOString().slice(0, 10) : '',
-      bornYear: (a as any).bornYear != null ? String((a as any).bornYear) : ''
+      birthDate: (a as any).birthDate
+        ? new Date((a as any).birthDate).toISOString().slice(0, 10)
+        : '',
+      bornYear: (a as any).bornYear != null ? String((a as any).bornYear) : '',
     })
     setOpen(true)
   }
 
   async function removeAnimal(id: string) {
     if (!confirm('Opravdu smazat toto zvíře?')) return
-    setErr(null); setOk(null)
+    setErr(null)
+    setOk(null)
     try {
       await deleteAnimal(id)
       setOk('Záznam smazán')
@@ -140,22 +222,32 @@ export default function AnimalsManager() {
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
-    setErr(null); setOk(null); setLoading(true)
+    setErr(null)
+    setOk(null)
+    setLoading(true)
     try {
-      const cleanGallery = (form.galerie || []).filter(x => (x.url || '').trim() !== '')
+      const cleanGallery = (form.galerie || []).filter((x) => (x.url || '').trim() !== '')
+
+      // ✅ main should prefer image
       let main = form.main || null
-      if (!main && cleanGallery.length) main = cleanGallery[0].url
+      if (!main && cleanGallery.length) {
+        main = firstImageUrlFromGallery(cleanGallery) || cleanGallery[0].url
+      }
 
       const payload: any = {
         jmeno: form.jmeno?.trim(),
         popis: form.popis?.trim(),
         active: !!form.active,
         main,
-        galerie: cleanGallery,
+        // send galerie with url + typ if available
+        galerie: cleanGallery.map((g) => ({
+          url: g.url,
+          typ: (g.typ || g.type || guessTypeFromUrl(g.url) || 'image'),
+          poster: (g as any).poster || undefined,
+          posterUrl: (g as any).posterUrl || undefined,
+        })),
 
-        // NEW
         charakteristik: form.charakteristik?.trim() || undefined,
-        // Prefer exact date if provided; otherwise year
         birthDate: form.birthDate ? new Date(form.birthDate).toISOString() : undefined,
         bornYear: !form.birthDate && form.bornYear ? Number(form.bornYear) : undefined,
       }
@@ -179,29 +271,40 @@ export default function AnimalsManager() {
   /* ---------- Upload helpers (animal dialog) ---------- */
 
   async function handleFiles(files: FileList | File[]) {
-    const arr = Array.from(files).filter(f => f && f.size > 0)
+    const arr = Array.from(files).filter((f) => f && f.size > 0)
     if (arr.length === 0) return
     setUploading(true)
     setErr(null)
     try {
-      const results: string[] = []
+      const results: { url: string; typ?: 'image' | 'video' }[] = []
       for (let i = 0; i < arr.length; i++) {
         setUploadNote(`Nahrávám ${i + 1} / ${arr.length}…`)
         // eslint-disable-next-line no-await-in-loop
         const one = await uploadMedia(arr[i]) // { url?, key?, type? }
-        const url = (one as any)?.url || (one as any)?.key || ''
-        if (url) results.push(url)
+        const rawUrl = String((one as any)?.url || (one as any)?.key || '')
+        if (!rawUrl) continue
+        const t = (one as any)?.type || guessTypeFromUrl(rawUrl)
+        results.push({ url: rawUrl, typ: (t === 'video' ? 'video' : 'image') })
       }
 
       const now = Date.now()
-      setForm(f => {
+      setForm((f) => {
         const newGallery = [
           ...(f.galerie || []),
-          ...results.map(raw => ({ url: `${raw}${raw.includes('?') ? '&' : '?'}v=${now}` }))
+          ...results.map((r) => ({
+            url: `${r.url}${r.url.includes('?') ? '&' : '?'}v=${now}`,
+            typ: r.typ || guessTypeFromUrl(r.url) || 'image',
+          })),
         ]
-        const first = results[0]
-        const cleanMain = f.main || (first ? `${first}${first.includes('?') ? '&' : '?'}v=${now}` : null)
-        return { ...f, galerie: newGallery, main: cleanMain }
+
+        // ✅ main should prefer image
+        const computedMain =
+          f.main ||
+          firstImageUrlFromGallery(newGallery) ||
+          newGallery[0]?.url ||
+          null
+
+        return { ...f, galerie: newGallery, main: computedMain }
       })
       setOk('Soubor(y) nahrány')
     } catch (e: any) {
@@ -237,27 +340,30 @@ export default function AnimalsManager() {
   function addUrl(v: string) {
     const url = v.trim()
     if (!url) return
-    setForm(f => {
-      const next = [ ...(f.galerie || []), { url } ]
-      const newMain = f.main || url
+    setForm((f) => {
+      const next = [...(f.galerie || []), { url, typ: guessTypeFromUrl(url) || 'image' }]
+      const newMain =
+        f.main ||
+        firstImageUrlFromGallery(next) ||
+        url
       return { ...f, galerie: next, main: newMain }
     })
   }
 
   function removeGalleryIndex(i: number) {
-    setForm(f => {
+    setForm((f) => {
       const list = (f.galerie || []).filter((_, idx) => idx !== i)
       const removedUrl = (f.galerie || [])[i]?.url
       let newMain = f.main || null
-      if (removedUrl && f.main === removedUrl) {
-        newMain = list[0]?.url || null
+      if (removedUrl && stripCache(f.main) === stripCache(removedUrl)) {
+        newMain = firstImageUrlFromGallery(list) || list[0]?.url || null
       }
       return { ...f, galerie: list, main: newMain }
     })
   }
 
   function setMain(url: string) {
-    setForm(f => ({ ...f, main: url }))
+    setForm((f) => ({ ...f, main: url }))
   }
 
   /* ---------- Posts: open composer for an animal ---------- */
@@ -281,32 +387,34 @@ export default function AnimalsManager() {
   }
 
   function addPostEmoji(emoji: string) {
-    setPostBody(prev => (prev ? prev + ' ' + emoji : emoji))
+    setPostBody((prev) => (prev ? prev + ' ' + emoji : emoji))
   }
 
   async function postHandleFiles(files: FileList | File[]) {
-    const arr = Array.from(files).filter(f => f && f.size > 0)
+    const arr = Array.from(files).filter((f) => f && f.size > 0)
     if (arr.length === 0) return
     setPostUploading(true)
     setErr(null)
     try {
-      const results: string[] = []
+      const results: { url: string; typ?: 'image' | 'video' }[] = []
       for (let i = 0; i < arr.length; i++) {
         setPostUploadNote(`Nahrávám ${i + 1} / ${arr.length}…`)
         // eslint-disable-next-line no-await-in-loop
         const one = await uploadMedia(arr[i])
-        const url = (one as any)?.url || (one as any)?.key || ''
-        if (url) results.push(url)
+        const rawUrl = String((one as any)?.url || (one as any)?.key || '')
+        if (!rawUrl) continue
+        const t = (one as any)?.type || guessTypeFromUrl(rawUrl)
+        results.push({ url: rawUrl, typ: (t === 'video' ? 'video' : 'image') })
       }
 
       const now = Date.now()
-      setPostMedia(cur => ([
+      setPostMedia((cur) => [
         ...cur,
-        ...results.map(u => ({
-          url: `${u}${u.includes('?') ? '&' : '?'}v=${now}`,
-          type: guessTypeFromUrl(u)
-        }))
-      ]))
+        ...results.map((r) => ({
+          url: `${r.url}${r.url.includes('?') ? '&' : '?'}v=${now}`,
+          type: (r.typ || guessTypeFromUrl(r.url) || 'image'),
+        })),
+      ])
     } catch (e: any) {
       setErr(e?.message || 'Nahrání selhalo')
     } finally {
@@ -338,27 +446,27 @@ export default function AnimalsManager() {
   }
 
   function removePostMedia(i: number) {
-    setPostMedia(list => list.filter((_, idx) => idx !== i))
+    setPostMedia((list) => list.filter((_, idx) => idx !== i))
   }
 
   async function submitPost(e: React.FormEvent) {
     e.preventDefault()
     if (!postAnimalId) return
     if (!postTitle.trim() && !postBody.trim() && postMedia.length === 0) return
-    setPostSaving(true); setErr(null)
+    setPostSaving(true)
+    setErr(null)
     try {
       await createPost({
         animalId: postAnimalId,
         title: postTitle.trim() || 'Bez názvu',
         text: postBody.trim() || undefined,
-        // backend může přijmout {key,type} nebo {url,type}; pošleme oboje (key=url)
         media: postMedia.length
-          ? postMedia.map(m => ({
+          ? postMedia.map((m) => ({
               key: m.url,
               url: m.url,
-              type: m.type || guessTypeFromUrl(m.url) || 'image'
+              type: m.type || guessTypeFromUrl(m.url) || 'image',
             }))
-          : undefined
+          : undefined,
       } as any)
       setOk('Příspěvek uložen')
       closePost()
@@ -373,36 +481,84 @@ export default function AnimalsManager() {
 
   return (
     <Container maxWidth="lg" sx={{ py: 6 }}>
-      <Stack direction={{ xs: 'column', sm: 'row' }} alignItems="center" justifyContent="space-between" sx={{ mb: 2 }} spacing={1}>
-        <Typography variant="h5" sx={{ fontWeight: 900 }}>Zvířata – správa</Typography>
+      <Stack
+        direction={{ xs: 'column', sm: 'row' }}
+        alignItems="center"
+        justifyContent="space-between"
+        sx={{ mb: 2 }}
+        spacing={1}
+      >
+        <Typography variant="h5" sx={{ fontWeight: 900 }}>
+          Zvířata – správa
+        </Typography>
         <Stack direction="row" spacing={1}>
-          <Button onClick={newAnimal} variant="contained" startIcon={<AddIcon />}>Přidat zvíře</Button>
-          <Button onClick={onLogout} variant="text" startIcon={<LogoutIcon />}>Odhlásit</Button>
+          <Button onClick={newAnimal} variant="contained" startIcon={<AddIcon />}>
+            Přidat zvíře
+          </Button>
+          <Button onClick={onLogout} variant="text" startIcon={<LogoutIcon />}>
+            Odhlásit
+          </Button>
         </Stack>
       </Stack>
 
-      {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
-      {ok && <Alert severity="success" sx={{ mb: 2 }}>{ok}</Alert>}
+      {err && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {err}
+        </Alert>
+      )}
+      {ok && (
+        <Alert severity="success" sx={{ mb: 2 }}>
+          {ok}
+        </Alert>
+      )}
 
       <Grid container spacing={2}>
-        {rows.map(a => {
-          const main = (a as any).main || a.galerie?.[0]?.url || '/no-image.jpg'
-          const isActive = a.active !== false
+        {rows.map((a) => {
+          const gal: any[] = (a as any).galerie || []
+          const main =
+            (a as any).main ||
+            firstImageUrlFromGallery(gal) ||
+            gal?.[0]?.url ||
+            '/no-image.jpg'
+
+          const isActive = (a as any).active !== false
+
           return (
             <Grid item xs={12} sm={6} md={4} lg={3} key={a.id}>
-              <Card variant="outlined" sx={{ borderRadius: 3, height: '100%', display: 'flex', flexDirection: 'column', position: 'relative' }}>
+              <Card
+                variant="outlined"
+                sx={{
+                  borderRadius: 3,
+                  height: '100%',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  position: 'relative',
+                }}
+              >
                 {!isActive && (
                   <Chip
                     label="NEAKTIVNÍ"
                     color="default"
                     size="small"
-                    sx={{ position: 'absolute', top: 8, left: 8, bgcolor: 'warning.light', color: '#000' }}
+                    sx={{
+                      position: 'absolute',
+                      top: 8,
+                      left: 8,
+                      bgcolor: 'warning.light',
+                      color: '#000',
+                      zIndex: 1,
+                    }}
                   />
                 )}
-                <CardMedia component="img" image={main} alt={a.jmeno || 'Zvíře'} sx={{ height: 160, objectFit: 'cover' }} />
+                <CardMedia
+                  component="img"
+                  image={main}
+                  alt={(a as any).jmeno || 'Zvíře'}
+                  sx={{ height: 160, objectFit: 'cover' }}
+                />
                 <CardContent sx={{ flexGrow: 1 }}>
                   <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
-                    {a.jmeno || a.name || '—'}
+                    {(a as any).jmeno || (a as any).name || '—'}
                   </Typography>
                   <Typography variant="caption" color="text.secondary">
                     {isActive ? 'Aktivní' : 'Neaktivní'}
@@ -415,17 +571,30 @@ export default function AnimalsManager() {
                     </IconButton>
                   </Tooltip>
                   <span>
-                    <IconButton size="small" onClick={() => editAnimal(a)} title="Upravit"><EditIcon fontSize="small" /></IconButton>
-                    <IconButton size="small" color="error" onClick={() => removeAnimal(a.id)} title="Smazat"><DeleteIcon fontSize="small" /></IconButton>
+                    <IconButton size="small" onClick={() => editAnimal(a)} title="Upravit">
+                      <EditIcon fontSize="small" />
+                    </IconButton>
+                    <IconButton
+                      size="small"
+                      color="error"
+                      onClick={() => removeAnimal(a.id)}
+                      title="Smazat"
+                    >
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
                   </span>
                 </CardActions>
               </Card>
             </Grid>
           )
         })}
+
         {rows.length === 0 && (
           <Grid item xs={12}>
-            <Paper variant="outlined" sx={{ p: 4, borderRadius: 3, textAlign: 'center' }}>
+            <Paper
+              variant="outlined"
+              sx={{ p: 4, borderRadius: 3, textAlign: 'center' }}
+            >
               Zatím žádná zvířata
             </Paper>
           </Grid>
@@ -441,29 +610,26 @@ export default function AnimalsManager() {
               {/* Basic fields */}
               <Stack spacing={2}>
                 <TextField
-  label="Jméno"
-  value={form.jmeno || ''}
-  onChange={(e) => setForm(f => ({ ...f, jmeno: e.target.value }))}
-  required
-  fullWidth
-/>
+                  label="Jméno"
+                  value={form.jmeno || ''}
+                  onChange={(e) => setForm((f) => ({ ...f, jmeno: e.target.value }))}
+                  required
+                  fullWidth
+                />
 
-{/* POPIS – dlouhý text s formátováním */}
-<RichTextEditor
-  label="Popis"
-  value={form.popis || ''}
-  onChange={(val) => setForm(f => ({ ...f, popis: val }))}
-  helperText="Delší text o zvířeti – můžete použít tučné, kurzívu, podtržení a barvy."
-/>
+                <RichTextEditor
+                  label="Popis"
+                  value={form.popis || ''}
+                  onChange={(val) => setForm((f) => ({ ...f, popis: val }))}
+                  helperText="Delší text o zvířeti – můžete použít tučné, kurzívu, podtržení a barvy."
+                />
 
-{/* CHARAKTERISTIKA – krátká věta na kartě */}
-<RichTextEditor
-  label="Charakteristika (krátká věta na kartě)"
-  value={form.charakteristik || ''}
-  onChange={(val) => setForm(f => ({ ...f, charakteristik: val }))}
-  helperText="Krátká věta, kterou můžete zvýraznit formátováním."
-/>
-               
+                <RichTextEditor
+                  label="Charakteristika (krátká věta na kartě)"
+                  value={form.charakteristik || ''}
+                  onChange={(val) => setForm((f) => ({ ...f, charakteristik: val }))}
+                  helperText="Krátká věta, kterou můžete zvýraznit formátováním."
+                />
 
                 {/* Birth info row */}
                 <Grid container spacing={2}>
@@ -472,7 +638,7 @@ export default function AnimalsManager() {
                       label="Datum narození (přesné)"
                       type="date"
                       value={form.birthDate || ''}
-                      onChange={(e) => setForm(f => ({ ...f, birthDate: e.target.value }))}
+                      onChange={(e) => setForm((f) => ({ ...f, birthDate: e.target.value }))}
                       InputLabelProps={{ shrink: true }}
                       fullWidth
                     />
@@ -482,7 +648,7 @@ export default function AnimalsManager() {
                       label="Rok narození (odhad)"
                       type="number"
                       value={form.bornYear || ''}
-                      onChange={(e) => setForm(f => ({ ...f, bornYear: e.target.value }))}
+                      onChange={(e) => setForm((f) => ({ ...f, bornYear: e.target.value }))}
                       helperText="Vyplňte jen pokud není známé přesné datum."
                       inputProps={{ min: 1990, max: new Date().getFullYear() }}
                       fullWidth
@@ -494,7 +660,7 @@ export default function AnimalsManager() {
                   control={
                     <Checkbox
                       checked={!!form.active}
-                      onChange={(e) => setForm(f => ({ ...f, active: e.target.checked }))}
+                      onChange={(e) => setForm((f) => ({ ...f, active: e.target.checked }))}
                     />
                   }
                   label="Aktivní (zobrazit na webu)"
@@ -503,10 +669,16 @@ export default function AnimalsManager() {
 
               {/* Uploader controls */}
               <Stack spacing={1}>
-                <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>Galerie</Typography>
+                <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+                  Galerie
+                </Typography>
 
                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center">
-                  <Button onClick={() => fileInputRef.current?.click()} startIcon={<UploadIcon />} variant="outlined">
+                  <Button
+                    onClick={() => fileInputRef.current?.click()}
+                    startIcon={<UploadIcon />}
+                    variant="outlined"
+                  >
                     Vybrat soubory
                   </Button>
                   <input
@@ -518,7 +690,11 @@ export default function AnimalsManager() {
                     onChange={onPickFiles}
                   />
 
-                  <Button onClick={() => cameraInputRef.current?.click()} startIcon={<PhotoCameraIcon />} variant="outlined">
+                  <Button
+                    onClick={() => cameraInputRef.current?.click()}
+                    startIcon={<PhotoCameraIcon />}
+                    variant="outlined"
+                  >
                     Vyfotit (telefon)
                   </Button>
                   <input
@@ -529,8 +705,6 @@ export default function AnimalsManager() {
                     capture="environment"
                     onChange={onPickCamera}
                   />
-
-                 
                 </Stack>
 
                 <Box
@@ -545,7 +719,7 @@ export default function AnimalsManager() {
                     textAlign: 'center',
                     color: 'text.secondary',
                     cursor: 'copy',
-                    userSelect: 'none'
+                    userSelect: 'none',
                   }}
                 >
                   Přetáhněte sem fotografie nebo videa
@@ -554,7 +728,9 @@ export default function AnimalsManager() {
                 {uploading && (
                   <Stack spacing={1} sx={{ mt: 1 }}>
                     <LinearProgress />
-                    <Typography variant="caption" color="text.secondary">{uploadNote}</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {uploadNote}
+                    </Typography>
                   </Stack>
                 )}
 
@@ -562,40 +738,109 @@ export default function AnimalsManager() {
                   {(form.galerie || []).map((g, i) => {
                     const url = g.url
                     const isMain = !!form.main && stripCache(form.main) === stripCache(url)
+                    const isVideo = isVideoMedia(g)
+                    const poster = (g as any).posterUrl || (g as any).poster || undefined
+
                     return (
                       <Grid item xs={6} sm={4} md={3} key={`${url}-${i}`}>
-                        <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, overflow: 'hidden', position: 'relative' }}>
+                        <Box
+                          sx={{
+                            border: '1px solid',
+                            borderColor: 'divider',
+                            borderRadius: 2,
+                            overflow: 'hidden',
+                            position: 'relative',
+                          }}
+                        >
                           <Box sx={{ position: 'relative', width: '100%', height: 120, bgcolor: '#f7f7f7' }}>
-                            <img
-                              src={url}
-                              alt={`media-${i}`}
-                              style={{ width: '100%', height: '120px', objectFit: 'cover', display: 'block' }}
-                              onError={(ev) => { (ev.currentTarget as HTMLImageElement).style.opacity = '0.35' }}
-                            />
-                            <Tooltip title={isMain ? 'Hlavní fotografie' : 'Nastavit jako hlavní'}>
-                              <IconButton
-                                size="small"
-                                onClick={() => setMain(url)}
-                                sx={{
-                                  position: 'absolute',
-                                  top: 6,
-                                  right: 6,
-                                  bgcolor: 'rgba(255,255,255,0.9)'
-                                }}
+                            {isVideo ? (
+                              <video
+                                controls
+                                preload="metadata"
+                                playsInline
+                                poster={poster}
+                                style={{ width: '100%', height: 120, objectFit: 'cover', display: 'block' }}
                               >
-                                {isMain ? <StarIcon fontSize="small" color="warning" /> : <StarBorderIcon fontSize="small" />}
-                              </IconButton>
+                                <source src={url} type={guessVideoMime(url)} />
+                              </video>
+                            ) : (
+                              <img
+                                src={url}
+                                alt={`media-${i}`}
+                                style={{
+                                  width: '100%',
+                                  height: '120px',
+                                  objectFit: 'cover',
+                                  display: 'block',
+                                }}
+                                onError={(ev) => {
+                                  ;(ev.currentTarget as HTMLImageElement).style.opacity = '0.35'
+                                }}
+                              />
+                            )}
+
+                            <Tooltip
+                              title={
+                                isVideo
+                                  ? 'Video nelze nastavit jako hlavní'
+                                  : isMain
+                                    ? 'Hlavní fotografie'
+                                    : 'Nastavit jako hlavní'
+                              }
+                            >
+                              <span>
+                                <IconButton
+                                  size="small"
+                                  disabled={isVideo}
+                                  onClick={() => setMain(url)}
+                                  sx={{
+                                    position: 'absolute',
+                                    top: 6,
+                                    right: 6,
+                                    bgcolor: 'rgba(255,255,255,0.9)',
+                                  }}
+                                >
+                                  {isMain ? (
+                                    <StarIcon fontSize="small" color="warning" />
+                                  ) : (
+                                    <StarBorderIcon fontSize="small" />
+                                  )}
+                                </IconButton>
+                              </span>
                             </Tooltip>
                           </Box>
+
                           <Stack direction="row" spacing={1} sx={{ p: 1 }}>
-                            <Button component="a" href={url} target="_blank" rel="noreferrer" size="small">Otevřít</Button>
-                            <Button color="error" onClick={() => removeGalleryIndex(i)} size="small">Odebrat</Button>
+                            <Button component="a" href={url} target="_blank" rel="noreferrer" size="small">
+                              Otevřít
+                            </Button>
+                            <Button color="error" onClick={() => removeGalleryIndex(i)} size="small">
+                              Odebrat
+                            </Button>
                           </Stack>
                         </Box>
                       </Grid>
                     )
                   })}
                 </Grid>
+
+                {/* Optional manual URL add (kept for power-users) */}
+                <Box sx={{ mt: 1 }}>
+                  <TextField
+                    label="Přidat URL do galerie"
+                    placeholder="https://…"
+                    fullWidth
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        const v = (e.target as HTMLInputElement).value
+                        addUrl(v)
+                        ;(e.target as HTMLInputElement).value = ''
+                      }
+                    }}
+                    helperText="Enter pro přidání."
+                  />
+                </Box>
               </Stack>
             </Stack>
           </DialogContent>
@@ -614,22 +859,18 @@ export default function AnimalsManager() {
         <form onSubmit={submitPost}>
           <DialogContent>
             <Stack spacing={2}>
-              <TextField
-                label="Titulek"
-                value={postTitle}
-                onChange={e => setPostTitle(e.target.value)}
-              />
+              <TextField label="Titulek" value={postTitle} onChange={(e) => setPostTitle(e.target.value)} />
               <TextField
                 label="Text"
                 value={postBody}
-                onChange={e => setPostBody(e.target.value)}
+                onChange={(e) => setPostBody(e.target.value)}
                 multiline
                 minRows={3}
               />
 
               {/* Emoji bar */}
               <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', mb: 1 }}>
-                {EMOJIS.map(emo => (
+                {EMOJIS.map((emo) => (
                   <Button key={emo} size="small" variant="text" onClick={() => addPostEmoji(emo)} sx={{ minWidth: 36 }}>
                     {emo}
                   </Button>
@@ -638,7 +879,9 @@ export default function AnimalsManager() {
 
               {/* Media uploader */}
               <Stack spacing={1}>
-                <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>Fotky / Videa</Typography>
+                <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+                  Fotky / Videa
+                </Typography>
                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center">
                   <Button onClick={() => postFileRef.current?.click()} startIcon={<UploadIcon />} variant="outlined">
                     Vybrat soubory
@@ -676,7 +919,7 @@ export default function AnimalsManager() {
                     textAlign: 'center',
                     color: 'text.secondary',
                     cursor: 'copy',
-                    userSelect: 'none'
+                    userSelect: 'none',
                   }}
                 >
                   Přetáhněte sem fotografie nebo videa
@@ -685,32 +928,62 @@ export default function AnimalsManager() {
                 {postUploading && (
                   <Stack spacing={1} sx={{ mt: 1 }}>
                     <LinearProgress />
-                    <Typography variant="caption" color="text.secondary">{postUploadNote}</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {postUploadNote}
+                    </Typography>
                   </Stack>
                 )}
 
                 {postMedia.length > 0 && (
                   <Grid container spacing={1.5} sx={{ mt: 0.5 }}>
-                    {postMedia.map((m, i) => (
-                      <Grid item xs={6} sm={4} md={3} key={`${m.url}-${i}`}>
-                        <Box sx={{ position: 'relative', border: '1px solid', borderColor: 'divider', borderRadius: 2, overflow: 'hidden' }}>
-                          <img
-                            src={m.url}
-                            alt={`post-media-${i}`}
-                            style={{ width: '100%', height: 140, objectFit: 'cover', display: 'block' }}
-                          />
-                          <Tooltip title="Odebrat">
-                            <IconButton
-                              size="small"
-                              onClick={() => removePostMedia(i)}
-                              sx={{ position: 'absolute', top: 6, right: 6, bgcolor: 'rgba(255,255,255,0.9)' }}
-                            >
-                              <DeleteOutlineIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                        </Box>
-                      </Grid>
-                    ))}
+                    {postMedia.map((m, i) => {
+                      const isVideo = (m.type || guessTypeFromUrl(m.url)) === 'video'
+                      return (
+                        <Grid item xs={6} sm={4} md={3} key={`${m.url}-${i}`}>
+                          <Box
+                            sx={{
+                              position: 'relative',
+                              border: '1px solid',
+                              borderColor: 'divider',
+                              borderRadius: 2,
+                              overflow: 'hidden',
+                            }}
+                          >
+                            {isVideo ? (
+                              <video
+                                controls
+                                preload="metadata"
+                                playsInline
+                                style={{ width: '100%', height: 140, objectFit: 'cover', display: 'block' }}
+                              >
+                                <source src={m.url} type={guessVideoMime(m.url)} />
+                              </video>
+                            ) : (
+                              <img
+                                src={m.url}
+                                alt={`post-media-${i}`}
+                                style={{ width: '100%', height: 140, objectFit: 'cover', display: 'block' }}
+                              />
+                            )}
+
+                            <Tooltip title="Odebrat">
+                              <IconButton
+                                size="small"
+                                onClick={() => removePostMedia(i)}
+                                sx={{
+                                  position: 'absolute',
+                                  top: 6,
+                                  right: 6,
+                                  bgcolor: 'rgba(255,255,255,0.9)',
+                                }}
+                              >
+                                <DeleteOutlineIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          </Box>
+                        </Grid>
+                      )
+                    })}
                   </Grid>
                 )}
               </Stack>
@@ -726,18 +999,4 @@ export default function AnimalsManager() {
       </Dialog>
     </Container>
   )
-}
-
-/* Utility: compare URLs without cache-buster */
-function stripCache(url?: string | null): string {
-  if (!url) return ''
-  const [u] = url.split('?')
-  return u
-}
-
-function guessTypeFromUrl(u: string): 'image' | 'video' | undefined {
-  const lc = u.toLowerCase()
-  if (/\.(mp4|webm|mov|m4v)(\?|$)/.test(lc)) return 'video'
-  if (/\.(jpg|jpeg|png|gif|webp|avif)(\?|$)/.test(lc)) return 'image'
-  return undefined
 }

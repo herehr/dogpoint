@@ -1,18 +1,26 @@
 // frontend/src/pages/NotificationsPage.tsx
 import React from 'react'
-import {
-  Alert,
-  Box,
-  Container,
-  Grid,
-  Paper,
-  Stack,
-  Typography,
-} from '@mui/material'
+import { Alert, Box, Container, Grid, Paper, Stack, Typography } from '@mui/material'
 import { MyNotificationItem, fetchMyNotifications } from '../services/api'
 import { useAuth } from '../context/AuthContext'
 
 const LAST_SEEN_KEY = 'dp:lastSeenNotificationTs'
+
+function isVideoUrl(url: string): boolean {
+  return /\.(mp4|webm|m4v|mov)(\?|$)/i.test(url || '')
+}
+
+function isVideoMedia(m: { url?: string; typ?: string; type?: string }): boolean {
+  const t = String(m.typ || m.type || '').toLowerCase()
+  if (t.includes('video')) return true
+  return isVideoUrl(String(m.url || ''))
+}
+
+function guessVideoMime(url: string): string {
+  const u = (url || '').toLowerCase()
+  if (u.includes('.webm')) return 'video/webm'
+  return 'video/mp4'
+}
 
 export default function NotificationsPage() {
   const { token, role } = useAuth()
@@ -60,9 +68,7 @@ export default function NotificationsPage() {
         <Typography variant="h5" sx={{ fontWeight: 900, mb: 2 }}>
           Notifikace
         </Typography>
-        <Alert severity="info">
-          Pro zobrazení notifikací se prosím přihlaste jako uživatel.
-        </Alert>
+        <Alert severity="info">Pro zobrazení notifikací se prosím přihlaste jako uživatel.</Alert>
       </Container>
     )
   }
@@ -82,9 +88,7 @@ export default function NotificationsPage() {
       {loading ? (
         <Typography color="text.secondary">Načítám…</Typography>
       ) : items.length === 0 ? (
-        <Typography color="text.secondary">
-          Zatím nemáte žádné notifikace.
-        </Typography>
+        <Typography color="text.secondary">Zatím nemáte žádné notifikace.</Typography>
       ) : (
         <Stack spacing={2}>
           {items.map((n) => (
@@ -101,33 +105,27 @@ export default function NotificationsPage() {
                 spacing={1}
                 sx={{ mb: 1 }}
               >
-                <Typography
-                  variant="subtitle2"
-                  sx={{ fontWeight: 800, textTransform: 'uppercase' }}
-                >
+                <Typography variant="subtitle2" sx={{ fontWeight: 800, textTransform: 'uppercase' }}>
                   {n.animalName}
                 </Typography>
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                  sx={{ whiteSpace: 'nowrap' }}
-                >
+                <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>
                   {new Date(n.publishedAt).toLocaleString()}
                 </Typography>
               </Stack>
 
-              <Typography
-                variant="subtitle1"
-                sx={{ fontWeight: 700, mb: 0.5 }}
-              >
+              <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 0.5 }}>
                 {n.title}
               </Typography>
 
               {/* Body text (HTML from RichTextEditor in posts) */}
               {n.body && (
-                <Typography
-                  color="text.secondary"
-                  sx={{ mb: n.media && n.media.length > 0 ? 1.5 : 0.5 }}
+                <Box
+                  sx={{
+                    color: 'text.secondary',
+                    mb: n.media && n.media.length > 0 ? 1.5 : 0.5,
+                    '& img': { maxWidth: '100%' },
+                    '& video': { maxWidth: '100%' },
+                  }}
                   dangerouslySetInnerHTML={{ __html: n.body }}
                 />
               )}
@@ -136,12 +134,14 @@ export default function NotificationsPage() {
               {n.media && n.media.length > 0 && (
                 <Grid container spacing={1}>
                   {n.media.map((m, idx) => {
-                    const url = m.url
-                    const isVideo =
-                      (m.typ || '').toLowerCase() === 'video' ||
-                      /\.(mp4|webm|mov|m4v)(\?|$)/.test(
-                        (url || '').toLowerCase()
-                      )
+                    const url = String((m as any).url || '')
+                    const poster = (m as any).posterUrl || (m as any).poster || undefined
+
+                    const isVideo = isVideoMedia({
+                      url,
+                      typ: (m as any).typ,
+                      type: (m as any).type,
+                    })
 
                     return (
                       <Grid item xs={6} sm={4} md={3} key={`${n.id}-media-${idx}`}>
@@ -155,15 +155,19 @@ export default function NotificationsPage() {
                             }}
                           >
                             <video
-                              src={url}
                               controls
+                              preload="metadata"
+                              playsInline
+                              poster={poster}
                               style={{
                                 width: '100%',
                                 height: 140,
                                 objectFit: 'cover',
                                 display: 'block',
                               }}
-                            />
+                            >
+                              <source src={url} type={guessVideoMime(url)} />
+                            </video>
                           </Box>
                         ) : (
                           <Box

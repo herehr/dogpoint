@@ -1,6 +1,9 @@
 // frontend/src/services/api.ts
 
-// ---------- Base URL ----------
+/* =========================================================
+   Base URL
+========================================================= */
+
 const API_BASE =
   (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/+$/, '') || ''
 
@@ -8,7 +11,10 @@ export function apiUrl(path = ''): string {
   return `${API_BASE}${path}`
 }
 
-// ---------- Token helpers ----------
+/* =========================================================
+   Token helpers
+========================================================= */
+
 const tokenKey = 'accessToken'
 
 export function setToken(token: string) {
@@ -16,9 +22,9 @@ export function setToken(token: string) {
     sessionStorage.setItem(tokenKey, token)
   } catch {}
 }
+
 export function getToken(): string | null {
   try {
-    // primary
     const t = sessionStorage.getItem(tokenKey)
     if (t) return t
 
@@ -34,6 +40,7 @@ export function getToken(): string | null {
     return null
   }
 }
+
 export function clearToken() {
   try {
     sessionStorage.removeItem(tokenKey)
@@ -41,18 +48,17 @@ export function clearToken() {
 }
 
 // Back-compat aliases
-export {
-  setToken as setAuthToken,
-  getToken as getAuthToken,
-  clearToken as clearAuthToken,
-}
+export { setToken as setAuthToken, getToken as getAuthToken, clearToken as clearAuthToken }
 
 export function authHeader(): Record<string, string> {
   const t = getToken()
   return t ? { Authorization: `Bearer ${t}` } : {}
 }
 
-// ---------- Utilities ----------
+/* =========================================================
+   Utilities
+========================================================= */
+
 export function qs(obj?: Record<string, string | number | boolean | undefined | null>) {
   if (!obj) return ''
   const sp = new URLSearchParams()
@@ -69,27 +75,31 @@ class AbortControllerMerge {
   public signal = this.c.signal
   constructor(signals: AbortSignal[]) {
     const onAbort = () => this.c.abort()
-    signals.forEach(s => {
+    signals.forEach((s) => {
       if (s.aborted) this.c.abort()
       else s.addEventListener('abort', onAbort, { once: true })
     })
   }
 }
 
-// ---------- HTTP core ----------
+/* =========================================================
+   HTTP core
+========================================================= */
+
 type FetchOpts = {
   method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'
   body?: any
   headers?: Record<string, string>
   signal?: AbortSignal
   timeoutMs?: number
-  autoLogoutOn401?: boolean // kept for compatibility, but no longer clears token
+  autoLogoutOn401?: boolean // kept for compatibility; no longer clears token automatically
 }
 
 function buildHeaders(body: any, headers?: Record<string, string>): HeadersInit {
   const h: Record<string, string> = { ...(headers || {}) }
   const t = getToken()
-  if (t && !h['Authorization']) h['Authorization'] = `Bearer ${t}`
+  if (t && !h.Authorization) h.Authorization = `Bearer ${t}`
+
   const isFormData = typeof FormData !== 'undefined' && body instanceof FormData
   if (!isFormData && body !== undefined && !h['Content-Type']) {
     h['Content-Type'] = 'application/json'
@@ -136,11 +146,10 @@ async function doFetch<T>(path: string, opts: FetchOpts = {}): Promise<T> {
           serverMsg = await res.text()
         }
       } catch {}
-      // IMPORTANT:
-      // We no longer clearToken() automatically on 401 here.
+
+      // IMPORTANT: no automatic clearToken() on 401 anymore.
       const msg =
-        (serverMsg || `HTTP ${res.status}`) +
-        (serverDetail ? ` – ${serverDetail}` : '')
+        (serverMsg || `HTTP ${res.status}`) + (serverDetail ? ` – ${serverDetail}` : '')
       throw new Error(msg)
     }
 
@@ -165,7 +174,10 @@ export function delJSON<T>(path: string, opts?: Omit<FetchOpts, 'method' | 'body
   return doFetch<T>(path, { ...opts, method: 'DELETE' })
 }
 
-// ---------- Auth & Me ----------
+/* =========================================================
+   Auth & Me
+========================================================= */
+
 export type MeResponse = {
   id: string
   email: string
@@ -176,8 +188,6 @@ export type MeResponse = {
 }
 
 export async function me(): Promise<MeResponse> {
-  // You can still pass autoLogoutOn401:true if you want,
-  // but doFetch no longer clears the token implicitly.
   return getJSON<MeResponse>('/api/auth/me', { autoLogoutOn401: true })
 }
 
@@ -217,7 +227,10 @@ export async function claimPaid(email: string, sessionId?: string) {
   return res
 }
 
-// ---------- Stripe helpers ----------
+/* =========================================================
+   Stripe helpers
+========================================================= */
+
 export type ConfirmStripeResp = {
   ok: boolean
   token?: string
@@ -236,13 +249,13 @@ export async function createCheckoutSession(params: {
   name?: string
   password?: string
 }) {
-  return postJSON<{ id?: string; url: string }>(
-    '/api/stripe/checkout-session',
-    params
-  )
+  return postJSON<{ id?: string; url: string }>('/api/stripe/checkout-session', params)
 }
 
-// Stash helpers
+/* =========================================================
+   Stash helpers (after payment)
+========================================================= */
+
 const PENDING_EMAIL_KEY = 'dp:pendingEmail'
 const PENDING_USER_KEY = 'dp:pendingUser'
 
@@ -270,7 +283,10 @@ export function popPendingEmail(): string | undefined {
   return undefined
 }
 
-// ---------- Animals ----------
+/* =========================================================
+   Animals
+========================================================= */
+
 export type Animal = {
   id: string
   jmeno?: string
@@ -278,7 +294,7 @@ export type Animal = {
   popis?: string
   description?: string
   main?: string
-  galerie?: Array<{ url: string; type?: 'image' | 'video' }>
+  galerie?: Array<{ url: string; type?: 'image' | 'video'; typ?: 'image' | 'video' }>
   birthDate?: string | Date | null
   bornYear?: number | null
   vek?: string
@@ -290,7 +306,10 @@ export async function fetchAnimal(id: string): Promise<Animal> {
   return getJSON<Animal>(`/api/animals/${encodeURIComponent(id)}`)
 }
 
-// ---------- User / Adoptions ----------
+/* =========================================================
+   User / Adoptions
+========================================================= */
+
 export type MyAdoptedItem = {
   animalId: string
   title?: string
@@ -303,19 +322,16 @@ export type MyAdoptedItem = {
 
 /**
  * Prefer backend /api/adoption/my.
- * If 404 (route not present yet), fallback to /api/auth/me and build items from ids.
+ * If 404, fallback to /api/auth/me and build items from subscriptions.
  */
 export async function myAdoptedAnimals(): Promise<MyAdoptedItem[]> {
   try {
-    // Prefer backend /api/adoption/my
     const raw = await getJSON<MyAdoptedItem[]>('/api/adoption/my')
-    // Extra safety: never show CANCELED items even if backend accidentally returns them
-    return (raw || []).filter(it => it.status !== 'CANCELED')
+    return (raw || []).filter((it) => it.status !== 'CANCELED')
   } catch (e: any) {
     const msg = (e?.message || '').toString()
     if (/404/.test(msg)) {
       const m = await me()
-      // Fallback: use only ACTIVE/PENDING subscriptions from /me
       const ids =
         (m.subscriptions || [])
           .filter((s: any) => s.status === 'ACTIVE' || s.status === 'PENDING')
@@ -329,6 +345,7 @@ export async function myAdoptedAnimals(): Promise<MyAdoptedItem[]> {
     throw e
   }
 }
+
 export async function cancelAdoption(animalId: string): Promise<{ ok: true }> {
   return postJSON<{ ok: true }>('/api/adoption/cancel', { animalId })
 }
@@ -341,59 +358,137 @@ export type AdoptionMeResponse = {
   access?: Record<string, boolean>
 }
 
-/**
- * Used by AccessContext to know which animals this user has access to.
- * - Calls /api/adoption/my → builds access map { [animalId]: true }
- * - Calls /api/auth/me → returns basic user object
- */
 export async function getAdoptionMe(): Promise<AdoptionMeResponse> {
-  // Load adopted animals (Subscriptions) via /api/adoption/my
-  const list = await myAdoptedAnimals() // re-use logic above
+  const list = await myAdoptedAnimals()
 
   const access: Record<string, boolean> = {}
   for (const it of list) {
-    if (it && it.animalId) {
-      access[it.animalId] = true
-    }
+    if (it?.animalId) access[it.animalId] = true
   }
 
-  // Optionally load user info from /api/auth/me
   let user: any = undefined
   try {
     user = await me()
-  } catch {
-    // ignore – access map is still valid even if /me fails
-  }
+  } catch {}
 
   return { ok: true, user, access }
 }
 
 export async function markAnimalSeen(animalId: string): Promise<{ ok: true }> {
-  // if route exists
   try {
     return await postJSON<{ ok: true }>('/api/adoption/seen', { animalId })
   } catch {
-    // ignore if not implemented server-side
     return { ok: true }
   }
 }
 
-// ---------- Uploads ----------
-export async function uploadMedia(file: File) {
+/* =========================================================
+   Uploads
+========================================================= */
+
+// ✅ IMPORTANT: return {url,key,type} directly (NOT wrapped in {data:...})
+export async function uploadMedia(
+  file: File
+): Promise<{ url: string; key?: string; type?: 'image' | 'video' }> {
   const fd = new FormData()
   fd.append('file', file)
-  return doFetch<{ data?: { url: string; key?: string; type?: 'image' | 'video' } }>(
+  return doFetch<{ url: string; key?: string; type?: 'image' | 'video' }>(
     '/api/upload',
     { method: 'POST', body: fd }
   )
 }
 
-// Optional convenience
+/* =========================================================
+   Logout
+========================================================= */
+
 export function logout() {
   clearToken()
 }
 
-// ---------- Optional: default export for legacy imports ----------
+/* =========================================================
+   Notifications for "my" adopted animals
+========================================================= */
+
+export type MyNotificationItem = {
+  id: string
+  title: string
+  body?: string | null
+  publishedAt: string
+  animalId: string
+  animalName: string
+  media?: { url: string; typ?: string; type?: string; poster?: string; posterUrl?: string }[]
+}
+
+export async function fetchMyAdoptions(): Promise<any[]> {
+  const t = getToken()
+  if (!t) throw new Error('Nejste přihlášen.')
+
+  const res = await fetch(apiUrl('/api/adoption/my'), {
+    headers: { Authorization: `Bearer ${t}` },
+    credentials: 'include',
+  })
+  if (!res.ok) throw new Error(`Načtení adopcí selhalo: ${res.status}`)
+  return await res.json()
+}
+
+export async function fetchPostsForAnimal(animalId: string): Promise<any[]> {
+  const res = await fetch(
+    apiUrl(`/api/posts/public?animalId=${encodeURIComponent(animalId)}`)
+  )
+  if (!res.ok) throw new Error(`Načtení příspěvků selhalo: ${res.status}`)
+  return await res.json()
+}
+
+/**
+ * Build notification list:
+ * 1) load my adoptions
+ * 2) for each animal load posts
+ * 3) attach animal name (prefer included ad.animal)
+ */
+export async function fetchMyNotifications(): Promise<MyNotificationItem[]> {
+  const adoptions = await fetchMyAdoptions()
+
+  // Only active-ish adoptions
+  const active = (adoptions || []).filter(
+    (a: any) => !a.status || a.status === 'ACTIVE' || a.status === 'PENDING'
+  )
+
+  const allPostsPerAnimal = await Promise.all(
+    active.map(async (ad: any) => {
+      const animal = ad.animal || {}
+      const animalId = ad.animalId || animal.id
+      if (!animalId) return []
+
+      const posts = await fetchPostsForAnimal(animalId)
+      const animalName = animal.jmeno || animal.name || 'Zvíře'
+
+      return (posts || []).map((p: any) => ({
+        id: p.id,
+        title: p.title,
+        body: p.body,
+        publishedAt: p.publishedAt || p.createdAt,
+        animalId,
+        animalName,
+        media: p.media || [],
+      })) as MyNotificationItem[]
+    })
+  )
+
+  const flat = allPostsPerAnimal.flat()
+
+  // newest first
+  flat.sort(
+    (a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()
+  )
+
+  return flat
+}
+
+/* =========================================================
+   Optional default export (legacy)
+========================================================= */
+
 const api = {
   apiUrl,
   setToken,
@@ -421,111 +516,9 @@ const api = {
   markAnimalSeen,
   uploadMedia,
   logout,
+  fetchMyAdoptions,
+  fetchPostsForAnimal,
+  fetchMyNotifications,
 }
 
-// === Notifications for "my" adopted animals ====================
-
-/** Use same API_BASE as above (do NOT redeclare) */
-const NOTIF_API_BASE = API_BASE || '/api'
-
-export type MyNotificationItem = {
-  id: string
-  title: string
-  body?: string | null
-  publishedAt: string
-  animalId: string
-  animalName: string
-  media?: { url: string; typ?: string }[]
-}
-
-/** Fetch my active adoptions */
-export async function fetchMyAdoptions(): Promise<any[]> {
-  const token = sessionStorage.getItem('accessToken')
-  if (!token) throw new Error('Nejste přihlášen.')
-
-  const res = await fetch(`${NOTIF_API_BASE}/api/adoption/my`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  })
-  if (!res.ok) {
-    throw new Error(`Načtení adopcí selhalo: ${res.status}`)
-  }
-  return await res.json()
-}
-
-/** Fetch posts for one animal */
-export async function fetchPostsForAnimal(animalId: string): Promise<any[]> {
-  const res = await fetch(
-    `${NOTIF_API_BASE}/api/posts/public?animalId=${encodeURIComponent(animalId)}`
-  )
-  if (!res.ok) {
-    throw new Error(`Načtení příspěvků selhalo: ${res.status}`)
-  }
-  return await res.json()
-}
-
-/** Load the real animal name via backend */
-export async function fetchAnimalName(animalId: string): Promise<string> {
-  try {
-    const a = await fetchAnimal(animalId)
-    return a.jmeno || a.name || 'Zvíře'
-  } catch {
-    return 'Zvíře'
-  }
-}
-
-/**
- * Build notification list:
- * 1. load my adoptions
- * 2. for each animal load posts
- * 3. attach real animal name
- */
-export async function fetchMyNotifications(): Promise<MyNotificationItem[]> {
-  const adoptions = await fetchMyAdoptions()
-
-  // jen aktivní adopce
-  const active = (adoptions || []).filter(
-    (a: any) =>
-      !a.status ||
-      a.status === 'ACTIVE' ||
-      a.status === 'ACTIVE_ADOPTION' ||
-      a.status === 'ACTIVE_ADOPT'
-  )
-
-  // pro každé zvíře dotáhnout příspěvky
-  const allPostsPerAnimal = await Promise.all(
-    active.map(async (ad: any) => {
-      const animal = ad.animal || {}
-      const animalId = ad.animalId || animal.id
-      if (!animalId) return []
-
-      const posts = await fetchPostsForAnimal(animalId)
-      const animalName = animal.jmeno || animal.name || 'Zvíře'
-
-      return (posts || []).map((p: any) => ({
-        id: p.id,
-        title: p.title,
-        body: p.body,
-        publishedAt: p.publishedAt || p.createdAt,
-        animalId,
-        animalName,
-        media: p.media || [],      // 👈 TADY POSÍLÁME MEDIA DÁL
-      })) as MyNotificationItem[]
-    })
-  )
-
-  const flat = allPostsPerAnimal.flat()
-
-  // seřadit podle času
-  flat.sort((a, b) => {
-    const ta = new Date(a.publishedAt).getTime()
-    const tb = new Date(b.publishedAt).getTime()
-    return tb - ta
-  })
-
-  return flat
-}
-
-// keep default at bottom
 export default api
