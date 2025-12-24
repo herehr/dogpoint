@@ -55,9 +55,14 @@ type FormAnimal = {
   popis?: string
   active?: boolean
   main?: string | null
-  // ✅ keep url + typ so we can render videos too
-  galerie?: { url: string; typ?: 'image' | 'video'; type?: 'image' | 'video'; poster?: string; posterUrl?: string }[]
-
+  // keep url + typ so we can render videos too
+  galerie?: {
+    url: string
+    typ?: 'image' | 'video'
+    type?: 'image' | 'video'
+    poster?: string | null
+    posterUrl?: string | null
+  }[]
   charakteristik?: string
   birthDate?: string // yyyy-mm-dd
   bornYear?: string // string in UI, number on submit
@@ -94,7 +99,7 @@ function stripCache(url?: string | null): string {
   return u
 }
 
-// ✅ pick first NON-video as image for cards/main
+// pick first NON-video as image for cards/main
 function firstImageUrlFromGallery(gal?: { url: string; typ?: string; type?: string }[]): string | null {
   const list = gal || []
   const firstImg = list.find((x) => !isVideoMedia(x)) || list[0]
@@ -178,18 +183,17 @@ export default function AnimalsManager() {
 
   function editAnimal(a: Animal) {
     const rawGallery: any[] = (a as any).galerie || (a as any).gallery || []
-    const gallery = rawGallery.map((g: any) => ({
-      url: String(g.url || g.key || ''),
-      typ: (g.typ || g.type || guessTypeFromUrl(String(g.url || g.key || ''))) as any,
-      poster: g.poster || null,
-      posterUrl: g.posterUrl || null,
-    })).filter((g) => g.url)
+    const gallery = rawGallery
+      .map((g: any) => ({
+        url: String(g.url || g.key || ''),
+        typ: (g.typ || g.type || guessTypeFromUrl(String(g.url || g.key || ''))) as any,
+        poster: g.poster || null,
+        posterUrl: g.posterUrl || null,
+      }))
+      .filter((g) => g.url)
 
-    // ✅ main should prefer image (not video)
-    const main =
-      (a as any).main ||
-      firstImageUrlFromGallery(gallery) ||
-      (gallery[0]?.url ?? null)
+    // main can be image OR video (you requested video star too)
+    const main = (a as any).main || gallery[0]?.url || null
 
     setForm({
       id: a.id,
@@ -199,9 +203,7 @@ export default function AnimalsManager() {
       galerie: gallery,
       main,
       charakteristik: (a as any).charakteristik || '',
-      birthDate: (a as any).birthDate
-        ? new Date((a as any).birthDate).toISOString().slice(0, 10)
-        : '',
+      birthDate: (a as any).birthDate ? new Date((a as any).birthDate).toISOString().slice(0, 10) : '',
       bornYear: (a as any).bornYear != null ? String((a as any).bornYear) : '',
     })
     setOpen(true)
@@ -228,25 +230,21 @@ export default function AnimalsManager() {
     try {
       const cleanGallery = (form.galerie || []).filter((x) => (x.url || '').trim() !== '')
 
-      // ✅ main should prefer image
+      // main can be image OR video; if missing, pick first item
       let main = form.main || null
-      if (!main && cleanGallery.length) {
-        main = firstImageUrlFromGallery(cleanGallery) || cleanGallery[0].url
-      }
+      if (!main && cleanGallery.length) main = cleanGallery[0].url
 
       const payload: any = {
         jmeno: form.jmeno?.trim(),
         popis: form.popis?.trim(),
         active: !!form.active,
         main,
-        // send galerie with url + typ if available
         galerie: cleanGallery.map((g) => ({
           url: g.url,
-          typ: (g.typ || g.type || guessTypeFromUrl(g.url) || 'image'),
+          typ: g.typ || g.type || guessTypeFromUrl(g.url) || 'image',
           poster: (g as any).poster || undefined,
           posterUrl: (g as any).posterUrl || undefined,
         })),
-
         charakteristik: form.charakteristik?.trim() || undefined,
         birthDate: form.birthDate ? new Date(form.birthDate).toISOString() : undefined,
         bornYear: !form.birthDate && form.bornYear ? Number(form.bornYear) : undefined,
@@ -280,11 +278,11 @@ export default function AnimalsManager() {
       for (let i = 0; i < arr.length; i++) {
         setUploadNote(`Nahrávám ${i + 1} / ${arr.length}…`)
         // eslint-disable-next-line no-await-in-loop
-        const one = await uploadMedia(arr[i]) // { url?, key?, type? }
+        const one = await uploadMedia(arr[i])
         const rawUrl = String((one as any)?.url || (one as any)?.key || '')
         if (!rawUrl) continue
         const t = (one as any)?.type || guessTypeFromUrl(rawUrl)
-        results.push({ url: rawUrl, typ: (t === 'video' ? 'video' : 'image') })
+        results.push({ url: rawUrl, typ: t === 'video' ? 'video' : 'image' })
       }
 
       const now = Date.now()
@@ -297,13 +295,7 @@ export default function AnimalsManager() {
           })),
         ]
 
-        // ✅ main should prefer image
-        const computedMain =
-          f.main ||
-          firstImageUrlFromGallery(newGallery) ||
-          newGallery[0]?.url ||
-          null
-
+        const computedMain = f.main || newGallery[0]?.url || null
         return { ...f, galerie: newGallery, main: computedMain }
       })
       setOk('Soubor(y) nahrány')
@@ -342,10 +334,7 @@ export default function AnimalsManager() {
     if (!url) return
     setForm((f) => {
       const next = [...(f.galerie || []), { url, typ: guessTypeFromUrl(url) || 'image' }]
-      const newMain =
-        f.main ||
-        firstImageUrlFromGallery(next) ||
-        url
+      const newMain = f.main || url
       return { ...f, galerie: next, main: newMain }
     })
   }
@@ -356,7 +345,7 @@ export default function AnimalsManager() {
       const removedUrl = (f.galerie || [])[i]?.url
       let newMain = f.main || null
       if (removedUrl && stripCache(f.main) === stripCache(removedUrl)) {
-        newMain = firstImageUrlFromGallery(list) || list[0]?.url || null
+        newMain = list[0]?.url || null
       }
       return { ...f, galerie: list, main: newMain }
     })
@@ -404,7 +393,7 @@ export default function AnimalsManager() {
         const rawUrl = String((one as any)?.url || (one as any)?.key || '')
         if (!rawUrl) continue
         const t = (one as any)?.type || guessTypeFromUrl(rawUrl)
-        results.push({ url: rawUrl, typ: (t === 'video' ? 'video' : 'image') })
+        results.push({ url: rawUrl, typ: t === 'video' ? 'video' : 'image' })
       }
 
       const now = Date.now()
@@ -412,7 +401,7 @@ export default function AnimalsManager() {
         ...cur,
         ...results.map((r) => ({
           url: `${r.url}${r.url.includes('?') ? '&' : '?'}v=${now}`,
-          type: (r.typ || guessTypeFromUrl(r.url) || 'image'),
+          type: r.typ || guessTypeFromUrl(r.url) || 'image',
         })),
       ])
     } catch (e: any) {
@@ -516,8 +505,8 @@ export default function AnimalsManager() {
         {rows.map((a) => {
           const gal: any[] = (a as any).galerie || []
           const main =
-            (a as any).main ||
             firstImageUrlFromGallery(gal) ||
+            (a as any).main ||
             gal?.[0]?.url ||
             '/no-image.jpg'
 
@@ -591,10 +580,7 @@ export default function AnimalsManager() {
 
         {rows.length === 0 && (
           <Grid item xs={12}>
-            <Paper
-              variant="outlined"
-              sx={{ p: 4, borderRadius: 3, textAlign: 'center' }}
-            >
+            <Paper variant="outlined" sx={{ p: 4, borderRadius: 3, textAlign: 'center' }}>
               Zatím žádná zvířata
             </Paper>
           </Grid>
@@ -674,11 +660,7 @@ export default function AnimalsManager() {
                 </Typography>
 
                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center">
-                  <Button
-                    onClick={() => fileInputRef.current?.click()}
-                    startIcon={<UploadIcon />}
-                    variant="outlined"
-                  >
+                  <Button onClick={() => fileInputRef.current?.click()} startIcon={<UploadIcon />} variant="outlined">
                     Vybrat soubory
                   </Button>
                   <input
@@ -753,16 +735,56 @@ export default function AnimalsManager() {
                           }}
                         >
                           <Box sx={{ position: 'relative', width: '100%', height: 120, bgcolor: '#f7f7f7' }}>
+                            {/* ✅ IMPORTANT: no native controls in thumbnail (prevents iOS overlay stealing taps) */}
                             {isVideo ? (
-                              <video
-                                controls
-                                preload="metadata"
-                                playsInline
-                                poster={poster}
-                                style={{ width: '100%', height: 120, objectFit: 'cover', display: 'block' }}
-                              >
-                                <source src={url} type={guessVideoMime(url)} />
-                              </video>
+                              <Box sx={{ position: 'relative', width: '100%', height: 120 }}>
+                                <video
+                                  muted
+                                  playsInline
+                                  preload="metadata"
+                                  controls={false}
+                                  poster={poster}
+                                  style={{
+                                    width: '100%',
+                                    height: 120,
+                                    objectFit: 'cover',
+                                    display: 'block',
+                                    pointerEvents: 'none',
+                                  }}
+                                >
+                                  <source src={url} type={guessVideoMime(url)} />
+                                </video>
+
+                                {/* small play hint */}
+                                <Box
+                                  sx={{
+                                    position: 'absolute',
+                                    inset: 0,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    pointerEvents: 'none',
+                                    opacity: 0.9,
+                                  }}
+                                >
+                                  <Box
+                                    sx={{
+                                      width: 34,
+                                      height: 34,
+                                      borderRadius: 999,
+                                      bgcolor: 'rgba(0,0,0,0.45)',
+                                      color: '#fff',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      fontSize: 16,
+                                      lineHeight: 1,
+                                    }}
+                                  >
+                                    ▶
+                                  </Box>
+                                </Box>
+                              </Box>
                             ) : (
                               <img
                                 src={url}
@@ -779,34 +801,21 @@ export default function AnimalsManager() {
                               />
                             )}
 
-                            <Tooltip
-                              title={
-                                isVideo
-                                  ? 'Video nelze nastavit jako hlavní'
-                                  : isMain
-                                    ? 'Hlavní fotografie'
-                                    : 'Nastavit jako hlavní'
-                              }
-                            >
-                              <span>
-                                <IconButton
-                                  size="small"
-                                  disabled={isVideo}
-                                  onClick={() => setMain(url)}
-                                  sx={{
-                                    position: 'absolute',
-                                    top: 6,
-                                    right: 6,
-                                    bgcolor: 'rgba(255,255,255,0.9)',
-                                  }}
-                                >
-                                  {isMain ? (
-                                    <StarIcon fontSize="small" color="warning" />
-                                  ) : (
-                                    <StarBorderIcon fontSize="small" />
-                                  )}
-                                </IconButton>
-                              </span>
+                            {/* ✅ STAR works for image AND video */}
+                            <Tooltip title={isMain ? 'Hlavní médium' : 'Nastavit jako hlavní'}>
+                              <IconButton
+                                size="small"
+                                onClick={() => setMain(url)}
+                                sx={{
+                                  position: 'absolute',
+                                  top: 6,
+                                  right: 6,
+                                  zIndex: 5,
+                                  bgcolor: 'rgba(255,255,255,0.92)',
+                                }}
+                              >
+                                {isMain ? <StarIcon fontSize="small" color="warning" /> : <StarBorderIcon fontSize="small" />}
+                              </IconButton>
                             </Tooltip>
                           </Box>
 
@@ -824,7 +833,7 @@ export default function AnimalsManager() {
                   })}
                 </Grid>
 
-                {/* Optional manual URL add (kept for power-users) */}
+                {/* Optional manual URL add */}
                 <Box sx={{ mt: 1 }}>
                   <TextField
                     label="Přidat URL do galerie"
@@ -950,14 +959,52 @@ export default function AnimalsManager() {
                             }}
                           >
                             {isVideo ? (
-                              <video
-                                controls
-                                preload="metadata"
-                                playsInline
-                                style={{ width: '100%', height: 140, objectFit: 'cover', display: 'block' }}
-                              >
-                                <source src={m.url} type={guessVideoMime(m.url)} />
-                              </video>
+                              // thumbnails: no controls so delete button stays reachable on mobile
+                              <Box sx={{ position: 'relative', width: '100%', height: 140 }}>
+                                <video
+                                  muted
+                                  playsInline
+                                  preload="metadata"
+                                  controls={false}
+                                  style={{
+                                    width: '100%',
+                                    height: 140,
+                                    objectFit: 'cover',
+                                    display: 'block',
+                                    pointerEvents: 'none',
+                                  }}
+                                >
+                                  <source src={m.url} type={guessVideoMime(m.url)} />
+                                </video>
+                                <Box
+                                  sx={{
+                                    position: 'absolute',
+                                    inset: 0,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    pointerEvents: 'none',
+                                    opacity: 0.9,
+                                  }}
+                                >
+                                  <Box
+                                    sx={{
+                                      width: 34,
+                                      height: 34,
+                                      borderRadius: 999,
+                                      bgcolor: 'rgba(0,0,0,0.45)',
+                                      color: '#fff',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      fontSize: 16,
+                                      lineHeight: 1,
+                                    }}
+                                  >
+                                    ▶
+                                  </Box>
+                                </Box>
+                              </Box>
                             ) : (
                               <img
                                 src={m.url}
@@ -974,6 +1021,7 @@ export default function AnimalsManager() {
                                   position: 'absolute',
                                   top: 6,
                                   right: 6,
+                                  zIndex: 5,
                                   bgcolor: 'rgba(255,255,255,0.9)',
                                 }}
                               >
