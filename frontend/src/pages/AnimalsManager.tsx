@@ -101,44 +101,136 @@ function stripCache(url?: string | null): string {
 function firstImageUrlFromGallery(
   gal?: { url: string; typ?: string; type?: string }[]
 ): string | null {
-  const list = gal || []
-  const firstImg = list.find((x) => !isVideoMedia(x))
-  return firstImg?.url || null
+  const list = Array.isArray(gal) ? gal : []
+  const hit = list.find((x) => x?.url && !isVideoMedia(x))
+  return hit?.url || null
 }
 
+/** main can be image OR video; if missing, fallback to first gallery item */
 function resolveMainUrl(a: any): string | null {
-  const gal: any[] = a?.galerie || a?.gallery || []
-  return a?.main || gal?.[0]?.url || null
+  const gal: any[] = Array.isArray(a?.galerie) ? a.galerie : Array.isArray(a?.gallery) ? a.gallery : []
+  const main = a?.main ? String(a.main) : ''
+  if (main) return main
+  const first = gal.find((m: any) => m?.url) || gal[0]
+  return first?.url ? String(first.url) : null
 }
 
 function findPosterForUrl(gal: any[], url: string): string | undefined {
   const clean = stripCache(url)
-  const hit = (gal || []).find((m: any) => stripCache(m?.url) === clean)
+  const hit = (Array.isArray(gal) ? gal : []).find((m: any) => stripCache(m?.url) === clean)
   return hit?.posterUrl || hit?.poster || undefined
 }
 
-function VideoThumb({ url, poster, height }: { url: string; poster?: string; height: number }) {
-  // IMPORTANT: no controls + pointerEvents none so overlays never block star/delete taps
-  return (
-    <Box sx={{ position: 'relative', width: '100%', height }}>
-      <video
-        muted
-        playsInline
-        preload="metadata"
-        controls={false}
-        poster={poster}
-        style={{
-          width: '100%',
-          height,
-          objectFit: 'cover',
-          display: 'block',
-          pointerEvents: 'none',
-        }}
-      >
-        <source src={url} type={guessVideoMime(url)} />
-      </video>
+/** tries to extract a poster image (first frame) from the video */
+function useVideoPoster(url?: string, seekSeconds = 0.2) {
+  const [poster, setPoster] = React.useState<string | null>(null)
 
-      {/* Play overlay (so it still looks like a video even without poster) */}
+  React.useEffect(() => {
+    let cancelled = false
+    if (!url) {
+      setPoster(null)
+      return
+    }
+
+    ;(async () => {
+      try {
+        const video = document.createElement('video')
+        video.crossOrigin = 'anonymous'
+        video.muted = true
+        video.playsInline = true
+        video.preload = 'metadata'
+        video.src = url
+
+        await new Promise<void>((resolve, reject) => {
+          const ok = () => resolve()
+          const bad = () => reject(new Error('video metadata failed'))
+          video.addEventListener('loadedmetadata', ok, { once: true })
+          video.addEventListener('error', bad, { once: true })
+        })
+
+        const t = Math.min(
+          Math.max(seekSeconds, 0),
+          Math.max(0, (video.duration || 1) - 0.05)
+        )
+        try {
+          video.currentTime = t
+        } catch {
+          video.currentTime = 0
+        }
+
+        await new Promise<void>((resolve) => {
+          const done = () => resolve()
+          video.addEventListener('seeked', done, { once: true })
+          setTimeout(done, 800)
+        })
+
+        const w = video.videoWidth || 640
+        const h = video.videoHeight || 360
+        const canvas = document.createElement('canvas')
+        canvas.width = w
+        canvas.height = h
+
+        const ctx = canvas.getContext('2d')
+        if (!ctx) throw new Error('no canvas context')
+
+        ctx.drawImage(video, 0, 0, w, h)
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.72)
+
+        if (!cancelled) setPoster(dataUrl)
+      } catch {
+        if (!cancelled) setPoster(null)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [url, seekSeconds])
+
+  return poster
+}
+
+function VideoThumb({
+  url,
+  poster,
+  height,
+}: {
+  url: string
+  poster?: string
+  height: number
+}) {
+  const generatedPoster = useVideoPoster(url)
+  const effectivePoster = poster || generatedPoster
+
+  return (
+    <Box sx={{ position: 'relative', width: '100%', height, bgcolor: '#f7f7f7' }}>
+      {/* Best UX: render as <img> when we have a poster (real preview frame) */}
+      {effectivePoster ? (
+        <img
+          src={effectivePoster}
+          alt="video preview"
+          style={{ width: '100%', height, objectFit: 'cover', display: 'block', pointerEvents: 'none' }}
+        />
+      ) : (
+        /* Fallback if poster generation blocked (CORS/canvas): show the video element */
+        <video
+          muted
+          playsInline
+          preload="metadata"
+          controls={false}
+          style={{
+            width: '100%',
+            height,
+            objectFit: 'cover',
+            display: 'block',
+            pointerEvents: 'none',
+          }}
+        >
+          <source src={url} type={guessVideoMime(url)} />
+        </video>
+      )}
+
+      {/* Always show play overlay */}
       <Box
         sx={{
           position: 'absolute',
