@@ -8,54 +8,72 @@ type Opts = {
 }
 
 export async function notifyAnimalUpdated(animalId: string, opts: Opts = {}) {
+  // IMPORTANT: do NOT use select { jmeno, name } because your Prisma schema may not have them.
+  const animal = (await (prisma as any).animal.findUnique({
+    where: { id: animalId },
+  })) as any
+
+  const animalName =
+    animal?.jmeno ||
+    animal?.name ||
+    animal?.title ||
+    animal?.nazev ||
+    'zvíře'
+
   // recipients = users with ACTIVE subscriptions to this animal
-  const subs = await prisma.subscription.findMany({
-    where: {
-      animalId,
-      status: 'ACTIVE' as any,
-    },
+  const subs = (await (prisma as any).subscription.findMany({
+    where: { animalId, status: 'ACTIVE' },
     select: {
       userId: true,
       user: { select: { email: true } },
-      animal: { select: { jmeno: true, name: true } },
-    } as any,
-  })
+    },
+  })) as Array<{ userId: string; user?: { email?: string | null } }>
 
-  const animalName = subs[0]?.animal?.jmeno || subs[0]?.animal?.name || 'zvíře'
+  const title = 'Novinka u vašeho zvířete 🐾'
+  const message = `Byly upraveny informace u "${animalName}".`
 
-  // Create in-app notifications
-  if (subs.length) {
-    await prisma.notification.createMany({
-      data: subs.map((s) => ({
-        userId: s.userId,
-        type: 'ANIMAL_UPDATED',
-        title: 'Novinka u vašeho zvířete 🐾',
-        message: `Byly upraveny informace u "${animalName}".`,
-        animalId,
-      })) as any,
-      skipDuplicates: true as any, // if your Prisma version supports it for this model
-    } as any)
+  if (!subs?.length) {
+    console.log('[notifyAnimalUpdated] no recipients', { animalId })
+    return { recipients: 0 }
   }
 
-  // Optional emails
+  // create in-app notifications (best-effort; must never break updates)
+  for (const s of subs) {
+    try {
+      await (prisma as any).notification.create({
+        data: {
+          userId: s.userId,
+          type: 'ANIMAL_UPDATED',
+          title,
+          message,
+          animalId,
+          postId: null,
+        },
+      })
+    } catch (e) {
+      console.warn('[notifyAnimalUpdated] notification create failed', e)
+    }
+  }
+
+  // optional emails
   if (opts.sendEmail) {
     const send = opts.sendEmailFn ?? defaultSendEmail
     const subject = 'Dogpoint – novinka u vašeho zvířete'
     const html = `
       <div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.4">
-        <h2 style="margin:0 0 12px 0">Novinka u vašeho zvířete 🐾</h2>
-        <p style="margin:0 0 8px 0">Byly upraveny informace u "${animalName}".</p>
+        <h2 style="margin:0 0 12px 0">${title}</h2>
+        <p style="margin:0 0 8px 0">${message}</p>
         <p style="margin:0">Děkujeme,<br/>Dogpoint</p>
       </div>
     `
+
     for (const s of subs) {
-      const email = (s as any).user?.email
-      if (email) {
-        try {
-          await send(email, subject, html)
-        } catch {
-          // never break
-        }
+      const email = s?.user?.email
+      if (!email) continue
+      try {
+        await send(email, subject, html)
+      } catch (e) {
+        console.warn('[notifyAnimalUpdated] email failed', e)
       }
     }
   }
