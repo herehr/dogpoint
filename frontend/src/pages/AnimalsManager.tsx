@@ -1,3 +1,4 @@
+
 // frontend/src/pages/AnimalsManager.tsx
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -117,6 +118,29 @@ function resolveMainUrl(a: any): string | null {
   if (main) return main
   const first = gal.find((m: any) => m?.url) || gal[0]
   return first?.url ? String(first.url) : null
+}
+
+/**
+ * ✅ IMPORTANT:
+ * - If main is already set (video or image), do NOT auto-change it when adding more media.
+ * - If main is not set, prefer VIDEO as main (so photos won't steal main from a video upload).
+ */
+function pickMainPreferVideo(
+  existingMain: string | null | undefined,
+  gallery: { url: string; typ?: any; type?: any }[]
+): string | null {
+  const list = Array.isArray(gallery) ? gallery : []
+
+  if (existingMain) {
+    const cleanMain = stripCache(existingMain)
+    const stillThere = list.some((m) => stripCache(m?.url) === cleanMain)
+    if (stillThere) return existingMain
+  }
+
+  const firstVideo = list.find((m) => m?.url && isVideoMedia(m))
+  if (firstVideo?.url) return firstVideo.url
+
+  return list[0]?.url || null
 }
 
 /** muted looping video preview (reliable, no CORS/canvas poster tricks) */
@@ -313,7 +337,9 @@ export default function AnimalsManager() {
       const cleanGallery = (form.galerie || []).filter((x) => (x.url || '').trim() !== '')
 
       let main = form.main || null
-      if (!main && cleanGallery.length) main = cleanGallery[0].url
+      if (!main && cleanGallery.length) {
+        main = pickMainPreferVideo(null, cleanGallery) // ✅ prefer video when main not chosen yet
+      }
 
       const payload: any = {
         jmeno: form.jmeno?.trim(),
@@ -376,7 +402,9 @@ export default function AnimalsManager() {
           })),
         ]
 
-        const computedMain = f.main || newGallery[0]?.url || null
+        // ✅ keep existing main; if missing, prefer video
+        const computedMain = pickMainPreferVideo(f.main || null, newGallery)
+
         return { ...f, galerie: newGallery, main: computedMain }
       })
       setOk('Soubor(y) nahrány')
@@ -415,7 +443,7 @@ export default function AnimalsManager() {
     if (!url) return
     setForm((f) => {
       const next = [...(f.galerie || []), { url, typ: guessTypeFromUrl(url) || 'image' }]
-      const newMain = f.main || url
+      const newMain = pickMainPreferVideo(f.main || null, next) // ✅ prefer video if main not set
       return { ...f, galerie: next, main: newMain }
     })
   }
@@ -426,7 +454,7 @@ export default function AnimalsManager() {
       const removedUrl = (f.galerie || [])[i]?.url
       let newMain = f.main || null
       if (removedUrl && stripCache(f.main) === stripCache(removedUrl)) {
-        newMain = list[0]?.url || null
+        newMain = pickMainPreferVideo(null, list)
       }
       return { ...f, galerie: list, main: newMain }
     })
@@ -665,7 +693,7 @@ export default function AnimalsManager() {
           </Grid>
         )}
       </Grid>
-
+      
       {/* Create/Edit animal dialog */}
       <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="md">
         <DialogTitle>{isEdit ? 'Upravit zvíře' : 'Přidat zvíře'}</DialogTitle>
