@@ -1,3 +1,4 @@
+// frontend/src/prototypes/UXPrototype.tsx
 import React from 'react'
 import { Routes, Route, Link, useParams, useNavigate } from 'react-router-dom'
 import {
@@ -7,7 +8,7 @@ import {
 
 // --- demo data ---
 type Kind = 'pes' | 'kočka' | 'jiné'
-type Media = { url: string; type?: 'image'|'video' }
+type Media = { url: string; type?: 'image'|'video'; typ?: 'image'|'video'; poster?: string; posterUrl?: string }
 type Animal = {
   id: string; jmeno: string; druh: Kind; vek: string;
   popis: string; main: string; galerie: Media[]; active: boolean
@@ -47,7 +48,7 @@ const clamp3 = {
   WebkitLineClamp: 3 as any,
   WebkitBoxOrient: 'vertical' as any,
   overflow: 'hidden',
-} // MDN line-clamp usage w/ -webkit fallback. See docs. 
+} // MDN line-clamp usage w/ -webkit fallback. See docs.
 
 function BadgeRow({ kind, age }: { kind: Kind; age: string }) {
   return (
@@ -56,6 +57,18 @@ function BadgeRow({ kind, age }: { kind: Kind; age: string }) {
       <Chip size="small" label={age} />
     </Stack>
   )
+}
+
+function isVideoMedia(m: Media): boolean {
+  const t = String(m.typ || m.type || '').toLowerCase()
+  if (t.includes('video')) return true
+  return /\.(mp4|webm|m4v|mov)(\?|$)/i.test(m.url || '')
+}
+
+function guessVideoMime(url: string): string {
+  const u = (url || '').toLowerCase()
+  if (u.includes('.webm')) return 'video/webm'
+  return 'video/mp4'
 }
 
 // --- listing ---
@@ -114,32 +127,57 @@ function DetailView() {
         <Box>
           <Typography variant="subtitle1" sx={{ fontWeight: 800, mb: 1 }}>Galerie</Typography>
           <Grid container spacing={1}>
-            {a.galerie.map((m, i) => (
-              <Grid key={i} item xs={6} sm={4}>
-                <Box sx={{
-                  position: 'relative',
-                  borderRadius: 2,
-                  overflow: 'hidden',
-                  ...(unlocked ? {} : { filter: 'blur(8px)', pointerEvents: 'none' })
-                }}>
-                  <img src={m.url} alt={`${a.jmeno} ${i+1}`} style={{ width: '100%', height: 120, objectFit: 'cover' }} />
-                  {!unlocked && (
-                    <Box sx={{
-                      position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      bgcolor: 'rgba(0,0,0,0.25)', color: '#fff', fontWeight: 700
-                    }}>
-                      Zamčeno — odemkne se po adopci
-                    </Box>
-                  )}
-                </Box>
-              </Grid>
-            ))}
+            {a.galerie.map((m, i) => {
+              const isVideo = isVideoMedia(m)
+              const poster = m.posterUrl || m.poster || undefined
+
+              return (
+                <Grid key={i} item xs={6} sm={4}>
+                  <Box sx={{
+                    position: 'relative',
+                    borderRadius: 2,
+                    overflow: 'hidden',
+                    ...(unlocked ? {} : { filter: 'blur(8px)', pointerEvents: 'none' })
+                  }}>
+                    {isVideo ? (
+                      <video
+                        controls
+                        preload="metadata"
+                        poster={poster}
+                        style={{ width: '100%', height: 120, objectFit: 'cover' }}
+                      >
+                        <source src={m.url} type={guessVideoMime(m.url)} />
+                      </video>
+                    ) : (
+                      <img
+                        src={m.url}
+                        alt={`${a.jmeno} ${i + 1}`}
+                        style={{ width: '100%', height: 120, objectFit: 'cover' }}
+                      />
+                    )}
+
+                    {!unlocked && (
+                      <Box sx={{
+                        position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        bgcolor: 'rgba(0,0,0,0.25)', color: '#fff', fontWeight: 700
+                      }}>
+                        Zamčeno — odemkne se po adopci
+                      </Box>
+                    )}
+                  </Box>
+                </Grid>
+              )
+            })}
           </Grid>
         </Box>
 
         {!unlocked ? (
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-            <Button variant="contained" size="large" onClick={() => { setUnlocked(a.id); setToast('Adopce úspěšná (simulace). Galerie odemčena.'); }}>
+            <Button
+              variant="contained"
+              size="large"
+              onClick={() => { setUnlocked(a.id); setToast('Adopce úspěšná (simulace). Galerie odemčena.') }}
+            >
               Chci adoptovat
             </Button>
             <Button variant="outlined" onClick={() => nav('/proto')}>Zpět na seznam</Button>
