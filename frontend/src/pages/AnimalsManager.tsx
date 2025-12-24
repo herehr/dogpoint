@@ -1,4 +1,3 @@
-
 // frontend/src/pages/AnimalsManager.tsx
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -75,17 +74,20 @@ const EMOJIS = ['🐾', '❤️', '😊', '🥰', '👏', '🎉', '😍', '🤗'
 function isVideoUrl(url: string): boolean {
   return /\.(mp4|webm|m4v|mov)(\?|$)/i.test(url || '')
 }
+
 function isVideoMedia(m: { url?: string; typ?: string; type?: string }): boolean {
   const t = String(m.typ || m.type || '').toLowerCase()
   if (t.includes('video')) return true
   return isVideoUrl(String(m.url || ''))
 }
+
 function guessTypeFromUrl(u: string): 'image' | 'video' | undefined {
   const lc = (u || '').toLowerCase()
   if (/\.(mp4|webm|mov|m4v)(\?|$)/.test(lc)) return 'video'
   if (/\.(jpg|jpeg|png|gif|webp|avif)(\?|$)/.test(lc)) return 'image'
   return undefined
 }
+
 function guessVideoMime(url: string): string {
   const u = (url || '').toLowerCase()
   if (u.includes('.webm')) return 'video/webm'
@@ -105,7 +107,9 @@ function withBust(url: string): string {
 }
 
 /** pick first image only for fallback situations */
-function firstImageUrlFromGallery(gal?: { url: string; typ?: string; type?: string }[]): string | null {
+function firstImageUrlFromGallery(
+  gal?: { url: string; typ?: string; type?: string }[]
+): string | null {
   const list = Array.isArray(gal) ? gal : []
   const hit = list.find((x) => x?.url && !isVideoMedia(x))
   return hit?.url || null
@@ -222,6 +226,7 @@ export default function AnimalsManager() {
   const [err, setErr] = useState<string | null>(null)
   const [ok, setOk] = useState<string | null>(null)
 
+  // Dialog: animal create/edit
   const [open, setOpen] = useState(false)
   const [form, setForm] = useState<FormAnimal>({
     jmeno: '',
@@ -235,6 +240,7 @@ export default function AnimalsManager() {
   })
   const isEdit = useMemo(() => !!form.id, [form.id])
 
+  // Upload state (animal dialog)
   const [uploading, setUploading] = useState(false)
   const [uploadNote, setUploadNote] = useState<string>('')
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -243,6 +249,7 @@ export default function AnimalsManager() {
   const navigate = useNavigate()
   const { logout } = useAuth()
 
+  // Post composer dialog
   const [postOpen, setPostOpen] = useState(false)
   const [postAnimalId, setPostAnimalId] = useState<string | null>(null)
   const [postTitle, setPostTitle] = useState('')
@@ -299,7 +306,8 @@ export default function AnimalsManager() {
       }))
       .filter((g) => g.url)
 
-    const main = (a as any).main || gallery[0]?.url || null
+    // ✅ keep DB main if present; otherwise prefer video from gallery
+    const main = pickMainPreferVideo((a as any).main || null, gallery)
 
     setForm({
       id: a.id,
@@ -693,7 +701,7 @@ export default function AnimalsManager() {
           </Grid>
         )}
       </Grid>
-      
+
       {/* Create/Edit animal dialog */}
       <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="md">
         <DialogTitle>{isEdit ? 'Upravit zvíře' : 'Přidat zvíře'}</DialogTitle>
@@ -749,7 +757,10 @@ export default function AnimalsManager() {
 
                 <FormControlLabel
                   control={
-                    <Checkbox checked={!!form.active} onChange={(e) => setForm((f) => ({ ...f, active: e.target.checked }))} />
+                    <Checkbox
+                      checked={!!form.active}
+                      onChange={(e) => setForm((f) => ({ ...f, active: e.target.checked }))}
+                    />
                   }
                   label="Aktivní (zobrazit na webu)"
                 />
@@ -764,9 +775,20 @@ export default function AnimalsManager() {
                   <Button onClick={() => fileInputRef.current?.click()} startIcon={<UploadIcon />} variant="outlined">
                     Vybrat soubory
                   </Button>
-                  <input ref={fileInputRef} type="file" hidden multiple accept="image/*,video/*" onChange={onPickFiles} />
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    hidden
+                    multiple
+                    accept="image/*,video/*"
+                    onChange={onPickFiles}
+                  />
 
-                  <Button onClick={() => cameraInputRef.current?.click()} startIcon={<PhotoCameraIcon />} variant="outlined">
+                  <Button
+                    onClick={() => cameraInputRef.current?.click()}
+                    startIcon={<PhotoCameraIcon />}
+                    variant="outlined"
+                  >
                     Vyfotit (telefon)
                   </Button>
                   <input
@@ -849,7 +871,11 @@ export default function AnimalsManager() {
                                   bgcolor: 'rgba(255,255,255,0.92)',
                                 }}
                               >
-                                {isMain ? <StarIcon fontSize="small" color="warning" /> : <StarBorderIcon fontSize="small" />}
+                                {isMain ? (
+                                  <StarIcon fontSize="small" color="warning" />
+                                ) : (
+                                  <StarBorderIcon fontSize="small" />
+                                )}
                               </IconButton>
                             </Tooltip>
                           </Box>
@@ -904,7 +930,13 @@ export default function AnimalsManager() {
           <DialogContent>
             <Stack spacing={2}>
               <TextField label="Titulek" value={postTitle} onChange={(e) => setPostTitle(e.target.value)} />
-              <TextField label="Text" value={postBody} onChange={(e) => setPostBody(e.target.value)} multiline minRows={3} />
+              <TextField
+                label="Text"
+                value={postBody}
+                onChange={(e) => setPostBody(e.target.value)}
+                multiline
+                minRows={3}
+              />
 
               <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', mb: 1 }}>
                 {EMOJIS.map((emo) => (
@@ -923,12 +955,26 @@ export default function AnimalsManager() {
                   <Button onClick={() => postFileRef.current?.click()} startIcon={<UploadIcon />} variant="outlined">
                     Vybrat soubory
                   </Button>
-                  <input ref={postFileRef} type="file" hidden multiple accept="image/*,video/*" onChange={postPickFiles} />
+                  <input
+                    ref={postFileRef}
+                    type="file"
+                    hidden
+                    multiple
+                    accept="image/*,video/*"
+                    onChange={postPickFiles}
+                  />
 
                   <Button onClick={() => postCameraRef.current?.click()} startIcon={<PhotoCameraIcon />} variant="outlined">
                     Vyfotit (telefon)
                   </Button>
-                  <input ref={postCameraRef} type="file" hidden accept="image/*" capture="environment" onChange={postPickCamera} />
+                  <input
+                    ref={postCameraRef}
+                    type="file"
+                    hidden
+                    accept="image/*"
+                    capture="environment"
+                    onChange={postPickCamera}
+                  />
                 </Stack>
 
                 <Box
