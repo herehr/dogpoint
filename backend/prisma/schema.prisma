@@ -7,33 +7,20 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-/**
- * =========================
- * Core models
- * =========================
- */
-
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  role         Role     @default(USER)
-  updatedAt    DateTime @updatedAt
-  createdAt    DateTime @default(now())
-  passwordHash String?
-
-  /// Posts where the user is the "author"
-  posts Post[] @relation("AuthorPosts")
-
-  subscriptions Subscription[]
-  notifications Notification[]
-
-  /// Animals created / approved by this user
-  animalsCreated  Animal[] @relation("AnimalCreatedBy")
-  animalsApproved Animal[] @relation("AnimalApprovedBy")
-
-  /// Posts created / approved by this user (workflow)
-  postsCreated  Post[] @relation("PostCreatedBy")
-  postsApproved Post[] @relation("PostApprovedBy")
+  id              String         @id @default(cuid())
+  email           String         @unique
+  role            Role           @default(USER)
+  updatedAt       DateTime       @updatedAt
+  createdAt       DateTime       @default(now())
+  passwordHash    String?
+  animalsApproved Animal[]       @relation("AnimalApprovedBy")
+  animalsCreated  Animal[]       @relation("AnimalCreatedBy")
+  notifications   Notification[]
+  postsApproved   Post[]         @relation("PostApprovedBy")
+  posts           Post[]         @relation("AuthorPosts")
+  postsCreated    Post[]         @relation("PostCreatedBy")
+  subscriptions   Subscription[]
 }
 
 model Animal {
@@ -49,20 +36,18 @@ model Animal {
   charakteristik   String?
   birthDate        DateTime?
   bornYear         Int?
+  approvedById     String?
+  createdById      String?
+  status           ContentStatus     @default(PENDING_REVIEW)
   adoptionRequests AdoptionRequest[]
+  approvedBy       User?             @relation("AnimalApprovedBy", fields: [approvedById], references: [id])
+  createdBy        User?             @relation("AnimalCreatedBy", fields: [createdById], references: [id])
   galerie          GalerieMedia[]
+  notifications    Notification[]
   posts            Post[]
   subscriptions    Subscription[]
 
-  // notifications linked to this animal (optional)
-  notifications Notification[]
-
-  // --- Approval workflow fields ---
-  status       ContentStatus @default(PENDING_REVIEW)
-  createdById  String?
-  createdBy    User?         @relation("AnimalCreatedBy", fields: [createdById], references: [id])
-  approvedById String?
-  approvedBy   User?         @relation("AnimalApprovedBy", fields: [approvedById], references: [id])
+  @@index([status])
 }
 
 model GalerieMedia {
@@ -97,36 +82,27 @@ model AdoptionRequest {
   @@index([email, animalId])
 }
 
-/**
- * =========================
- * Posts with media
- * =========================
- */
-
 model Post {
-  id          String   @id @default(cuid())
-  title       String
-  body        String?
-  active      Boolean  @default(true)
-  animalId    String
-  authorId    String?
-  createdAt   DateTime @default(now())
-  publishedAt DateTime @default(now())
-
-  animal Animal      @relation(fields: [animalId], references: [id], onDelete: Cascade)
-  author User?       @relation("AuthorPosts", fields: [authorId], references: [id])
-  media  PostMedia[]
-
-  // notifications linked to this post (optional)
+  id            String         @id @default(cuid())
+  title         String
+  body          String?
+  active        Boolean        @default(true)
+  animalId      String
+  authorId      String?
+  createdAt     DateTime       @default(now())
+  publishedAt   DateTime       @default(now())
+  approvedById  String?
+  createdById   String?
+  status        ContentStatus  @default(PENDING_REVIEW)
+  updatedAt     DateTime       @default(now()) @updatedAt
   notifications Notification[]
+  animal        Animal         @relation(fields: [animalId], references: [id], onDelete: Cascade)
+  approvedBy    User?          @relation("PostApprovedBy", fields: [approvedById], references: [id])
+  author        User?          @relation("AuthorPosts", fields: [authorId], references: [id])
+  createdBy     User?          @relation("PostCreatedBy", fields: [createdById], references: [id])
+  media         PostMedia[]
 
-  // --- Approval workflow fields ---
-  status       ContentStatus @default(PENDING_REVIEW)
-  createdById  String?
-  createdBy    User?         @relation("PostCreatedBy", fields: [createdById], references: [id])
-  approvedById String?
-  approvedBy   User?         @relation("PostApprovedBy", fields: [approvedById], references: [id])
-  updatedAt    DateTime      @default(now()) @updatedAt
+  @@index([status])
 }
 
 model PostMedia {
@@ -137,12 +113,6 @@ model PostMedia {
   createdAt DateTime @default(now())
   post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
 }
-
-/**
- * =========================
- * Donations / subscriptions
- * =========================
- */
 
 model Subscription {
   id             String             @id @default(cuid())
@@ -160,10 +130,9 @@ model Subscription {
   note           String?
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
-
-  payments Payment[]
-  animal   Animal    @relation(fields: [animalId], references: [id], onDelete: Cascade)
-  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  payments       Payment[]
+  animal         Animal             @relation(fields: [animalId], references: [id], onDelete: Cascade)
+  user           User               @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, animalId, status])
   @@index([userId])
@@ -182,39 +151,25 @@ model Payment {
   paidAt         DateTime?
   failureReason  String?
   createdAt      DateTime        @default(now())
-
-  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  subscription   Subscription    @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
 
   @@index([subscriptionId])
   @@index([status])
 }
 
-/**
- * =========================
- * Notifications + webhooks
- * =========================
- */
-
 model Notification {
-  id String @id @default(uuid())
-
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId String
-
-  // what caused it
-  type    String // e.g. 'NEW_POST'
-  title   String
-  message String
-
-  // optional relations for linking + dedupe
-  animalId String?
-  animal   Animal? @relation(fields: [animalId], references: [id], onDelete: SetNull)
-
-  postId String?
-  post   Post?   @relation(fields: [postId], references: [id], onDelete: SetNull)
-
+  id        String    @id @default(uuid())
+  userId    String
+  type      String
+  title     String
+  message   String
   readAt    DateTime?
   createdAt DateTime  @default(now())
+  animalId  String?
+  postId    String?
+  animal    Animal?   @relation(fields: [animalId], references: [id])
+  post      Post?     @relation(fields: [postId], references: [id])
+  user      User      @relation(fields: [userId], references: [id])
 
   @@unique([userId, postId])
   @@index([userId, readAt])
@@ -234,12 +189,6 @@ model FioCursor {
   lastId    String?
   updatedAt DateTime @updatedAt
 }
-
-/**
- * =========================
- * Lightweight pledge + payments
- * =========================
- */
 
 model Pledge {
   id         String          @id @default(cuid())
@@ -276,19 +225,12 @@ model PledgePayment {
   redirectUrl   String?
   resultCode    String?
   resultMessage String?
-
-  pledge Pledge @relation(fields: [pledgeId], references: [id], onDelete: Cascade)
+  pledge        Pledge        @relation(fields: [pledgeId], references: [id], onDelete: Cascade)
 
   @@index([pledgeId])
   @@index([status])
   @@index([orderNumber])
 }
-
-/**
- * =========================
- * Enums
- * =========================
- */
 
 enum Role {
   ADMIN
