@@ -159,14 +159,17 @@ function MediaView(props: {
   const video = isVideoUrl(url)
 
   if (video) {
-    // DETAIL: use controls (autoplay often blocked without muted)
+    // DETAIL: autoplay (muted) so it "just plays" on open in all major browsers
     if (variant === 'detail') {
       return (
         <video
-          controls
+          muted
+          autoPlay
+          loop
           playsInline
-          preload="metadata"
-          poster={poster}
+          controls={false}
+          preload="auto"
+          // poster intentionally NOT used here -> no preview frame
           style={{
             width: '100%',
             height,
@@ -515,12 +518,12 @@ export default function AnimalDetail() {
     ...rawGallery,
   ])
 
-  // ✅ MAIN picks animal.main if exists, else first gallery item (video allowed)
+  // MAIN: prefer animal.main, else first video, else first item
   const firstVideo = merged.find((m) => m?.url && isVideoMedia(m))
-const mainUrl = animal.main || firstVideo?.url || merged[0]?.url || '/no-image.jpg'
-const mainPoster = findPosterForUrl(merged, mainUrl)
+  const mainUrl = animal.main || firstVideo?.url || merged[0]?.url || '/no-image.jpg'
+  const mainPoster = findPosterForUrl(merged, mainUrl)
 
-  // ✅ extras should not duplicate mainUrl (strip cache compare)
+  // extras should not duplicate mainUrl (strip cache compare)
   const extras = merged.filter((m) => stripCache(m.url) !== stripCache(mainUrl))
 
   // apply stable cache-bust per lock state
@@ -595,7 +598,6 @@ const mainPoster = findPosterForUrl(merged, mainUrl)
                 borderColor: 'divider',
               }}
             >
-              {/* ✅ video plays here now */}
               <MediaView url={mainSrc} alt={title} height={320} poster={mainPoster} variant="detail" />
             </Box>
           </Grid>
@@ -683,13 +685,7 @@ const mainPoster = findPosterForUrl(merged, mainUrl)
                       }}
                       className={!isUnlocked ? 'lockedMedia' : undefined}
                     >
-                      <MediaView
-                        url={src}
-                        alt={`media-${i + 1}`}
-                        height={160}
-                        poster={poster}
-                        variant="thumb"
-                      />
+                      <MediaView url={src} alt={`media-${i + 1}`} height={160} poster={poster} variant="thumb" />
                     </Box>
                   </Grid>
                 )
