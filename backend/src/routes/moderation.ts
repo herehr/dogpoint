@@ -1,24 +1,17 @@
 // backend/src/routes/moderation.ts
-import { Router, Request, Response } from 'express'
+import { Router, type Request, type Response } from 'express'
 import { prisma } from '../prisma'
 import { requireAuth } from '../middleware/authJwt'
 import { ContentStatus, Role } from '@prisma/client'
 
 // 🔔 notify adopters after publishing a post
 import { notifyUsersAboutNewPost } from '../services/notifyNewPost'
-import { sendEmail } from '../services/email'
+import { sendEmailSafe } from '../services/email'
 
 const router = Router()
 
 function isStaff(role?: Role | string): boolean {
   return role === Role.ADMIN || role === Role.MODERATOR || role === 'ADMIN' || role === 'MODERATOR'
-}
-
-// adapter so notifyNewPost can send emails using your existing sendEmail()
-const mailer = {
-  send: async (args: { to: string; subject: string; html: string; text?: string }) => {
-    await sendEmail(args.to, args.subject, args.html)
-  },
 }
 
 /* ──────────────────────────────────────────
@@ -114,14 +107,11 @@ router.post('/posts/:id/approve', requireAuth, async (req: Request, res: Respons
 
     // ✅ create Notification rows (+ optionally send emails)
     // NOTE: this must never break approving the post
-   try {
-  const status = String((updated as any).status || '')
-  if (status === 'PUBLISHED' || status === 'APPROVED') {
-    await notifyUsersAboutNewPost(updated.id, { sendEmail: true, sendEmailFn: sendEmail })
-  }
-} catch (err) {
-  console.warn('[notifyUsersAboutNewPost] failed', err)
-}
+    try {
+      await notifyUsersAboutNewPost(updated.id, { sendEmail: true, sendEmailFn: sendEmailSafe })
+    } catch (err) {
+      console.warn('[notifyUsersAboutNewPost] failed', err)
+    }
 
     res.json(updated)
   } catch (e: any) {
