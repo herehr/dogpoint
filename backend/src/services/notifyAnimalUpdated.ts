@@ -1,24 +1,39 @@
 // backend/src/services/notifyAnimalUpdated.ts
 import { prisma } from '../prisma'
-import { sendEmail as defaultSendEmail } from './email'
+import { sendEmailSafe } from './email'
+import { renderDogpointEmailLayout } from './emailTemplates'
+
+type SendEmailFn = (args: { to: string; subject: string; html: string; text?: string }) => Promise<void>
 
 type Opts = {
   sendEmail?: boolean
-  sendEmailFn?: (to: string, subject: string, html: string) => Promise<any>
+  sendEmailFn?: SendEmailFn
+}
+
+function appBase(): string {
+  return (process.env.APP_BASE_URL || 'https://patron.dog-point.cz').replace(/\/+$/, '')
+}
+
+function escapeInline(s: string): string {
+  return String(s || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
 }
 
 export async function notifyAnimalUpdated(animalId: string, opts: Opts = {}) {
-  // IMPORTANT: do NOT use select { jmeno, name } because your Prisma schema may not have them.
+  const sendEmail = Boolean(opts.sendEmail)
+  const send = opts.sendEmailFn ?? sendEmailSafe
+
+  // IMPORTANT: do NOT use select { jmeno, name } because schema may vary
   const animal = (await (prisma as any).animal.findUnique({
     where: { id: animalId },
   })) as any
 
   const animalName =
-    animal?.jmeno ||
-    animal?.name ||
-    animal?.title ||
-    animal?.nazev ||
-    'zvíře'
+    animal?.jmeno || animal?.name || animal?.title || animal?.nazev || 'zvíře'
 
   // recipients = users with ACTIVE subscriptions to this animal
   const subs = (await (prisma as any).subscription.findMany({
@@ -34,7 +49,7 @@ export async function notifyAnimalUpdated(animalId: string, opts: Opts = {}) {
 
   if (!subs?.length) {
     console.log('[notifyAnimalUpdated] no recipients', { animalId })
-    return { recipients: 0 }
+    return { recipients: 0, emailed: 0 }
   }
 
   // create in-app notifications (best-effort; must never break updates)
@@ -55,28 +70,38 @@ export async function notifyAnimalUpdated(animalId: string, opts: Opts = {}) {
     }
   }
 
-  // optional emails
-  if (opts.sendEmail) {
-    const send = opts.sendEmailFn ?? defaultSendEmail
-    const subject = 'Dogpoint – novinka u vašeho zvířete'
-    const html = `
-      <div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.4">
-        <h2 style="margin:0 0 12px 0">${title}</h2>
-        <p style="margin:0 0 8px 0">${message}</p>
-        <p style="margin:0">Děkujeme,<br/>Dogpoint</p>
-      </div>
-    `
+  // optional emails (unified layout)
+  let emailed = 0
+  if (sendEmail) {
+    const url = `${appBase()}/zvirata/${encodeURIComponent(animalId)}`
+    const subject = `Dogpoint – novinka u vašeho zvířete: ${animalName}`
+
+    const introHtml = `
+      Dobrý den,<br />
+      byly upraveny informace u zvířete <strong>${escapeInline(animalName)}</strong>.
+    `.trim()
+
+    const { html, text } = renderDogpointEmailLayout({
+      title,
+      introHtml,
+      buttonText: 'Zobrazit detail',
+      buttonUrl: url,
+      plainTextFallbackUrl: url,
+      footerNoteHtml:
+        '<strong>Bezpečnostní upozornění:</strong> Dogpoint po vás nikdy nebude chtít heslo e-mailem ani telefonicky.',
+    })
 
     for (const s of subs) {
       const email = s?.user?.email
       if (!email) continue
       try {
-        await send(email, subject, html)
+        await send({ to: email, subject, html, text })
+        emailed += 1
       } catch (e) {
-        console.warn('[notifyAnimalUpdated] email failed', e)
+        console.warn('[notifyAnimalUpdated] email failed', { to: email })
       }
     }
   }
 
-  return { recipients: subs.length }
+  return { recipients: subs.length, emailed }
 }

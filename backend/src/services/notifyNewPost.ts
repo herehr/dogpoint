@@ -2,7 +2,7 @@
 import { prisma } from '../prisma'
 import { renderDogpointEmailLayout } from './emailTemplates'
 
-type SendEmailFn = (to: string, subject: string, html: string, text?: string) => Promise<void>
+type SendEmailFn = (args: { to: string; subject: string; html: string; text?: string }) => Promise<void>
 
 type NotifyOptions = {
   sendEmail?: boolean
@@ -11,6 +11,15 @@ type NotifyOptions = {
 
 function appBase(): string {
   return (process.env.APP_BASE_URL || 'https://patron.dog-point.cz').replace(/\/+$/, '')
+}
+
+function escapeInline(s: string): string {
+  return String(s || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
 }
 
 export async function notifyUsersAboutNewPost(postId: string, opts: NotifyOptions = {}) {
@@ -58,36 +67,55 @@ export async function notifyUsersAboutNewPost(postId: string, opts: NotifyOption
     return { ok: true, notified: 0, emailed: 0 }
   }
 
-  // Create notifications (idempotency: simplest = always create; optional improvement later)
-  // Assumes Notification model exists with userId, title, body, postId, animalId, etc.
+  // In-app notifications (best-effort; never break the approval flow)
   let created = 0
   try {
     const rows = recipients.map((u) => ({
       userId: u.id,
+      type: 'POST_PUBLISHED',
       title: 'Nový příspěvek u vašeho adoptovaného zvířete',
-      body: post.title || 'Byl publikován nový příspěvek.',
+      message: post.title || 'Byl publikován nový příspěvek.',
       postId: post.id,
       animalId,
       readAt: null as any,
     }))
 
-    const r = await prisma.notification.createMany({
+    // If your schema doesn't support createMany or fields differ, this may throw — that's ok.
+    const r = await (prisma as any).notification.createMany({
       data: rows as any,
       skipDuplicates: false as any,
     })
 
     created = Number((r as any)?.count || 0)
   } catch (e) {
-    // If createMany fails (schema mismatch), do not kill the whole approval flow
     console.warn('[notifyUsersAboutNewPost] notification.createMany failed', e)
+    // fallback: try single inserts (still best-effort)
+    try {
+      for (const u of recipients) {
+        try {
+          await (prisma as any).notification.create({
+            data: {
+              userId: u.id,
+              type: 'POST_PUBLISHED',
+              title: 'Nový příspěvek u vašeho adoptovaného zvířete',
+              message: post.title || 'Byl publikován nový příspěvek.',
+              postId: post.id,
+              animalId,
+              readAt: null as any,
+            },
+          })
+          created += 1
+        } catch {}
+      }
+    } catch {}
   }
 
-  // Emails
+  // Emails (unified layout)
   let emailed = 0
   if (sendEmail) {
-    const animalName = (post.animal?.jmeno || post.animal?.name || 'Zvíře').toString()
+    const animalName = String((post.animal as any)?.jmeno || post.animal?.name || 'Zvíře')
     const subject = `Dogpoint – nový příspěvek: ${animalName}`
-    const url = `${appBase()}/zvirata/${animalId}#posts`
+    const url = `${appBase()}/zvirata/${encodeURIComponent(animalId)}#posts`
 
     const introHtml = `
       Dobrý den,<br />
@@ -101,31 +129,20 @@ export async function notifyUsersAboutNewPost(postId: string, opts: NotifyOption
       introHtml,
       buttonText: 'Zobrazit příspěvek',
       buttonUrl: url,
+      plainTextFallbackUrl: url,
       footerNoteHtml:
         '<strong>Bezpečnostní upozornění:</strong> Dogpoint po vás nikdy nebude chtít heslo e-mailem ani telefonicky.',
-      plainTextFallbackUrl: url,
     })
 
-    await Promise.all(
-      recipients.map(async (u) => {
-        try {
-          await opts.sendEmailFn!(u.email, subject, html, text)
-          emailed += 1
-        } catch (e) {
-          console.warn('[notifyUsersAboutNewPost] email failed', { to: u.email })
-        }
-      }),
-    )
+    for (const u of recipients) {
+      try {
+        await opts.sendEmailFn!({ to: u.email, subject, html, text })
+        emailed += 1
+      } catch (e) {
+        console.warn('[notifyUsersAboutNewPost] email failed', { to: u.email })
+      }
+    }
   }
 
   return { ok: true, notified: created, emailed }
-}
-
-function escapeInline(s: string): string {
-  return String(s || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
 }
