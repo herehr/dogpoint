@@ -4,7 +4,6 @@ import { prisma } from '../prisma'
 import { requireAuth } from '../middleware/authJwt'
 import { ContentStatus, Role } from '@prisma/client'
 
-// 🔔 notify adopters after publishing a post
 import { notifyUsersAboutNewPost } from '../services/notifyNewPost'
 import { sendEmailSafe } from '../services/email'
 
@@ -12,6 +11,11 @@ const router = Router()
 
 function isStaff(role?: Role | string): boolean {
   return role === Role.ADMIN || role === Role.MODERATOR || role === 'ADMIN' || role === 'MODERATOR'
+}
+
+// ✅ adapter: notifyNewPost expects (to, subject, html, text?)
+const sendEmailFn = async (to: string, subject: string, html: string, text?: string) => {
+  await sendEmailSafe({ to, subject, html, text })
 }
 
 /* ──────────────────────────────────────────
@@ -106,9 +110,9 @@ router.post('/posts/:id/approve', requireAuth, async (req: Request, res: Respons
     })
 
     // ✅ create Notification rows (+ optionally send emails)
-    // NOTE: this must never break approving the post
+    // NOTE: must never break approving the post
     try {
-      await notifyUsersAboutNewPost(updated.id, { sendEmail: true, sendEmailFn: sendEmailSafe })
+      await notifyUsersAboutNewPost(updated.id, { sendEmail: true, sendEmailFn })
     } catch (err) {
       console.warn('[notifyUsersAboutNewPost] failed', err)
     }

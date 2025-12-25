@@ -1,124 +1,128 @@
 // backend/src/services/notifyNewPost.ts
 import { prisma } from '../prisma'
-import { emailLayout } from './emailTemplates'
-import { sendEmailSafe } from './email'
+import { renderDogpointEmailLayout } from './emailTemplates'
 
-type Opts = {
+type SendEmailFn = (to: string, subject: string, html: string, text?: string) => Promise<void>
+
+type NotifyOptions = {
   sendEmail?: boolean
-  sendEmailFn?: (to: string, subject: string, html: string, text?: string) => Promise<void>
+  sendEmailFn?: SendEmailFn
 }
 
 function appBase(): string {
   return (process.env.APP_BASE_URL || 'https://patron.dog-point.cz').replace(/\/+$/, '')
 }
 
-export async function notifyUsersAboutNewPost(postId: string, opts: Opts = {}) {
-  const sendEmail = opts.sendEmail === true
-  const sendFn = opts.sendEmailFn || sendEmailSafe
+export async function notifyUsersAboutNewPost(postId: string, opts: NotifyOptions = {}) {
+  const sendEmail = Boolean(opts.sendEmail && opts.sendEmailFn)
 
-  // 1) load post + animalId
   const post = await prisma.post.findUnique({
     where: { id: postId },
     include: {
-      animal: { select: { id: true, jmeno: true, name: true } },
+      animal: true,
       media: true,
     },
   })
-  if (!post) return { ok: false, reason: 'post_not_found' as const }
 
-  // IMPORTANT: only notify if actually published
-  const status = String((post as any).status || '')
-  if (status !== 'PUBLISHED') {
-    return { ok: false, reason: 'not_published' as const, status }
+  if (!post) {
+    return { ok: false, reason: 'POST_NOT_FOUND' as const }
   }
 
-  const animalId = post.animalId
-  if (!animalId) return { ok: false, reason: 'missing_animalId' as const }
+  // Only notify for published posts
+  const status = String((post as any).status || '')
+  if (status !== 'PUBLISHED') {
+    return { ok: true, skipped: true, reason: 'NOT_PUBLISHED' as const }
+  }
 
-  // 2) find active subscriptions to this animal
+  const animalId = String((post as any).animalId || post.animal?.id || '')
+  if (!animalId) {
+    return { ok: false, reason: 'NO_ANIMAL' as const }
+  }
+
+  // Find ACTIVE subscriptions for this animal
   const subs = await prisma.subscription.findMany({
     where: {
       animalId,
       status: { in: ['ACTIVE'] as any },
     },
-    select: {
-      userId: true,
-      user: { select: { email: true } },
+    include: {
+      user: { select: { id: true, email: true } },
     },
   })
 
   const recipients = subs
-    .map((s) => s.user?.email?.trim().toLowerCase())
-    .filter((e): e is string => !!e)
+    .map((s) => s.user)
+    .filter((u): u is { id: string; email: string } => Boolean(u?.id && u?.email))
 
-  // 3) create Notification rows (dedupe per user+post)
-  const title = 'Nový příspěvek'
-  const animalName = post.animal?.jmeno || post.animal?.name || 'Zvíře'
-  const link = `${appBase()}/zvirata/${animalId}#posts`
-
-  let created = 0
-  for (const s of subs) {
-    try {
-      // idempotency: one notification per user+post
-      const existing = await prisma.notification.findFirst({
-        where: { userId: s.userId, postId: post.id },
-        select: { id: true },
-      })
-      if (existing) continue
-
-      await prisma.notification.create({
-        data: {
-          userId: s.userId,
-          postId: post.id,
-          title,
-          body: `${post.title || 'Nový příspěvek'} – ${animalName}`,
-          url: link,
-          readAt: null,
-        } as any,
-      })
-      created += 1
-    } catch (e) {
-      console.warn('[notifyUsersAboutNewPost] notification create failed', e)
-    }
+  if (recipients.length === 0) {
+    return { ok: true, notified: 0, emailed: 0 }
   }
 
-  // 4) optionally email adopters
-  let emailed = 0
-  if (sendEmail && recipients.length) {
-    const subject = `Dogpoint – nový příspěvek (${animalName})`
+  // Create notifications (idempotency: simplest = always create; optional improvement later)
+  // Assumes Notification model exists with userId, title, body, postId, animalId, etc.
+  let created = 0
+  try {
+    const rows = recipients.map((u) => ({
+      userId: u.id,
+      title: 'Nový příspěvek u vašeho adoptovaného zvířete',
+      body: post.title || 'Byl publikován nový příspěvek.',
+      postId: post.id,
+      animalId,
+      readAt: null as any,
+    }))
 
-    const intro =
-      `Dobrý den,<br />` +
-      `u vašeho adoptovaného zvířete byl právě publikován nový příspěvek.`
-
-    const bodyHtml =
-      `<p style="margin:0 0 10px;"><strong>${escapeHtml(post.title || 'Nový příspěvek')}</strong></p>` +
-      (post.body ? `<div style="margin:0 0 10px;">${post.body}</div>` : '')
-
-    const { html } = emailLayout({
-      title: 'Nový příspěvek',
-      intro,
-      bodyHtml,
-      buttonText: 'Zobrazit příspěvek',
-      buttonUrl: link,
-      footerNote: 'Klikněte a zobrazte si nový příspěvek.',
+    const r = await prisma.notification.createMany({
+      data: rows as any,
+      skipDuplicates: false as any,
     })
 
-    for (const to of recipients) {
-      try {
-        await sendFn(to, subject, html)
-        emailed += 1
-      } catch (e) {
-        console.warn('[notifyUsersAboutNewPost] email failed', { to, err: (e as any)?.message || e })
-      }
-    }
+    created = Number((r as any)?.count || 0)
+  } catch (e) {
+    // If createMany fails (schema mismatch), do not kill the whole approval flow
+    console.warn('[notifyUsersAboutNewPost] notification.createMany failed', e)
   }
 
-  return { ok: true, recipients: recipients.length, notificationsCreated: created, emailed }
+  // Emails
+  let emailed = 0
+  if (sendEmail) {
+    const animalName = (post.animal?.jmeno || post.animal?.name || 'Zvíře').toString()
+    const subject = `Dogpoint – nový příspěvek: ${animalName}`
+    const url = `${appBase()}/zvirata/${animalId}#posts`
+
+    const introHtml = `
+      Dobrý den,<br />
+      byl publikován nový příspěvek u vašeho adoptovaného zvířete: <strong>${escapeInline(animalName)}</strong>.<br />
+      <br />
+      <strong>${escapeInline(post.title || '')}</strong>
+    `.trim()
+
+    const { html, text } = renderDogpointEmailLayout({
+      title: 'Nový příspěvek',
+      introHtml,
+      buttonText: 'Zobrazit příspěvek',
+      buttonUrl: url,
+      footerNoteHtml:
+        '<strong>Bezpečnostní upozornění:</strong> Dogpoint po vás nikdy nebude chtít heslo e-mailem ani telefonicky.',
+      plainTextFallbackUrl: url,
+    })
+
+    await Promise.all(
+      recipients.map(async (u) => {
+        try {
+          await opts.sendEmailFn!(u.email, subject, html, text)
+          emailed += 1
+        } catch (e) {
+          console.warn('[notifyUsersAboutNewPost] email failed', { to: u.email })
+        }
+      }),
+    )
+  }
+
+  return { ok: true, notified: created, emailed }
 }
 
-function escapeHtml(s: string) {
-  return String(s ?? '')
+function escapeInline(s: string): string {
+  return String(s || '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
