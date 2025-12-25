@@ -1,7 +1,7 @@
 // backend/src/routes/animals.ts
 import { Router, Request, Response } from 'express'
 import { prisma } from '../prisma'
-import { requireAuth } from '../middleware/authJwt' // ✅ use JWT-based auth
+import { requireAuth } from '../middleware/authJwt'
 import { ContentStatus, Role } from '@prisma/client'
 import { notifyApproversAboutNewAnimal } from '../services/moderationNotifications'
 import { notifyAnimalUpdated } from '../services/notifyAnimalUpdated'
@@ -24,6 +24,55 @@ function parseGalerie(input: any): Array<{ url: string; typ?: string }> {
 
 function isStaff(role?: Role | string): boolean {
   return role === Role.ADMIN || role === Role.MODERATOR || role === 'ADMIN' || role === 'MODERATOR'
+}
+
+function hasOwn(obj: any, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(obj, key)
+}
+
+function normUrl(u?: string | null): string {
+  return String(u || '').split('?')[0]
+}
+
+function gallerySignature(g: Array<{ url: string; typ?: string }>): string {
+  return g
+    .map((m) => `${normUrl(m.url)}|${String(m.typ || 'image').toLowerCase()}`)
+    .sort()
+    .join(';;')
+}
+
+function didMeaningfulChange(before: any, after: any): boolean {
+  // compare key public fields + media
+  const fields: Array<keyof any> = [
+    'name',
+    'jmeno',
+    'description',
+    'popis',
+    'charakteristik',
+    'birthDate',
+    'bornYear',
+    'active',
+    'main',
+  ]
+
+  for (const f of fields) {
+    const b = before?.[f]
+    const a = after?.[f]
+    // normalize dates
+    if (b instanceof Date || a instanceof Date) {
+      const bt = b ? new Date(b).getTime() : null
+      const at = a ? new Date(a).getTime() : null
+      if (bt !== at) return true
+      continue
+    }
+    if (String(b ?? '') !== String(a ?? '')) return true
+  }
+
+  const bg = Array.isArray(before?.galerie) ? before.galerie : []
+  const ag = Array.isArray(after?.galerie) ? after.galerie : []
+  if (gallerySignature(bg) !== gallerySignature(ag)) return true
+
+  return false
 }
 
 /* =========================
@@ -68,7 +117,6 @@ router.get('/', async (_req: Request, res: Response): Promise<void> => {
 
 // MUST be before '/:id'
 router.get('/pending', requireAuth, async (req: Request, res: Response): Promise<void> => {
-  // req.user is populated by authJwt
   const user = (req as any).user as { id: string; role: Role | string } | undefined
   if (!user || !isStaff(user.role)) {
     res.status(403).json({ error: 'Forbidden' })
@@ -78,7 +126,6 @@ router.get('/pending', requireAuth, async (req: Request, res: Response): Promise
   try {
     const animals = await prisma.animal.findMany({
       where: {
-        // ✅ show ALL animals waiting for approval (from ANY moderator)
         status: ContentStatus.PENDING_REVIEW,
       },
       orderBy: { createdAt: 'desc' },
@@ -140,7 +187,7 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
 })
 
 /* =========================
-   CREATE
+   CREATE (STAFF)
    ========================= */
 
 router.post('/', requireAuth, async (req: Request, res: Response): Promise<void> => {
@@ -153,6 +200,10 @@ router.post('/', requireAuth, async (req: Request, res: Response): Promise<void>
     res.status(401).json({ error: 'Unauthorized' })
     return
   }
+  if (!isStaff(user.role)) {
+    res.status(403).json({ error: 'Forbidden' })
+    return
+  }
 
   if (!body.jmeno && !body.name) {
     res.status(400).json({ error: 'Missing name/jmeno' })
@@ -162,7 +213,6 @@ router.post('/', requireAuth, async (req: Request, res: Response): Promise<void>
   const isAdmin = user.role === Role.ADMIN || user.role === 'ADMIN'
   const initialStatus = isAdmin ? ContentStatus.PUBLISHED : ContentStatus.PENDING_REVIEW
 
-  // Safe coercions
   const parsedBornYear =
     body.bornYear === null || body.bornYear === undefined || body.bornYear === ''
       ? null
@@ -221,7 +271,6 @@ router.post('/', requireAuth, async (req: Request, res: Response): Promise<void>
       return
     }
 
-    // If a moderator created the animal -> notify approvers
     if (!isAdmin) {
       notifyApproversAboutNewAnimal(result.id, result.jmeno ?? result.name ?? 'Bez jména', user.id).catch((e) => {
         console.error('[notifyApproversAboutNewAnimal] failed', e?.message)
@@ -241,7 +290,7 @@ router.post('/', requireAuth, async (req: Request, res: Response): Promise<void>
 })
 
 /* =========================
-   UPDATE
+   UPDATE (STAFF)
    ========================= */
 
 router.patch('/:id', requireAuth, async (req: Request, res: Response): Promise<void> => {
@@ -249,7 +298,17 @@ router.patch('/:id', requireAuth, async (req: Request, res: Response): Promise<v
   const body = (req.body || {}) as any
   const media = parseGalerie(body)
 
-  const parsedBornYear = Object.prototype.hasOwnProperty.call(body, 'bornYear')
+  const user = (req as any).user as { id: string; role: Role | string } | undefined
+  if (!user) {
+    res.status(401).json({ error: 'Unauthorized' })
+    return
+  }
+  if (!isStaff(user.role)) {
+    res.status(403).json({ error: 'Forbidden' })
+    return
+  }
+
+  const parsedBornYear = hasOwn(body, 'bornYear')
     ? body.bornYear === null || body.bornYear === '' || body.bornYear === undefined
       ? null
       : Number.isFinite(Number(body.bornYear))
@@ -257,14 +316,23 @@ router.patch('/:id', requireAuth, async (req: Request, res: Response): Promise<v
         : null
     : undefined
 
-  const parsedBirthDate = Object.prototype.hasOwnProperty.call(body, 'birthDate')
+  const parsedBirthDate = hasOwn(body, 'birthDate')
     ? body.birthDate
       ? new Date(body.birthDate)
       : null
     : undefined
 
   try {
-    const hasOwnMain = Object.prototype.hasOwnProperty.call(body, 'main')
+    const before = await prisma.animal.findUnique({
+      where: { id },
+      include: { galerie: { select: { url: true, typ: true }, orderBy: { id: 'asc' } } },
+    })
+    if (!before) {
+      res.status(404).json({ error: 'Not found' })
+      return
+    }
+
+    const hasOwnMain = hasOwn(body, 'main')
     const willReplaceGallery = Array.isArray(body.galerie) || Array.isArray(body.gallery)
 
     const mainUpdate = hasOwnMain
@@ -274,19 +342,21 @@ router.patch('/:id', requireAuth, async (req: Request, res: Response): Promise<v
         : {}
 
     const baseUpdate: any = {
-      name: body.name ?? undefined,
-      jmeno: body.jmeno ?? undefined,
-      description: body.description ?? undefined,
-      popis: body.popis ?? undefined,
-      charakteristik: body.charakteristik ?? undefined,
-      birthDate: parsedBirthDate,
-      bornYear: parsedBornYear,
-      active: body.active ?? undefined,
+      ...(hasOwn(body, 'name') ? { name: body.name ?? null } : {}),
+      ...(hasOwn(body, 'jmeno') ? { jmeno: body.jmeno ?? null } : {}),
+      ...(hasOwn(body, 'description') ? { description: body.description ?? null } : {}),
+      ...(hasOwn(body, 'popis') ? { popis: body.popis ?? null } : {}),
+      ...(hasOwn(body, 'charakteristik') ? { charakteristik: body.charakteristik ?? null } : {}),
+      ...(hasOwn(body, 'birthDate') ? { birthDate: parsedBirthDate } : {}),
+      ...(hasOwn(body, 'bornYear') ? { bornYear: parsedBornYear } : {}),
+      ...(hasOwn(body, 'active') ? { active: Boolean(body.active) } : {}),
       ...mainUpdate,
     }
 
+    let after: any = null
+
     if (willReplaceGallery) {
-      const updated = await prisma.$transaction(async (tx) => {
+      after = await prisma.$transaction(async (tx) => {
         await tx.animal.update({ where: { id }, data: baseUpdate })
         await tx.galerieMedia.deleteMany({ where: { animalId: id } })
 
@@ -302,45 +372,39 @@ router.patch('/:id', requireAuth, async (req: Request, res: Response): Promise<v
 
         const fresh = await tx.animal.findUnique({
           where: { id },
-          include: { galerie: true },
+          include: { galerie: { select: { url: true, typ: true }, orderBy: { id: 'asc' } } },
         })
         if (!fresh) return null
         return { ...fresh, main: fresh.main ?? fresh.galerie[0]?.url ?? null }
       })
+    } else {
+      const updated = await prisma.animal.update({
+        where: { id },
+        data: baseUpdate,
+        include: { galerie: { select: { url: true, typ: true }, orderBy: { id: 'asc' } } },
+      })
+      after = { ...updated, main: updated.main ?? updated.galerie[0]?.url ?? null }
+    }
 
-      if (!updated) {
-        res.status(404).json({ error: 'Not found' })
-        return
-      }
+    if (!after) {
+      res.status(404).json({ error: 'Not found' })
+      return
+    }
 
+    // ✅ trigger "animal updated" only when meaningful change, and only for visible animals
+    const changed = didMeaningfulChange(before, after)
+    const shouldNotify = changed && after.status === ContentStatus.PUBLISHED && after.active === true
+
+    if (shouldNotify) {
       try {
         const r = await notifyAnimalUpdated(id, { sendEmail: true })
         console.log('[notifyAnimalUpdated] result', { animalId: id, ...r })
       } catch (e) {
         console.warn('[notifyAnimalUpdated] failed', e)
       }
-
-      res.json(updated)
-      return
     }
 
-    const updated = await prisma.animal.update({
-      where: { id },
-      data: baseUpdate,
-      include: { galerie: true },
-    })
-
-    try {
-      const r = await notifyAnimalUpdated(id, { sendEmail: true })
-      console.log('[notifyAnimalUpdated] result', { animalId: id, ...r })
-    } catch (e) {
-      console.warn('[notifyAnimalUpdated] failed', e)
-    }
-
-    res.json({
-      ...updated,
-      main: updated.main ?? updated.galerie[0]?.url ?? null,
-    })
+    res.json(after)
   } catch (e: any) {
     console.error('PATCH /api/animals/:id error:', {
       message: e?.message,
@@ -353,7 +417,7 @@ router.patch('/:id', requireAuth, async (req: Request, res: Response): Promise<v
 })
 
 /* =========================
-   DELETE (soft)
+   DELETE (soft) – STAFF
    ========================= */
 
 router.delete('/:id', requireAuth, async (req: Request, res: Response): Promise<void> => {

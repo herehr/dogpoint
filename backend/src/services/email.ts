@@ -1,15 +1,23 @@
 // backend/src/services/email.ts
 import nodemailer from 'nodemailer'
 
+const EMAIL_ENABLED = (process.env.EMAIL_ENABLED ?? '1') !== '0'
+
 const host = process.env.EMAIL_HOST
 const port = Number(process.env.EMAIL_PORT || 587)
 const user = process.env.EMAIL_USER
-const pass = process.env.EMAIL_PASS
+
+// ✅ accept either EMAIL_PASS or EMAIL_PASSWORD (your code uses both)
+const pass = process.env.EMAIL_PASS || process.env.EMAIL_PASSWORD
+
 const from = process.env.EMAIL_FROM || user
+const secure = port === 465 || process.env.EMAIL_SECURE === 'true'
 
 const smtpConfigured = Boolean(host && user && pass)
 
-if (!smtpConfigured) {
+if (!EMAIL_ENABLED) {
+  console.warn('[email] EMAIL_ENABLED=0 -> emails disabled')
+} else if (!smtpConfigured) {
   console.warn('[email] SMTP NOT configured', {
     host: Boolean(host),
     user: Boolean(user),
@@ -20,58 +28,43 @@ if (!smtpConfigured) {
   console.log('[email] SMTP configured', {
     host,
     port,
-    secure: port === 465,
+    secure,
     from,
   })
 }
 
-const transporter = smtpConfigured
-  ? nodemailer.createTransport({
-      host,
-      port,
-      secure: port === 465, // true for 465, false for 587
-      auth: {
-        user,
-        pass,
-      },
-    })
-  : null
+const transporter =
+  EMAIL_ENABLED && smtpConfigured
+    ? nodemailer.createTransport({
+        host,
+        port,
+        secure,
+        auth: { user, pass },
+      })
+    : null
 
-/**
- * Send email via SMTP.
- * Safe: does nothing if SMTP is not configured.
- */
-export async function sendEmail(
-  to: string,
-  subject: string,
-  html: string,
+export type SendEmailArgs = {
+  to: string
+  subject: string
+  html: string
   text?: string
-): Promise<void> {
+}
+
+export async function sendEmail(to: string, subject: string, html: string, text?: string): Promise<void> {
   if (!transporter) {
-    console.warn('[email] sendEmail skipped (SMTP not configured)', { to, subject })
+    console.warn('[email] sendEmail skipped', { to, subject })
     return
   }
 
-  try {
-    const info = await transporter.sendMail({
-      from,
-      to,
-      subject,
-      text,
-      html,
-    })
+  const info = await transporter.sendMail({ from, to, subject, html, text })
+  console.log('[email] sent', { to, subject, messageId: info.messageId })
+}
 
-    console.log('[email] sent', {
-      to,
-      subject,
-      messageId: info.messageId,
-    })
-  } catch (err: any) {
-    console.error('[email] send failed', {
-      to,
-      subject,
-      error: err?.message || err,
-    })
-    throw err
+export async function sendEmailSafe(args: SendEmailArgs): Promise<void> {
+  try {
+    await sendEmail(args.to, args.subject, args.html, args.text)
+  } catch (e: any) {
+    console.error('[email] send failed', { to: args.to, subject: args.subject, error: e?.message || e })
+    // ✅ never throw from “notification email”
   }
 }
