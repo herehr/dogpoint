@@ -11,6 +11,7 @@ import uploadRoutes from './routes/upload'
 import postsRoutes from './routes/posts'
 import adoptionRouter from './routes/adoption'
 import emailTest from './routes/emailTest'
+import emailTestRoutes from './routes/emailTest'
 import adminModeratorsRoutes from './routes/adminModerators'
 import adminStatsRoutes from './routes/adminStats'
 import adminDashboardRoutes from './routes/adminDashboard'
@@ -19,6 +20,7 @@ import paymentRouter from './routes/paymentRoutes'
 import gpwebpayRoutes from './routes/gpwebpay'
 import notificationRoutes from './routes/notification'
 import moderationRoutes from './routes/moderation' 
+import notificationTestRoutes from './routes/notificationsTest'
 
 import { prisma } from './prisma'
 
@@ -95,6 +97,8 @@ app.use('/api/payments', paymentRouter)
 app.use('/api/notifications', notificationRoutes)
 app.use('/api/test', emailTest)
 app.use('/api/moderation', moderationRoutes)
+app.use('/api/email', emailTestRoutes)
+app.use('/api/notifications', notificationTestRoutes)
 
 
 // GP webpay (feature flag)

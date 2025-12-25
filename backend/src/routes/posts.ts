@@ -5,6 +5,8 @@ import { prisma } from '../prisma'
 import { requireAuth } from '../middleware/authJwt'
 import { ContentStatus, Role } from '@prisma/client'
 import { notifyApproversAboutNewPost } from '../services/moderationNotifications'
+import { notifyUsersAboutNewPost } from '../services/notifyNewPost'
+import { sendEmailSafe } from '../services/email'
 
 const router = Router()
 
@@ -31,12 +33,7 @@ function isAdminRole(role: AnyRole): boolean {
 }
 
 function isStaff(role: AnyRole): boolean {
-  return (
-    role === Role.ADMIN ||
-    role === Role.MODERATOR ||
-    role === 'ADMIN' ||
-    role === 'MODERATOR'
-  )
+  return role === Role.ADMIN || role === Role.MODERATOR || role === 'ADMIN' || role === 'MODERATOR'
 }
 
 /* ──────────────────────────────────────────────────────────
@@ -65,9 +62,7 @@ function tryAttachUser(req: Request, _res: Response, next: NextFunction) {
 function normalizeMedia(input: any): IncomingMedia[] {
   const arr: any[] = Array.isArray(input?.media) ? input.media : []
   return arr
-    .map((x: any) =>
-      typeof x === 'string' ? { url: x } : { url: x?.url, typ: x?.typ },
-    )
+    .map((x: any) => (typeof x === 'string' ? { url: x } : { url: x?.url, typ: x?.typ }))
     .filter((m: any): m is IncomingMedia => !!m.url)
     .map((m: IncomingMedia) => ({ url: String(m.url), typ: m.typ ?? 'image' }))
 }
@@ -150,11 +145,7 @@ router.post('/:id/media', requireAuth, async (req: Request, res: Response) => {
     const body = (req.body || {}) as any
 
     // Accept: { media:[{url,typ}]} OR {url,typ}
-    const incoming: any[] = Array.isArray(body.media)
-      ? body.media
-      : body.url
-        ? [{ url: body.url, typ: body.typ }]
-        : []
+    const incoming: any[] = Array.isArray(body.media) ? body.media : body.url ? [{ url: body.url, typ: body.typ }] : []
 
     const cleaned = incoming
       .map((m: any) => ({
@@ -194,49 +185,45 @@ router.post('/:id/media', requireAuth, async (req: Request, res: Response) => {
   }
 })
 
-router.delete(
-  '/:id/media/:mediaId',
-  requireAuth,
-  async (req: Request, res: Response) => {
-    const role = getRole(req)
-    if (!isAdminRole(role)) {
-      res.status(403).json({ error: 'Forbidden' })
+router.delete('/:id/media/:mediaId', requireAuth, async (req: Request, res: Response) => {
+  const role = getRole(req)
+  if (!isAdminRole(role)) {
+    res.status(403).json({ error: 'Forbidden' })
+    return
+  }
+
+  try {
+    const postId = String(req.params.id)
+    const mediaId = String(req.params.mediaId)
+
+    const media = await prisma.postMedia.findUnique({
+      where: { id: mediaId },
+      select: { id: true, postId: true },
+    })
+
+    if (!media) {
+      res.status(404).json({ error: 'Media not found' })
       return
     }
 
-    try {
-      const postId = String(req.params.id)
-      const mediaId = String(req.params.mediaId)
-
-      const media = await prisma.postMedia.findUnique({
-        where: { id: mediaId },
-        select: { id: true, postId: true },
-      })
-
-      if (!media) {
-        res.status(404).json({ error: 'Media not found' })
-        return
-      }
-
-      if (media.postId !== postId) {
-        res.status(400).json({ error: 'Media does not belong to this post' })
-        return
-      }
-
-      await prisma.postMedia.delete({ where: { id: mediaId } })
-
-      const updated = await prisma.post.findUnique({
-        where: { id: postId },
-        include: { media: true },
-      })
-
-      res.json(updated)
-    } catch (e: any) {
-      console.error('DELETE /api/posts/:id/media/:mediaId error:', e)
-      res.status(500).json({ error: 'Failed to delete media' })
+    if (media.postId !== postId) {
+      res.status(400).json({ error: 'Media does not belong to this post' })
+      return
     }
-  },
-)
+
+    await prisma.postMedia.delete({ where: { id: mediaId } })
+
+    const updated = await prisma.post.findUnique({
+      where: { id: postId },
+      include: { media: true },
+    })
+
+    res.json(updated)
+  } catch (e: any) {
+    console.error('DELETE /api/posts/:id/media/:mediaId error:', e)
+    res.status(500).json({ error: 'Failed to delete media' })
+  }
+})
 
 /* ──────────────────────────────────────────────────────────
    GET /api/posts/:id  (public detail – only active + PUBLISHED)
@@ -331,9 +318,16 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
       notifyApproversAboutNewPost(
         created.id,
         created.title,
-        animal.jmeno ?? animal.name ?? null,
+        (animal as any).jmeno ?? (animal as any).name ?? null,
         authorId,
       ).catch((e) => console.error('[notifyApproversAboutNewPost] failed', e?.message))
+    } else {
+      // ✅ ADMIN published immediately -> notify adopters now (best-effort)
+      try {
+        await notifyUsersAboutNewPost(created.id, { sendEmail: true, sendEmailFn: sendEmailSafe })
+      } catch (e) {
+        console.warn('[notifyUsersAboutNewPost] failed after admin create', e)
+      }
     }
 
     res.status(201).json(created)
@@ -422,7 +416,10 @@ router.post('/:id/approve', requireAuth, async (req: Request, res: Response) => 
   const id = String(req.params.id)
 
   try {
-    const existing = await prisma.post.findUnique({ where: { id } })
+    const existing = await prisma.post.findUnique({
+      where: { id },
+      include: { animal: true, media: true },
+    })
     if (!existing) {
       res.status(404).json({ error: 'Not found' })
       return
@@ -441,7 +438,15 @@ router.post('/:id/approve', requireAuth, async (req: Request, res: Response) => 
         status: ContentStatus.PUBLISHED,
         approvedById: userId,
       },
+      include: { animal: true, media: true },
     })
+
+    // ✅ notify adopters after approval (best-effort; never block approve)
+    try {
+      await notifyUsersAboutNewPost(updated.id, { sendEmail: true, sendEmailFn: sendEmailSafe })
+    } catch (e) {
+      console.warn('[notifyUsersAboutNewPost] failed after approve', e)
+    }
 
     res.json(updated)
   } catch (e: any) {

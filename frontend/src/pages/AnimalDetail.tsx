@@ -1,18 +1,18 @@
 // frontend/src/pages/AnimalDetail.tsx
-import React, { useEffect, useState, useMemo, useCallback } from 'react'
-import { useParams, useLocation, useNavigate } from 'react-router-dom'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
-  Container,
-  Typography,
-  Box,
-  Stack,
-  Chip,
   Alert,
-  Skeleton,
-  Grid,
+  Box,
   Button,
+  Chip,
+  Container,
   Divider,
+  Grid,
+  Skeleton,
+  Stack,
   TextField,
+  Typography,
 } from '@mui/material'
 import NotificationsIcon from '@mui/icons-material/Notifications'
 
@@ -25,7 +25,14 @@ import SafeHTML from '../components/SafeHTML'
 import AfterPaymentPasswordDialog from '../components/AfterPaymentPasswordDialog'
 import { confirmStripeSession, cancelAdoption } from '../services/api'
 
-type Media = { url: string; type?: 'image' | 'video' }
+type Media = {
+  url: string
+  type?: 'image' | 'video' | string
+  typ?: 'image' | 'video' | string
+  poster?: string | null
+  posterUrl?: string | null
+}
+
 type LocalAnimal = {
   id: string
   jmeno?: string
@@ -35,34 +42,63 @@ type LocalAnimal = {
   description?: string
   main?: string
   galerie?: Media[]
+  gallery?: Media[]
   active?: boolean
   charakteristik?: string
   birthDate?: string | Date | null
   bornYear?: number | null
 }
 
-// type for posts used by notifications / polling
 interface AnimalPost {
   id: string
   title: string
   body?: string | null
-  publishedAt: string
+  publishedAt?: string | null
   createdAt: string
-  active: boolean
-  media: {
-    id: string
-    url: string
-    typ: string
-  }[]
+  active?: boolean
+  media?: { id: string; url: string; typ?: string }[]
 }
 
-// Base URL for backend (same as other places in your app)
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api'
+// IMPORTANT: VITE_API_BASE_URL should be like "https://...ondigitalocean.app"
+const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/+$/, '') || ''
 
-function asUrl(x: string | Media | undefined | null): string | null {
-  if (!x) return null
-  if (typeof x === 'string') return x
-  return x.url || null
+/* ─────────────────────────────────────────────── */
+/* Helpers                                          */
+/* ─────────────────────────────────────────────── */
+
+function isVideoUrl(url: string): boolean {
+  return /\.(mp4|webm|m4v|mov)(\?|$)/i.test(url || '')
+}
+
+function isVideoMedia(m?: Partial<Media> | null): boolean {
+  const t = String((m as any)?.typ || (m as any)?.type || '').toLowerCase()
+  if (t.includes('video')) return true
+  const u = String((m as any)?.url || '').toLowerCase()
+  return isVideoUrl(u)
+}
+
+function guessVideoMime(url: string): string {
+  const u = String(url || '').toLowerCase()
+  if (u.includes('.webm')) return 'video/webm'
+  return 'video/mp4'
+}
+
+function stripCache(url?: string | null): string {
+  if (!url) return ''
+  return url.split('?')[0]
+}
+
+function uniqByUrl(list: Media[]): Media[] {
+  const seen = new Set<string>()
+  const out: Media[] = []
+  for (const m of list) {
+    if (!m?.url) continue
+    const clean = stripCache(m.url)
+    if (seen.has(clean)) continue
+    seen.add(clean)
+    out.push(m)
+  }
+  return out
 }
 
 function formatAge(a: LocalAnimal): string {
@@ -73,15 +109,154 @@ function formatAge(a: LocalAnimal): string {
     if (now.getMonth() < bd.getMonth() || (now.getMonth() === bd.getMonth() && now.getDate() < bd.getDate())) {
       years -= 1
     }
-    return `${years} r`
+    return `${Math.max(0, years)} r`
   }
   if (a.bornYear && a.bornYear > 1900) {
     const y = new Date().getFullYear() - a.bornYear
-    return `${y} r`
+    return `${Math.max(0, y)} r`
   }
   if (a.vek) return a.vek
   return 'neuvedeno'
 }
+
+function triggerBrowserNotification(title: string, options?: NotificationOptions) {
+  if (typeof window === 'undefined') return
+  if (!('Notification' in window)) return
+
+  if (Notification.permission === 'granted') {
+    new Notification(title, options)
+  } else if (Notification.permission !== 'denied') {
+    Notification.requestPermission().then((permission) => {
+      if (permission === 'granted') new Notification(title, options)
+    })
+  }
+}
+
+function withLockBust(url: string, unlocked: boolean): string {
+  // stable per lock state (prevents stale cache, but won't re-bust every render)
+  const tag = unlocked ? 'u1' : 'l1'
+  return url.includes('?') ? `${url}&v=${tag}` : `${url}?v=${tag}`
+}
+
+function findPosterForUrl(gal: Media[], url: string): string | undefined {
+  const clean = stripCache(url)
+  const hit = (Array.isArray(gal) ? gal : []).find((m) => stripCache(m?.url) === clean)
+  return hit?.posterUrl || hit?.poster || undefined
+}
+
+/* ─────────────────────────────────────────────── */
+/* Media renderer                                   */
+/* ─────────────────────────────────────────────── */
+
+function MediaView(props: {
+  url: string
+  alt: string
+  height: number
+  poster?: string
+  variant: 'detail' | 'thumb'
+}) {
+  const { url, alt, height, poster, variant } = props
+  const video = isVideoUrl(url)
+
+  if (video) {
+    // DETAIL: autoplay (muted) so it "just plays" on open in all major browsers
+    if (variant === 'detail') {
+      return (
+        <video
+          muted
+          autoPlay
+          loop
+          playsInline
+          controls={false}
+          preload="auto"
+          // poster intentionally NOT used here -> no preview frame
+          style={{
+            width: '100%',
+            height,
+            objectFit: 'cover',
+            display: 'block',
+            background: '#000',
+          }}
+        >
+          <source src={url} type={guessVideoMime(url)} />
+        </video>
+      )
+    }
+
+    // THUMB: muted autoplay loop works on most browsers (incl. iOS) when muted+playsInline
+    return (
+      <Box sx={{ position: 'relative', width: '100%', height, bgcolor: '#000' }}>
+        <video
+          muted
+          playsInline
+          autoPlay
+          loop
+          preload="metadata"
+          poster={poster}
+          controls={false}
+          style={{
+            width: '100%',
+            height,
+            objectFit: 'cover',
+            display: 'block',
+          }}
+        >
+          <source src={url} type={guessVideoMime(url)} />
+        </video>
+
+        {/* subtle play hint */}
+        <Box
+          sx={{
+            position: 'absolute',
+            inset: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            pointerEvents: 'none',
+            opacity: 0.9,
+          }}
+        >
+          <Box
+            sx={{
+              width: 34,
+              height: 34,
+              borderRadius: 999,
+              bgcolor: 'rgba(0,0,0,0.45)',
+              color: '#fff',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: 16,
+              lineHeight: 1,
+            }}
+          >
+            ▶
+          </Box>
+        </Box>
+      </Box>
+    )
+  }
+
+  return (
+    <img
+      src={url}
+      alt={alt}
+      style={{
+        width: '100%',
+        height,
+        objectFit: 'cover',
+        display: 'block',
+      }}
+      onError={(ev) => {
+        ;(ev.currentTarget as HTMLImageElement).style.opacity = '0.35'
+      }}
+    />
+  )
+}
+
+/* ─────────────────────────────────────────────── */
+/* Component                                       */
+/* ─────────────────────────────────────────────── */
 
 export default function AnimalDetail() {
   const { id } = useParams<{ id: string }>()
@@ -95,25 +270,25 @@ export default function AnimalDetail() {
   const [animal, setAnimal] = useState<LocalAnimal | null>(null)
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
+
+  // lock state (user canceled etc.)
   const [forceLocked, setForceLocked] = useState(false)
+
+  // after-payment dialog
   const [showAfterPay, setShowAfterPay] = useState(false)
   const [afterPayEmail, setAfterPayEmail] = useState('')
 
-  // amount picker
+  // amount selector
   const [amount, setAmount] = useState<number>(200)
 
-  // state for posts + notification tracking
+  // notifications / polling
   const [posts, setPosts] = useState<AnimalPost[]>([])
   const [hasNewPosts, setHasNewPosts] = useState(false)
-  const [lastPostCount, setLastPostCount] = useState<number>(0)
+  const lastPostCountRef = useRef<number>(0)
 
-  // Read Stripe return flags ONCE
   const { paid, sid } = useMemo(() => {
     const p = new URLSearchParams(location.search)
-    return {
-      paid: p.get('paid'),
-      sid: p.get('sid') || undefined,
-    }
+    return { paid: p.get('paid'), sid: p.get('sid') || undefined }
   }, [location.search])
 
   const isUnlocked = useMemo(() => {
@@ -121,91 +296,79 @@ export default function AnimalDetail() {
     return !!(id && hasAccess(id)) && !forceLocked
   }, [isStaff, id, hasAccess, forceLocked])
 
-  // initial load of animal
+  // load animal
   useEffect(() => {
     let alive = true
     if (!id) return
+
     setLoading(true)
     setErr(null)
+
     fetchAnimal(id)
       .then((a) => {
-        if (alive) setAnimal(a as any)
+        if (!alive) return
+        const gal: Media[] = ((a as any)?.galerie || (a as any)?.gallery || []) as Media[]
+        setAnimal({ ...(a as any), galerie: gal })
       })
-      .catch((e) => alive && setErr(e?.message || 'Chyba načítání detailu'))
+      .catch((e) => {
+        if (!alive) return
+        setErr(e?.message || 'Chyba načítání detailu')
+      })
       .finally(() => alive && setLoading(false))
+
     return () => {
       alive = false
     }
   }, [id])
 
-  // helper: load posts via fetch
-  const loadPosts = useCallback(
-    async (animalId: string) => {
-      const url = `${API_BASE}/api/posts/public?animalId=${encodeURIComponent(animalId)}`
-      console.log('[notify] fetch posts from', url)
-      const res = await fetch(url)
-      if (!res.ok) {
-        console.warn('[notify] posts fetch failed', res.status, res.statusText)
-        throw new Error(`Posts fetch failed: ${res.status}`)
-      }
-      const data: AnimalPost[] = await res.json()
-      console.log('[notify] received posts', data.length)
-      return data
-    },
-    []
-  )
+  const loadPosts = useCallback(async (animalId: string) => {
+    const url = `${API_BASE}/api/posts/public?animalId=${encodeURIComponent(animalId)}`
+    const res = await fetch(url)
+    if (!res.ok) throw new Error(`Posts fetch failed: ${res.status}`)
+    const data: AnimalPost[] = await res.json()
+    return data || []
+  }, [])
 
-  // initial load of posts for this animal (for notification tracking)
+  // initial posts load
   useEffect(() => {
     if (!id) return
-
     let canceled = false
-
-    const run = async () => {
+    ;(async () => {
       try {
         const data = await loadPosts(id)
         if (canceled) return
-
         setPosts(data)
-        setLastPostCount(data.length)
-        console.log('[notify] initial posts count', data.length)
+        lastPostCountRef.current = data.length
       } catch (e) {
-        if (!canceled) {
-          console.warn('[AnimalDetail] Nepodařilo se načíst příspěvky pro notifikace', e)
-        }
+        if (!canceled) console.warn('[AnimalDetail] posts load failed', e)
       }
-    }
-
-    run()
-
+    })()
     return () => {
       canceled = true
     }
   }, [id, loadPosts])
 
-  // Poll every 30 s for new posts – based on COUNT difference
+  // polling only when unlocked (or staff)
   useEffect(() => {
     if (!id) return
+    if (!isUnlocked) return
 
     const interval = setInterval(async () => {
       try {
         const data = await loadPosts(id)
         const newCount = data.length
-        console.log('[notify] poll: oldCount=', lastPostCount, 'newCount=', newCount)
+        const prevCount = lastPostCountRef.current
 
-        // First time after mount – initialize and do nothing
-        if (lastPostCount === 0) {
+        if (prevCount === 0) {
           setPosts(data)
-          setLastPostCount(newCount)
+          lastPostCountRef.current = newCount
           return
         }
 
-        // NEW POSTS detected
-        if (newCount > lastPostCount) {
-          console.log('[notify] NEW posts detected!')
+        if (newCount > prevCount) {
           setHasNewPosts(true)
           setPosts(data)
-          setLastPostCount(newCount)
+          lastPostCountRef.current = newCount
 
           const newest = data[0] || data[data.length - 1]
           triggerBrowserNotification('Nový příspěvek u vašeho adoptovaného zvířete', {
@@ -213,14 +376,13 @@ export default function AnimalDetail() {
           })
         }
       } catch (e) {
-        console.warn('[AnimalDetail] Polling příspěvků selhalo', e)
+        console.warn('[AnimalDetail] polling failed', e)
       }
     }, 30000)
 
     return () => clearInterval(interval)
-  }, [id, lastPostCount, loadPosts])
+  }, [id, isUnlocked, loadPosts])
 
-  // Prefill email for after-payment (prefer logged-in, else stashed)
   const prefillEmail = useMemo(() => {
     try {
       if (user?.email) return user.email
@@ -235,40 +397,38 @@ export default function AnimalDetail() {
     return ''
   }, [user?.email])
 
-  // On return from Stripe: confirm session → if token, go to /user, otherwise stay blurred
+  // after payment return handler (keep your finalized logic)
   useEffect(() => {
     if (!id || paid !== '1') return
 
     ;(async () => {
       try {
-        let token = ''
+        let tokenStr = ''
         let confirmedEmail = ''
 
         if (sid) {
           try {
             const conf = await confirmStripeSession(sid)
-            if (conf?.token) token = conf.token
+            if (conf?.token) tokenStr = conf.token
             if (conf?.email) confirmedEmail = conf.email
           } catch (e) {
             console.warn('[confirmStripeSession]', e)
           }
         }
 
-        // Clean URL so paid/sid do not re-trigger on refresh
+        // clean URL
         const p = new URLSearchParams(location.search)
         p.delete('paid')
         p.delete('sid')
         const clean = `${window.location.pathname}${p.toString() ? `?${p}` : ''}`
         window.history.replaceState({}, '', clean)
 
-        // If backend returned a token → auto-login via AuthContext and go straight to /user
-        if (token) {
-          login(token, 'USER')
+        if (tokenStr) {
+          login(tokenStr, 'USER')
           navigate('/user', { replace: true })
           return
         }
 
-        // Optional: show after-payment dialog so user can finish account setup
         if (confirmedEmail) {
           setAfterPayEmail(confirmedEmail)
           setShowAfterPay(true)
@@ -280,7 +440,6 @@ export default function AnimalDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, paid, sid])
 
-  // go to pre-checkout page instead of Stripe directly
   const handleAdoptNow = useCallback(() => {
     if (!id || !animal) {
       alert('Zkuste stránku znovu načíst (chybí ID zvířete).')
@@ -296,25 +455,20 @@ export default function AnimalDetail() {
 
   const onCancelAdoption = useCallback(async () => {
     if (!animal) return
-
-    const confirmed = window.confirm(
-      'Opravdu chcete zrušit adopci tohoto zvířete? Tím ukončíte pravidelnou podporu.'
-    )
+    const confirmed = window.confirm('Opravdu chcete zrušit adopci tohoto zvířete?')
     if (!confirmed) return
 
     try {
-      // 1) Tell backend to cancel the subscription
       await cancelAdoption(animal.id)
-
-      // 2) Clear local unlock for this animal → detail will be locked again
       resetAccess(animal.id)
       setForceLocked(true)
 
-      // 3) Clean up any local flags / media (optional)
       try {
         localStorage.removeItem(`adopt:${animal.id}`)
         sessionStorage.removeItem(`adopt:${animal.id}`)
       } catch {}
+
+      // stop all videos
       document.querySelectorAll('video').forEach((v) => {
         try {
           v.pause()
@@ -326,7 +480,7 @@ export default function AnimalDetail() {
       alert('Adopce byla zrušena. Děkujeme za dosavadní podporu.')
     } catch (e: any) {
       console.error('Cancel adoption failed', e)
-      alert('Nepodařilo se zrušit adopci. Zkuste to prosím znovu nebo nás kontaktujte.')
+      alert('Nepodařilo se zrušit adopci.')
     }
   }, [animal, resetAccess])
 
@@ -338,6 +492,7 @@ export default function AnimalDetail() {
       </Container>
     )
   }
+
   if (err) {
     return (
       <Container sx={{ py: 4 }}>
@@ -345,24 +500,34 @@ export default function AnimalDetail() {
       </Container>
     )
   }
+
   if (!animal || !id) return null
 
   const title = animal.jmeno || animal.name || '—'
   const age = formatAge(animal)
   const desc = animal.popis || animal.description || 'Bez popisu.'
 
-  const urls = Array.from(
-    new Set([
-      asUrl(animal.main) || undefined,
-      ...((animal.galerie || []).map((g) => asUrl(g) || undefined)),
-    ].filter(Boolean))
-  ) as string[]
+  const rawGallery: Media[] = Array.isArray((animal as any).galerie)
+    ? ((animal as any).galerie as Media[])
+    : Array.isArray((animal as any).gallery)
+      ? ((animal as any).gallery as Media[])
+      : []
 
-  const mainUrl = urls[0] || '/no-image.jpg'
-  const extraUrls = urls.slice(1)
+  const merged: Media[] = uniqByUrl([
+    ...(animal.main ? ([{ url: animal.main } as Media] as Media[]) : []),
+    ...rawGallery,
+  ])
 
-  const lockTag = isUnlocked ? 'u1' : 'l1'
-  const withBust = (u: string) => `${u}${u.includes('?') ? '&' : '?'}v=${lockTag}`
+  // MAIN: prefer animal.main, else first video, else first item
+  const firstVideo = merged.find((m) => m?.url && isVideoMedia(m))
+  const mainUrl = animal.main || firstVideo?.url || merged[0]?.url || '/no-image.jpg'
+  const mainPoster = findPosterForUrl(merged, mainUrl)
+
+  // extras should not duplicate mainUrl (strip cache compare)
+  const extras = merged.filter((m) => stripCache(m.url) !== stripCache(mainUrl))
+
+  // apply stable cache-bust per lock state
+  const mainSrc = withLockBust(mainUrl, isUnlocked)
 
   return (
     <Container sx={{ py: 4 }}>
@@ -373,7 +538,6 @@ export default function AnimalDetail() {
             {title}
           </Typography>
 
-          {/* Small counter so we SEE that polling reads posts */}
           <Chip
             size="small"
             label={posts.length}
@@ -382,7 +546,6 @@ export default function AnimalDetail() {
             sx={{ mr: 0.5 }}
           />
 
-          {/* Notification icon – blinks when hasNewPosts === true */}
           <NotificationsIcon
             className={hasNewPosts ? 'notification-icon blink' : 'notification-icon'}
             titleAccess={hasNewPosts ? 'Nový příspěvek' : 'Příspěvky'}
@@ -391,52 +554,42 @@ export default function AnimalDetail() {
               if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
               setHasNewPosts(false)
             }}
+            sx={{ cursor: 'pointer' }}
           />
         </Stack>
 
         {animal.charakteristik && (
-           <div
-          style={{
-          fontWeight: 700,
-          padding: '6px 10px',
-          borderRadius: 12,
-          display: 'inline-block',
-          background: '#e0f7fa', // světle tyrkysové pozadí
-          // ❌ remove color: 'white'
-          boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
-          maxWidth: '100%',
-          wordBreak: 'break-word',
-          }}
-         >
-           <SafeHTML>{animal.charakteristik}</SafeHTML>
-         </div>
+          <div
+            style={{
+              fontWeight: 700,
+              padding: '6px 10px',
+              borderRadius: 12,
+              display: 'inline-block',
+              background: '#e0f7fa',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
+              maxWidth: '100%',
+              wordBreak: 'break-word',
+            }}
+          >
+            <SafeHTML>{animal.charakteristik}</SafeHTML>
+          </div>
         )}
 
         <Stack direction="row" spacing={1} alignItems="center">
           <Chip label={age} />
           {!isStaff && isUnlocked && (
-            <Button
-              variant="outlined"
-              color="error"
-              size="small"
-              onClick={onCancelAdoption}
-              sx={{ ml: 1 }}
-            >
+            <Button variant="outlined" color="error" size="small" onClick={onCancelAdoption}>
               Zrušit adopci
             </Button>
           )}
         </Stack>
       </Stack>
 
-      {/* Main photo & description */}
+      {/* Main media + description */}
       <Box sx={{ mt: 3 }}>
         <Grid container spacing={2}>
           <Grid item xs={12} md={6}>
             <Box
-              component="a"
-              href={mainUrl}
-              target="_blank"
-              rel="noreferrer"
               sx={{
                 display: 'block',
                 borderRadius: 2,
@@ -445,13 +598,10 @@ export default function AnimalDetail() {
                 borderColor: 'divider',
               }}
             >
-              <img
-                src={withBust(mainUrl)}
-                alt="main"
-                style={{ width: '100%', height: 320, objectFit: 'cover' }}
-              />
+              <MediaView url={mainSrc} alt={title} height={320} poster={mainPoster} variant="detail" />
             </Box>
           </Grid>
+
           <Grid item xs={12} md={6}>
             <Typography variant="h6" sx={{ fontWeight: 800, mb: 1 }}>
               Popis
@@ -462,7 +612,6 @@ export default function AnimalDetail() {
 
             <Divider sx={{ my: 2 }} />
 
-            {/* Adoption / amount picker / go to pre-checkout */}
             <Box id="adopce">
               <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>
                 {isUnlocked ? 'Podpořit zvíře' : 'Chci adoptovat'}
@@ -476,11 +625,7 @@ export default function AnimalDetail() {
 
                   <Stack direction="row" spacing={1} sx={{ mb: 1 }}>
                     {[200, 500, 1000].map((v) => (
-                      <Button
-                        key={v}
-                        variant={amount === v ? 'contained' : 'outlined'}
-                        onClick={() => setAmount(v)}
-                      >
+                      <Button key={v} variant={amount === v ? 'contained' : 'outlined'} onClick={() => setAmount(v)}>
                         {v} Kč
                       </Button>
                     ))}
@@ -491,9 +636,7 @@ export default function AnimalDetail() {
                       type="number"
                       label="Částka (Kč)"
                       value={amount}
-                      onChange={(e) =>
-                        setAmount(Math.max(0, parseInt(e.target.value || '0', 10)))
-                      }
+                      onChange={(e) => setAmount(Math.max(0, parseInt(e.target.value || '0', 10)))}
                       inputProps={{ min: 50, step: 10 }}
                       sx={{ width: 160 }}
                     />
@@ -516,8 +659,8 @@ export default function AnimalDetail() {
         </Grid>
       </Box>
 
-      {/* Additional gallery */}
-      {extraUrls.length > 0 && (
+      {/* Gallery */}
+      {extras.length > 0 && (
         <Box sx={{ mt: 4 }}>
           <Typography variant="h6" sx={{ fontWeight: 800, mb: 1 }}>
             Další fotografie a videa
@@ -525,31 +668,24 @@ export default function AnimalDetail() {
 
           <BlurBox blurred={!isUnlocked} key={isUnlocked ? 'unlocked-extras' : 'locked-extras'}>
             <Grid container spacing={1.5}>
-              {extraUrls.map((u, i) => {
-                const src = withBust(u)
+              {extras.map((m, i) => {
+                const src = withLockBust(m.url, isUnlocked)
+                const poster = findPosterForUrl(merged, m.url)
                 return (
-                  <Grid item xs={6} sm={4} md={3} key={`${i}-${lockTag}`}>
+                  <Grid item xs={6} sm={4} md={3} key={`${m.url}-${i}`}>
                     <Box
-                      component={isUnlocked ? 'a' : 'div'}
-                      {...(isUnlocked
-                        ? { href: u, target: '_blank', rel: 'noreferrer' }
-                        : {})}
                       sx={{
-                        display: 'block',
                         width: '100%',
                         height: 160,
                         borderRadius: 2,
                         overflow: 'hidden',
                         border: '1px solid',
                         borderColor: 'divider',
+                        bgcolor: '#000',
                       }}
                       className={!isUnlocked ? 'lockedMedia' : undefined}
                     >
-                      <img
-                        src={src}
-                        alt={`media-${i + 1}`}
-                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                      />
+                      <MediaView url={src} alt={`media-${i + 1}`} height={160} poster={poster} variant="thumb" />
                     </Box>
                   </Grid>
                 )
@@ -570,9 +706,11 @@ export default function AnimalDetail() {
         <Typography variant="h6" sx={{ fontWeight: 800, mb: 1 }}>
           Příspěvky
         </Typography>
+
         <BlurBox blurred={!isUnlocked} key={isUnlocked ? 'unlocked-posts' : 'locked-posts'}>
           <PostsSection animalId={animal.id} />
         </BlurBox>
+
         {!isUnlocked && (
           <Typography variant="caption" color="text.secondary">
             Zamčeno – příspěvky se odemknou po adopci.
@@ -580,7 +718,6 @@ export default function AnimalDetail() {
         )}
       </Box>
 
-      {/* After-payment dialog (email + password) */}
       <AfterPaymentPasswordDialog
         open={showAfterPay}
         onClose={() => setShowAfterPay(false)}
@@ -593,20 +730,4 @@ export default function AnimalDetail() {
       />
     </Container>
   )
-}
-
-// Browser notification helper
-function triggerBrowserNotification(title: string, options?: NotificationOptions) {
-  if (typeof window === 'undefined') return
-  if (!('Notification' in window)) return
-
-  if (Notification.permission === 'granted') {
-    new Notification(title, options)
-  } else if (Notification.permission !== 'denied') {
-    Notification.requestPermission().then((permission) => {
-      if (permission === 'granted') {
-        new Notification(title, options)
-      }
-    })
-  }
 }

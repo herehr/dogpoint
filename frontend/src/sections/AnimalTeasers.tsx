@@ -13,21 +13,30 @@ import {
   Typography,
 } from '@mui/material'
 import { Link as RouterLink, useNavigate } from 'react-router-dom'
-import { getJSON } from '../services/api' // unified API helper
+import { getJSON } from '../services/api'
 import type { Animal } from '../types/animal'
-import SafeHTML from '../components/SafeHTML'   // 👈 FIXED PATH
+import SafeHTML from '../components/SafeHTML'
 
 const FALLBACK_IMG = '/no-image.jpg'
-const SPACE_CDN = 'https://dogpoint.fra1.digitaloceanspaces.com' // only if server returns S3 key w/o full URL
+const SPACE_CDN = 'https://dogpoint.fra1.digitaloceanspaces.com'
 
-function mediaUrl(a: Animal): string {
-  const first = a.galerie?.find((g: any) => (g.type ?? g.typ) !== 'video') || a.galerie?.[0]
-  if (!first) return FALLBACK_IMG
-  if ((first as any).url) return (first as any).url
-  if ((first as any).key) {
-    return `${SPACE_CDN.replace(/\/$/, '')}/${String((first as any).key).replace(/^\//, '')}`
-  }
-  return FALLBACK_IMG
+// ---------- helpers ----------
+
+function isVideoUrl(url?: string | null): boolean {
+  const u = String(url || '').toLowerCase()
+  return /\.(mp4|webm|mov|m4v)(\?|$)/i.test(u)
+}
+
+function guessVideoMime(url: string): string {
+  const u = (url || '').toLowerCase()
+  if (u.includes('.webm')) return 'video/webm'
+  return 'video/mp4'
+}
+
+function resolveMediaUrl(u?: string | null, k?: string | null): string {
+  if (u) return String(u)
+  if (k) return `${SPACE_CDN.replace(/\/$/, '')}/${String(k).replace(/^\//, '')}`
+  return ''
 }
 
 function displayName(a: Animal): string {
@@ -35,7 +44,6 @@ function displayName(a: Animal): string {
 }
 
 function shortLine(a: Animal): string {
-  // prefer charakteristik → else 70 chars of description
   const ch = (a as any).charakteristik || (a as any).charakteristika
   if (ch) return String(ch)
   const base = a.popis || a.description || ''
@@ -47,6 +55,37 @@ function longText(a: Animal): string {
   return a.popis || a.description || 'Zobrazit detail zvířete a podat adopci.'
 }
 
+function pickMainMedia(a: Animal): { url: string; isVideo: boolean } {
+  // 1) STAR wins
+  const main = (a as any).main ? String((a as any).main) : ''
+  if (main) return { url: main, isVideo: isVideoUrl(main) }
+
+  // 2) from gallery: prefer VIDEO
+  const gal: any[] = Array.isArray((a as any).galerie)
+    ? (a as any).galerie
+    : Array.isArray((a as any).gallery)
+      ? (a as any).gallery
+      : []
+
+  const normalized = gal
+    .map((g) => {
+      const url = resolveMediaUrl(g?.url ?? null, g?.key ?? null)
+      const typ = String(g?.type || g?.typ || (isVideoUrl(url) ? 'video' : 'image')).toLowerCase()
+      return { url, typ }
+    })
+    .filter((g) => !!g.url)
+
+  const firstVideo = normalized.find((m) => m.typ === 'video' || isVideoUrl(m.url))
+  if (firstVideo?.url) return { url: firstVideo.url, isVideo: true }
+
+  const firstAny = normalized[0]
+  if (firstAny?.url) return { url: firstAny.url, isVideo: isVideoUrl(firstAny.url) }
+
+  return { url: FALLBACK_IMG, isVideo: false }
+}
+
+// ---------- component ----------
+
 export default function AnimalTeasers() {
   const [items, setItems] = React.useState<Animal[] | null>(null)
   const [error, setError] = React.useState<string | null>(null)
@@ -56,13 +95,13 @@ export default function AnimalTeasers() {
     let alive = true
     getJSON<Animal[]>('/api/animals?limit=3&active=true')
       .then((data) => {
-        if (alive) setItems(data)
+        if (alive) setItems(data || [])
       })
       .catch((e) => {
         console.error(e)
         if (alive) {
           setError('Nepodařilo se načíst zvířata.')
-          setItems([]) // render “no items” state
+          setItems([])
         }
       })
     return () => {
@@ -103,8 +142,9 @@ export default function AnimalTeasers() {
           {!loading &&
             items?.map((a) => {
               const name = displayName(a)
-              const img = mediaUrl(a)
-              const goDetail = () => navigate(`/zvirata/${a.id}`)
+              const { url: mainUrl, isVideo } = pickMainMedia(a)
+              const detailUrl = `/zvirata/${a.id}`
+              const goDetail = () => navigate(detailUrl)
 
               return (
                 <Grid item xs={12} md={4} key={a.id}>
@@ -117,25 +157,56 @@ export default function AnimalTeasers() {
                       overflow: 'visible',
                     }}
                   >
-                    {/* Image with overlaid Name button */}
+                    {/* IMPORTANT: overflow visible here so the button can stick out */}
                     <Box
                       sx={{
                         position: 'relative',
                         height: 220,
                         overflow: 'visible',
                         cursor: 'pointer',
+                        borderTopLeftRadius: 4,
+                        borderTopRightRadius: 4,
                       }}
                       onClick={goDetail}
                     >
-                      <CardMedia
-                        component="img"
-                        height="220"
-                        image={img}
-                        alt={name}
-                        sx={{ objectFit: 'cover' }}
-                      />
+                      {/* Inner wrapper clips the actual media */}
+                      <Box
+                        sx={{
+                          height: 220,
+                          overflow: 'hidden',
+                          borderTopLeftRadius: 4,
+                          borderTopRightRadius: 4,
+                          bgcolor: '#000',
+                        }}
+                      >
+                        {isVideo ? (
+                          <video
+                            muted
+                            autoPlay
+                            loop
+                            playsInline
+                            preload="metadata"
+                            controls={false}
+                            style={{ width: '100%', height: 220, objectFit: 'cover', display: 'block' }}
+                          >
+                            <source src={mainUrl} type={guessVideoMime(mainUrl)} />
+                          </video>
+                        ) : (
+                          <CardMedia
+                            component="img"
+                            height="220"
+                            image={mainUrl || FALLBACK_IMG}
+                            alt={name}
+                            sx={{ objectFit: 'cover' }}
+                          />
+                        )}
+                      </Box>
+
                       <Button
-                        onClick={goDetail}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          goDetail()
+                        }}
                         variant="contained"
                         sx={{
                           position: 'absolute',
@@ -150,15 +221,14 @@ export default function AnimalTeasers() {
                           boxShadow: 3,
                           bgcolor: 'secondary.main',
                           '&:hover': { bgcolor: 'secondary.dark' },
+                          zIndex: 2,
                         }}
                       >
                         {name}
                       </Button>
                     </Box>
 
-                    {/* Text area */}
                     <CardContent sx={{ flexGrow: 1, pt: 5 }}>
-                      {/* charakteristik (accent colored short line, with HTML formatting) */}
                       <Box
                         sx={{
                           color: 'secondary.main',
@@ -171,7 +241,6 @@ export default function AnimalTeasers() {
                         <SafeHTML>{shortLine(a)}</SafeHTML>
                       </Box>
 
-                      {/* 8-line clamp of description, with HTML formatting */}
                       <Box
                         sx={{
                           color: 'text.secondary',
@@ -187,14 +256,8 @@ export default function AnimalTeasers() {
                       </Box>
                     </CardContent>
 
-                    {/* Adoption CTA */}
                     <CardActions sx={{ px: 2, pb: 2 }}>
-                      <Button
-                        component={RouterLink}
-                        to={`/zvirata/${a.id}`}
-                        variant="contained"
-                        fullWidth
-                      >
+                      <Button component={RouterLink} to={detailUrl} variant="contained" fullWidth>
                         Mám zájem
                       </Button>
                     </CardActions>
@@ -205,9 +268,7 @@ export default function AnimalTeasers() {
 
           {!loading && items?.length === 0 && (
             <Grid item xs={12}>
-              <Typography color="text.secondary">
-                {error || 'Žádná zvířata k zobrazení.'}
-              </Typography>
+              <Typography color="text.secondary">{error || 'Žádná zvířata k zobrazení.'}</Typography>
             </Grid>
           )}
         </Grid>

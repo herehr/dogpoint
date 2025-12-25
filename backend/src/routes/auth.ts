@@ -2,7 +2,7 @@
 import { Router, type Request, type Response } from 'express'
 import bcrypt from 'bcryptjs'
 import jwt, { type Secret, type SignOptions } from 'jsonwebtoken'
-import nodemailer from 'nodemailer'
+import { sendEmailSafe } from '../services/email'
 import { prisma } from '../prisma'
 import { Role } from '@prisma/client'
 import { linkPaidOrRecentPledgesToUser } from '../controllers/authExtra'
@@ -17,30 +17,14 @@ function signToken(user: { id: string; role: Role | string; email: string }) {
   const rawSecret = process.env.JWT_SECRET
   if (!rawSecret) throw new Error('Server misconfigured: JWT_SECRET missing')
   const options: SignOptions = { expiresIn: '7d' }
-  return jwt.sign(
-    { sub: user.id, role: user.role, email: user.email },
-    rawSecret as Secret,
-    options,
-  )
+  return jwt.sign({ sub: user.id, role: user.role, email: user.email }, rawSecret as Secret, options)
 }
 
 /* =========================================================
-   Password reset e-mail config
+   Password reset config
    ========================================================= */
 
-const EMAIL_FROM = process.env.EMAIL_FROM || 'no-reply@dog-point.cz'
-const APP_BASE_URL =
-  process.env.APP_BASE_URL || 'https://patron.dog-point.cz'
-
-const resetTransporter = nodemailer.createTransport({
-  host: process.env.EMAIL_HOST,
-  port: Number(process.env.EMAIL_PORT) || 587,
-  secure: process.env.EMAIL_SECURE === 'true',
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASSWORD,
-  },
-})
+const APP_BASE_URL = process.env.APP_BASE_URL || 'https://patron.dog-point.cz'
 
 /* =========================================================
    GET /api/auth/me
@@ -53,10 +37,7 @@ router.get('/me', async (req: Request, res: Response) => {
     const m = hdr.match(/^Bearer\s+(.+)$/i)
     if (!m) return res.status(401).json({ error: 'Unauthorized' })
 
-    const payload = jwt.verify(
-      m[1],
-      process.env.JWT_SECRET as Secret,
-    ) as any
+    const payload = jwt.verify(m[1], process.env.JWT_SECRET as Secret) as any
 
     const user = await prisma.user.findUnique({
       where: { id: String(payload.sub) },
@@ -65,10 +46,7 @@ router.get('/me', async (req: Request, res: Response) => {
     if (!user) return res.status(401).json({ error: 'Unauthorized' })
 
     const subs = await prisma.subscription.findMany({
-      where: {
-        userId: user.id,
-        status: { in: ['ACTIVE', 'PENDING'] },
-      },
+      where: { userId: user.id, status: { in: ['ACTIVE', 'PENDING'] } },
       select: { animalId: true },
     })
 
@@ -77,7 +55,7 @@ router.get('/me', async (req: Request, res: Response) => {
       animals: subs.map((s) => s.animalId),
       subscriptions: subs,
     })
-  } catch (e) {
+  } catch {
     res.status(401).json({ error: 'Unauthorized' })
   }
 })
@@ -89,33 +67,21 @@ router.get('/me', async (req: Request, res: Response) => {
 
 router.post('/login', async (req: Request, res: Response) => {
   try {
-    const { email, password } = (req.body || {}) as {
-      email?: string
-      password?: string
-    }
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Missing email or password' })
-    }
+    const { email, password } = (req.body || {}) as { email?: string; password?: string }
+    if (!email || !password) return res.status(400).json({ error: 'Missing email or password' })
 
     const user = await prisma.user.findUnique({ where: { email } })
     if (!user) return res.status(401).json({ error: 'Invalid credentials' })
-    if (!user.passwordHash) {
-      return res.status(409).json({ error: 'PASSWORD_NOT_SET' })
-    }
+    if (!user.passwordHash) return res.status(409).json({ error: 'PASSWORD_NOT_SET' })
 
     const ok = await bcrypt.compare(password, user.passwordHash)
     if (!ok) return res.status(401).json({ error: 'Invalid credentials' })
 
-    // Link pledges to subscriptions/payments for this user
     await linkPaidOrRecentPledgesToUser(user.id, user.email)
 
-    const token = signToken({
-      id: user.id,
-      role: user.role,
-      email: user.email,
-    })
+    const token = signToken({ id: user.id, role: user.role, email: user.email })
     res.json({ token, role: user.role })
-  } catch (e) {
+  } catch {
     res.status(500).json({ error: 'Internal error' })
   }
 })
@@ -125,141 +91,79 @@ router.post('/login', async (req: Request, res: Response) => {
    body: { email, password }
    ========================================================= */
 
-router.post(
-  '/set-password-first-time',
-  async (req: Request, res: Response) => {
-    try {
-      const { email, password } = (req.body || {}) as {
-        email?: string
-        password?: string
-      }
-      if (!email || !password) {
-        return res
-          .status(400)
-          .json({ error: 'Missing email or password' })
-      }
-      if (password.length < 6) {
-        return res.status(400).json({ error: 'Password too short' })
-      }
+router.post('/set-password-first-time', async (req: Request, res: Response) => {
+  try {
+    const { email, password } = (req.body || {}) as { email?: string; password?: string }
+    if (!email || !password) return res.status(400).json({ error: 'Missing email or password' })
+    if (password.length < 6) return res.status(400).json({ error: 'Password too short' })
 
-      const user = await prisma.user.findUnique({ where: { email } })
-      if (!user) return res.status(404).json({ error: 'User not found' })
-      if (user.passwordHash) {
-        return res
-          .status(409)
-          .json({ error: 'PASSWORD_ALREADY_SET' })
-      }
+    const user = await prisma.user.findUnique({ where: { email } })
+    if (!user) return res.status(404).json({ error: 'User not found' })
+    if (user.passwordHash) return res.status(409).json({ error: 'PASSWORD_ALREADY_SET' })
 
-      const passwordHash = await bcrypt.hash(password, 10)
-      const updated = await prisma.user.update({
-        where: { id: user.id },
-        data: { passwordHash },
-      })
+    const passwordHash = await bcrypt.hash(password, 10)
+    const updated = await prisma.user.update({ where: { id: user.id }, data: { passwordHash } })
 
-      // Link pledges for this user
-      await linkPaidOrRecentPledgesToUser(updated.id, updated.email)
+    await linkPaidOrRecentPledgesToUser(updated.id, updated.email)
 
-      const token = signToken({
-        id: updated.id,
-        role: updated.role,
-        email: updated.email,
-      })
-      res.json({ ok: true, token, role: updated.role })
-    } catch (e) {
-      res.status(500).json({ error: 'Internal error' })
-    }
-  },
-)
+    const token = signToken({ id: updated.id, role: updated.role, email: updated.email })
+    res.json({ ok: true, token, role: updated.role })
+  } catch {
+    res.status(500).json({ error: 'Internal error' })
+  }
+})
 
 /* =========================================================
    POST /api/auth/register-after-payment
    body: { email, password }
    ========================================================= */
 
-router.post(
-  '/register-after-payment',
-  async (req: Request, res: Response) => {
-    try {
-      const { email, password } = (req.body || {}) as {
-        email?: string
-        password?: string
-      }
-      if (!email || !password) {
-        return res
-          .status(400)
-          .json({ error: 'Missing email or password' })
-      }
-      if (password.length < 6) {
-        return res.status(400).json({ error: 'Password too short' })
-      }
+router.post('/register-after-payment', async (req: Request, res: Response) => {
+  try {
+    const { email, password } = (req.body || {}) as { email?: string; password?: string }
+    if (!email || !password) return res.status(400).json({ error: 'Missing email or password' })
+    if (password.length < 6) return res.status(400).json({ error: 'Password too short' })
 
-      const passwordHash = await bcrypt.hash(password, 10)
+    const passwordHash = await bcrypt.hash(password, 10)
 
-      let user = await prisma.user.findUnique({ where: { email } })
-      if (!user) {
-        user = await prisma.user.create({
-          data: { email, passwordHash, role: Role.USER },
-        })
-      } else if (!user.passwordHash) {
-        user = await prisma.user.update({
-          where: { id: user.id },
-          data: { passwordHash },
-        })
-      }
-
-      // Link pledges for this user
-      await linkPaidOrRecentPledgesToUser(user.id, user.email)
-
-      const token = signToken({
-        id: user.id,
-        role: user.role,
-        email: user.email,
-      })
-      res.json({ ok: true, token, role: user.role })
-    } catch (e) {
-      res.status(500).json({ error: 'Internal error' })
+    let user = await prisma.user.findUnique({ where: { email } })
+    if (!user) {
+      user = await prisma.user.create({ data: { email, passwordHash, role: Role.USER } })
+    } else if (!user.passwordHash) {
+      user = await prisma.user.update({ where: { id: user.id }, data: { passwordHash } })
     }
-  },
-)
+
+    await linkPaidOrRecentPledgesToUser(user.id, user.email)
+
+    const token = signToken({ id: user.id, role: user.role, email: user.email })
+    res.json({ ok: true, token, role: user.role })
+  } catch {
+    res.status(500).json({ error: 'Internal error' })
+  }
+})
 
 /* =========================================================
    POST /api/auth/claim-paid
    body: { email, sessionId? }
-   Ensures pledges are linked immediately after redirect.
    ========================================================= */
 
 router.post('/claim-paid', async (req: Request, res: Response) => {
   try {
-    const { email, sessionId } = (req.body || {}) as {
-      email?: string
-      sessionId?: string
-    }
+    const { email, sessionId } = (req.body || {}) as { email?: string; sessionId?: string }
     if (!email) return res.status(400).json({ error: 'Missing email' })
 
     if (sessionId) {
-      await prisma.pledge.updateMany({
-        where: { providerId: sessionId },
-        data: { email },
-      })
+      await prisma.pledge.updateMany({ where: { providerId: sessionId }, data: { email } })
     }
 
     let user = await prisma.user.findUnique({ where: { email } })
-    if (!user) {
-      user = await prisma.user.create({
-        data: { email, role: Role.USER },
-      })
-    }
+    if (!user) user = await prisma.user.create({ data: { email, role: Role.USER } })
 
-    // IMPORTANT: use canonical DB email
     await linkPaidOrRecentPledgesToUser(user.id, user.email)
 
-    const token = signToken({
-      id: user.id,
-      role: user.role,
-      email: user.email,
-    })
+    const token = signToken({ id: user.id, role: user.role, email: user.email })
     res.json({ ok: true, token, role: user.role })
-  } catch (e) {
+  } catch {
     res.status(500).json({ error: 'Internal error' })
   }
 })
@@ -267,96 +171,67 @@ router.post('/claim-paid', async (req: Request, res: Response) => {
 /* =========================================================
    POST /api/auth/debug-backfill-adoptions
    body: { email }
-   One-time helper to backfill Subscriptions from existing Pledges
-   for a given user email.
    ========================================================= */
 
-router.post(
-  '/debug-backfill-adoptions',
-  async (req: Request, res: Response) => {
-    try {
-      const { email } = (req.body || {}) as { email?: string }
-      if (!email) {
-        return res.status(400).json({ error: 'Missing email' })
-      }
+router.post('/debug-backfill-adoptions', async (req: Request, res: Response) => {
+  try {
+    const { email } = (req.body || {}) as { email?: string }
+    if (!email) return res.status(400).json({ error: 'Missing email' })
 
-      const user = await prisma.user.findUnique({ where: { email } })
-      if (!user) {
-        return res.status(404).json({ error: 'User not found' })
-      }
+    const user = await prisma.user.findUnique({ where: { email } })
+    if (!user) return res.status(404).json({ error: 'User not found' })
 
-      // Big grace window so older pledges are included (approx 1 year)
-      const result = await linkPaidOrRecentPledgesToUser(
-        user.id,
-        user.email,
-        {
-          graceMinutes: 60 * 24 * 365,
-        },
-      )
+    const result = await linkPaidOrRecentPledgesToUser(user.id, user.email, {
+      graceMinutes: 60 * 24 * 365,
+    })
 
-      return res.json({
-        ok: true,
-        processed: result.processed,
-      })
-    } catch (e) {
-      console.error('[debug-backfill-adoptions] error:', e)
-      return res.status(500).json({ error: 'Internal error' })
-    }
-  },
-)
+    res.json({ ok: true, processed: result.processed })
+  } catch (e) {
+    console.error('[debug-backfill-adoptions] error:', e)
+    res.status(500).json({ error: 'Internal error' })
+  }
+})
 
 /* =========================================================
    POST /api/auth/forgot-password
    body: { email }
-   Always responds with 200 + generic message.
+   Always responds 200 generic
    ========================================================= */
 
-router.post(
-  '/forgot-password',
-  async (req: Request, res: Response): Promise<void> => {
-    const raw = (req.body?.email ?? '') as string
-    const email = raw.trim().toLowerCase()
-    if (!email) {
-      res.status(400).json({ error: 'Email je povinný' })
+router.post('/forgot-password', async (req: Request, res: Response): Promise<void> => {
+  const raw = (req.body?.email ?? '') as string
+  const email = raw.trim().toLowerCase()
+  if (!email) {
+    res.status(400).json({ error: 'Email je povinný' })
+    return
+  }
+
+  try {
+    const user = await prisma.user.findUnique({ where: { email } })
+
+    // ✅ never reveal existence
+    if (!user) {
+      res.json({
+        ok: true,
+        message: 'Pokud u nás tento e-mail existuje, poslali jsme odkaz pro obnovu hesla.',
+      })
       return
     }
 
-    try {
-      const user = await prisma.user.findUnique({
-        where: { email },
-      })
+    const secret = process.env.JWT_SECRET as Secret | undefined
+    if (!secret) {
+      console.error('[forgot-password] Missing JWT_SECRET')
+      res.status(500).json({ error: 'Server misconfiguration' })
+      return
+    }
 
-      // Do not reveal if user exists – always 200
-      if (!user) {
-        res.json({
-          ok: true,
-          message:
-            'Pokud u nás tento e-mail existuje, poslali jsme odkaz pro obnovu hesla.',
-        })
-        return
-      }
+    const token = jwt.sign({ id: user.id, role: user.role, type: 'password-reset' }, secret, { expiresIn: '1h' })
 
-      const secret = process.env.JWT_SECRET as Secret | undefined
-      if (!secret) {
-        console.error('[forgot-password] Missing JWT_SECRET')
-        res.status(500).json({ error: 'Server misconfiguration' })
-        return
-      }
+    const link = `${APP_BASE_URL}/obnovit-heslo?token=${encodeURIComponent(token)}`
 
-      const token = jwt.sign(
-        { id: user.id, role: user.role, type: 'password-reset' },
-        secret,
-        { expiresIn: '1h' },
-      )
+    const subject = 'Dogpoint – obnova hesla k vašemu účtu'
 
-      const link = `${APP_BASE_URL}/obnovit-heslo?token=${encodeURIComponent(
-        token,
-      )}`
-
-      
-      const subject = 'Dogpoint – obnova hesla k vašemu účtu'
-
-const textBody = `Dobrý den,
+    const textBody = `Dobrý den,
 
 obdrželi jsme žádost o obnovu hesla k uživatelskému účtu registrovanému na tuto e-mailovou adresu.
 
@@ -384,7 +259,7 @@ S pozdravem
 tým DOG-POINT
 `
 
-const htmlBody = `<!doctype html>
+    const htmlBody = `<!doctype html>
 <html lang="cs">
   <head>
     <meta charset="utf-8" />
@@ -402,7 +277,6 @@ const htmlBody = `<!doctype html>
           <table role="presentation" width="600" cellspacing="0" cellpadding="0"
             style="width:600px;max-width:92vw;background:#ffffff;border-radius:14px;overflow:hidden;box-shadow:0 6px 20px rgba(0,0,0,0.06);">
             
-            <!-- Header -->
             <tr>
               <td style="padding:22px 24px;background:#fff;">
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
@@ -420,7 +294,6 @@ const htmlBody = `<!doctype html>
               </td>
             </tr>
 
-            <!-- Content -->
             <tr>
               <td style="padding:24px;">
                 <h1 style="margin:0 0 12px;font-size:20px;line-height:1.3;font-weight:800;">
@@ -436,7 +309,6 @@ const htmlBody = `<!doctype html>
                   Pokud jste o změnu hesla požádali vy, klikněte na tlačítko níže a nastavte si nové heslo:
                 </p>
 
-                <!-- Button -->
                 <table role="presentation" cellspacing="0" cellpadding="0" style="margin:0 0 18px;">
                   <tr>
                     <td align="center" bgcolor="#111111" style="border-radius:10px;">
@@ -452,12 +324,10 @@ const htmlBody = `<!doctype html>
                   Odkaz je platný <strong>1 hodinu</strong>. Pokud jste o obnovu hesla nežádali, můžete tento e-mail ignorovat.
                 </p>
 
-                <!-- Security note -->
                 <div style="margin:16px 0 0;padding:12px 14px;background:#f3f4f6;border-radius:10px;font-size:13px;line-height:1.6;color:#111;">
                   <strong>Bezpečnostní upozornění:</strong> Dogpoint po vás nikdy nebude chtít heslo e-mailem ani telefonicky.
                 </div>
 
-                <!-- Fallback link -->
                 <p style="margin:16px 0 0;font-size:12px;line-height:1.6;color:#666;">
                   Pokud tlačítko nefunguje, zkopírujte tento odkaz do prohlížeče:<br />
                   <a href="${link}" style="color:#111;word-break:break-all;">${link}</a>
@@ -465,7 +335,6 @@ const htmlBody = `<!doctype html>
               </td>
             </tr>
 
-            <!-- Footer -->
             <tr>
               <td style="padding:18px 24px;background:#fafafa;border-top:1px solid #eee;">
                 <p style="margin:0 0 10px;font-size:12px;line-height:1.5;color:#444;">
@@ -502,96 +371,75 @@ const htmlBody = `<!doctype html>
   </body>
 </html>`
 
-      try {
-        await resetTransporter.sendMail({
-          from: EMAIL_FROM,
-          to: user.email,
-          subject,
-          text: textBody,
-          html: htmlBody,
-        })
-      } catch (e: any) {
-        console.error('[forgot-password] sendMail failed', e?.message)
-        // still respond OK, to avoid leaking anything
-      }
+    // ✅ use shared mailer (never throw)
+    await sendEmailSafe({
+      to: user.email,
+      subject,
+      text: textBody,
+      html: htmlBody,
+    })
 
-      res.json({
-        ok: true,
-        message:
-          'Pokud u nás tento e-mail existuje, poslali jsme odkaz pro obnovu hesla.',
-      })
-    } catch (e: any) {
-      console.error('POST /api/auth/forgot-password error:', e)
-      res.status(500).json({ error: 'Internal server error' })
-    }
-  },
-)
+    res.json({
+      ok: true,
+      message: 'Pokud u nás tento e-mail existuje, poslali jsme odkaz pro obnovu hesla.',
+    })
+  } catch (e: any) {
+    console.error('POST /api/auth/forgot-password error:', e)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
 
 /* =========================================================
    POST /api/auth/reset-password
    body: { token, password }
    ========================================================= */
 
-router.post(
-  '/reset-password',
-  async (req: Request, res: Response): Promise<void> => {
-    const { token, password } = (req.body || {}) as {
-      token?: string
-      password?: string
-    }
+router.post('/reset-password', async (req: Request, res: Response): Promise<void> => {
+  const { token, password } = (req.body || {}) as { token?: string; password?: string }
 
-    if (!token || typeof token !== 'string') {
-      res.status(400).json({ error: 'Chybí token pro obnovu hesla.' })
+  if (!token || typeof token !== 'string') {
+    res.status(400).json({ error: 'Chybí token pro obnovu hesla.' })
+    return
+  }
+  if (!password || password.length < 8) {
+    res.status(400).json({ error: 'Heslo musí mít alespoň 8 znaků.' })
+    return
+  }
+
+  const secret = process.env.JWT_SECRET as Secret | undefined
+  if (!secret) {
+    res.status(500).json({ error: 'Server misconfiguration' })
+    return
+  }
+
+  try {
+    const decoded = jwt.verify(token, secret) as any
+
+    if (decoded?.type !== 'password-reset' || !decoded?.id) {
+      res.status(400).json({ error: 'Neplatný token pro obnovu hesla.' })
       return
     }
-    if (!password || password.length < 8) {
-      res.status(400).json({
-        error: 'Heslo musí mít alespoň 8 znaků.',
-      })
+
+    const userId = String(decoded.id)
+
+    const user = await prisma.user.findUnique({ where: { id: userId } })
+    if (!user) {
+      res.status(400).json({ error: 'Uživatel nenalezen.' })
       return
     }
 
-    const secret = process.env.JWT_SECRET as Secret | undefined
-    if (!secret) {
-      res.status(500).json({ error: 'Server misconfiguration' })
+    const hash = await bcrypt.hash(password, 10)
+    await prisma.user.update({ where: { id: userId }, data: { passwordHash: hash } })
+
+    res.json({ ok: true, message: 'Heslo bylo úspěšně změněno.' })
+  } catch (e: any) {
+    if (e?.name === 'TokenExpiredError') {
+      res.status(400).json({ error: 'Platnost odkazu již vypršela.' })
       return
     }
-
-    try {
-      const decoded = jwt.verify(token, secret) as any
-
-      if (decoded?.type !== 'password-reset' || !decoded?.id) {
-        res
-          .status(400)
-          .json({ error: 'Neplatný token pro obnovu hesla.' })
-        return
-      }
-
-      const userId = String(decoded.id)
-
-      const user = await prisma.user.findUnique({ where: { id: userId } })
-      if (!user) {
-        res.status(400).json({ error: 'Uživatel nenalezen.' })
-        return
-      }
-
-      const hash = await bcrypt.hash(password, 10)
-
-      await prisma.user.update({
-        where: { id: userId },
-        data: { passwordHash: hash },
-      })
-
-      res.json({ ok: true, message: 'Heslo bylo úspěšně změněno.' })
-    } catch (e: any) {
-      if (e?.name === 'TokenExpiredError') {
-        res.status(400).json({ error: 'Platnost odkazu již vypršela.' })
-        return
-      }
-      console.error('POST /api/auth/reset-password error:', e)
-      res.status(400).json({ error: 'Neplatný nebo poškozený token.' })
-    }
-  },
-)
+    console.error('POST /api/auth/reset-password error:', e)
+    res.status(400).json({ error: 'Neplatný nebo poškozený token.' })
+  }
+})
 
 export default router

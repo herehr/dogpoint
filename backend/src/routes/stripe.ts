@@ -6,6 +6,10 @@ import bcrypt from 'bcrypt'
 import { prisma } from '../prisma'
 import { linkPaidOrRecentPledgesToUser } from '../controllers/authExtra'
 
+// ✅ Adoption notifications + e-mail
+import { notifyAdoptionStarted } from '../services/notifyAdoptionStarted'
+import { sendEmail } from '../services/email'
+
 /* ------------------------------------------------------------------ */
 /* Stripe client                                                      */
 /* ------------------------------------------------------------------ */
@@ -24,19 +28,16 @@ const stripe = stripeSecret ? new Stripe(stripeSecret) : null
 function signToken(user: { id: string; role: string; email: string }) {
   const rawSecret = process.env.JWT_SECRET
   if (!rawSecret) throw new Error('Server misconfigured: JWT_SECRET missing')
-  return jwt.sign(
-    { sub: user.id, role: user.role, email: user.email },
-    rawSecret as Secret,
-    { expiresIn: '7d' }
-  )
+  return jwt.sign({ sub: user.id, role: user.role, email: user.email }, rawSecret as Secret, {
+    expiresIn: '7d',
+  })
 }
 
 function frontendBase(): string {
-  return (
-    process.env.PUBLIC_WEB_BASE_URL ||
-    process.env.FRONTEND_BASE_URL ||
-    'https://example.com'
-  ).replace(/\/+$/, '')
+  return (process.env.PUBLIC_WEB_BASE_URL || process.env.FRONTEND_BASE_URL || 'https://example.com').replace(
+    /\/+$/,
+    '',
+  )
 }
 
 function normalizeEmail(x?: string | null): string | undefined {
@@ -49,12 +50,9 @@ function normalizeEmail(x?: string | null): string | undefined {
  * If there exists at least one PAID payment linked to a subscription,
  * then that subscription must be ACTIVE (not PENDING).
  *
- * This repairs "Subscription=PENDING but Payment=PAID" forever.
+ * Additionally: when we activate a subscription -> send adoption notification + email.
  */
-async function activatePendingSubscriptionsFromPaidPayments(opts: {
-  userId: string
-  animalId?: string
-}) {
+async function activatePendingSubscriptionsFromPaidPayments(opts: { userId: string; animalId?: string }) {
   const { userId, animalId } = opts
 
   // Find PAID payments whose subscription is still PENDING for this user
@@ -70,27 +68,47 @@ async function activatePendingSubscriptionsFromPaidPayments(opts: {
     select: {
       createdAt: true,
       subscriptionId: true,
+      subscription: { select: { animalId: true } },
     },
     orderBy: { createdAt: 'asc' },
   })
 
-  if (!paid.length) return
+  if (!paid.length) return { activated: 0 }
 
   // For each subscription, use the first PAID payment timestamp as startedAt
-  const firstBySub = new Map<string, Date>()
+  const firstBySub = new Map<string, { startedAt: Date; animalId: string }>()
   for (const p of paid) {
-    if (!firstBySub.has(p.subscriptionId)) firstBySub.set(p.subscriptionId, p.createdAt)
+    if (!firstBySub.has(p.subscriptionId)) {
+      firstBySub.set(p.subscriptionId, { startedAt: p.createdAt, animalId: p.subscription.animalId })
+    }
   }
 
-  for (const [subscriptionId, startedAt] of firstBySub.entries()) {
+  let activated = 0
+
+  for (const [subscriptionId, meta] of firstBySub.entries()) {
+    // Activate
     await prisma.subscription.update({
       where: { id: subscriptionId },
       data: {
         status: 'ACTIVE' as any,
-        startedAt,
+        startedAt: meta.startedAt,
       },
+      select: { id: true },
     })
+    activated++
+
+    // ✅ Notify (must never break checkout/confirm)
+    try {
+      await notifyAdoptionStarted(userId, meta.animalId, {
+        sendEmail: true,
+        sendEmailFn: sendEmail,
+      })
+    } catch (e) {
+      console.warn('[notifyAdoptionStarted] failed', e)
+    }
   }
+
+  return { activated }
 }
 
 /* =========================================================================
@@ -210,7 +228,7 @@ rawRouter.post(
 
           await linkPaidOrRecentPledgesToUser(user.id, user.email)
 
-          // ✅ PERMANENT FIX: if payment(s) are PAID but subscription is still PENDING → activate it
+          // ✅ If payment(s) are PAID but subscription is still PENDING → activate + notify adoption started
           if (isPaid) {
             await activatePendingSubscriptionsFromPaidPayments({
               userId: user.id,
@@ -236,7 +254,7 @@ rawRouter.post(
       console.error('[stripe webhook] handler error:', e)
       res.status(500).send('Webhook handler error')
     }
-  }
+  },
 )
 
 /* =========================================================================
@@ -475,7 +493,7 @@ jsonRouter.get('/confirm', async (req: Request, res: Response) => {
 
       await linkPaidOrRecentPledgesToUser(user.id, user.email)
 
-      // ✅ PERMANENT FIX: activate subscription(s) that already have PAID payments
+      // ✅ Activate subscription(s) that already have PAID payments + notify adoption started
       if (isPaid) {
         await activatePendingSubscriptionsFromPaidPayments({
           userId: user.id,

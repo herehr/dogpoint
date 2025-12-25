@@ -1,57 +1,74 @@
 // backend/src/controllers/notificationController.ts
 import { Request, Response } from 'express'
-import { PrismaClient } from '@prisma/client'
-import { verifyToken, JwtPayload } from '../utils/jwt'
+import { prisma } from '../prisma'
 
-const prisma = new PrismaClient()
-
-type Req = Request & { user?: JwtPayload }
-
-// --- helper to read JWT from Authorization header ---
-function getAuth(req: Request): JwtPayload | null {
-  const h = req.headers.authorization || ''
-  const token = h.startsWith('Bearer ') ? h.slice(7) : null
-  if (!token) return null
-  return verifyToken(token)
-}
+type JwtUser = { id: string; role?: string; email?: string }
+type AuthedReq = Request & { user?: JwtUser }
 
 // Shape for notifications we create from other controllers
 export type NotifyPayload = {
   type: string
   title: string
   message: string
+  animalId?: string | null
+  postId?: string | null
 }
 
 /**
- * Helper used from other controllers (adoption, stripe, etc.)
+ * Helper used from other controllers (moderation, adoption, stripe, etc.)
  * - creates DB notification
- * - later we can extend it to also send e-mail
+ * - safe to call multiple times if you pass postId (dedupe via @@unique([userId, postId]))
  */
 export async function notifyUser(userId: string, payload: NotifyPayload) {
-  const notif = await prisma.notification.create({
+  // If postId is present, use upsert-like behavior to avoid duplicate crashes.
+  // If postId is missing, we just create a row (no dedupe possible).
+  if (payload.postId) {
+    const notif = await prisma.notification.upsert({
+      where: {
+        userId_postId: {
+          userId,
+          postId: payload.postId,
+        },
+      },
+      create: {
+        userId,
+        type: payload.type,
+        title: payload.title,
+        message: payload.message,
+        animalId: payload.animalId ?? null,
+        postId: payload.postId,
+      },
+      update: {
+        // If the same post triggers again, keep it unread and refresh content
+        title: payload.title,
+        message: payload.message,
+        animalId: payload.animalId ?? null,
+        readAt: null,
+      },
+    })
+    return notif
+  }
+
+  return prisma.notification.create({
     data: {
       userId,
       type: payload.type,
       title: payload.title,
       message: payload.message,
-      // createdAt is handled by @default(now()) in Prisma
+      animalId: payload.animalId ?? null,
+      postId: payload.postId ?? null,
     },
   })
-
-  // TODO: add e-mail sending here if needed
-  // e.g. await sendNotificationEmail(userId, payload)
-
-  return notif
 }
 
 // GET /api/notifications
 // -> { ok: true, notifications: [...] }
-export async function listMyNotifications(req: Req, res: Response) {
-  const auth = getAuth(req)
-  if (!auth) return res.status(401).json({ error: 'Unauthorized' })
+export async function listMyNotifications(req: AuthedReq, res: Response) {
+  const userId = req.user?.id
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' })
 
   const notifications = await prisma.notification.findMany({
-    where: { userId: auth.id },
+    where: { userId },
     orderBy: { createdAt: 'desc' },
   })
 
@@ -59,21 +76,22 @@ export async function listMyNotifications(req: Req, res: Response) {
 }
 
 // POST /api/notifications/:id/read
-// For now: mark as handled by DELETING the notification
-export async function markNotificationRead(req: Req, res: Response) {
-  const auth = getAuth(req)
-  if (!auth) return res.status(401).json({ error: 'Unauthorized' })
+// Mark as read (do NOT delete)
+export async function markNotificationRead(req: AuthedReq, res: Response) {
+  const userId = req.user?.id
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' })
 
   const { id } = req.params
   if (!id) return res.status(400).json({ error: 'notification id required' })
 
-  const result = await prisma.notification.deleteMany({
-    where: { id, userId: auth.id },
+  const updated = await prisma.notification.updateMany({
+    where: { id, userId, readAt: null },
+    data: { readAt: new Date() },
   })
 
-  if (result.count === 0) {
+  if (updated.count === 0) {
     return res.status(404).json({ error: 'Notifikace nenalezena' })
   }
 
-  return res.json({ ok: true, deletedCount: result.count })
+  return res.json({ ok: true })
 }

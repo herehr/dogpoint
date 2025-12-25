@@ -1,50 +1,54 @@
-/*
-  Warnings:
+/* 20251205114604_content_workflow — patched to be idempotent on Postgres */
 
-  - Added the required column `updatedAt` to the `Post` table without a default value. This is not possible if the table is not empty.
+-- 1) Enum type: only create if missing
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'ContentStatus') THEN
+    CREATE TYPE "public"."ContentStatus" AS ENUM ('DRAFT', 'PENDING_REVIEW', 'PUBLISHED', 'REJECTED');
+  END IF;
+END $$;
 
-*/
--- CreateEnum
-CREATE TYPE "public"."ContentStatus" AS ENUM ('DRAFT', 'PENDING_REVIEW', 'PUBLISHED', 'REJECTED');
+-- 2) Add columns safely (split into IF NOT EXISTS per column)
+ALTER TABLE "public"."Animal" ADD COLUMN IF NOT EXISTS "status" "public"."ContentStatus" NOT NULL DEFAULT 'PENDING_REVIEW';
+ALTER TABLE "public"."Animal" ADD COLUMN IF NOT EXISTS "createdById" TEXT;
+ALTER TABLE "public"."Animal" ADD COLUMN IF NOT EXISTS "approvedById" TEXT;
 
--- DropIndex
-DROP INDEX "public"."Payment_subscriptionId_providerRef_key";
+ALTER TABLE "public"."Post" ADD COLUMN IF NOT EXISTS "status" "public"."ContentStatus" NOT NULL DEFAULT 'PENDING_REVIEW';
+ALTER TABLE "public"."Post" ADD COLUMN IF NOT EXISTS "createdById" TEXT;
+ALTER TABLE "public"."Post" ADD COLUMN IF NOT EXISTS "approvedById" TEXT;
 
--- AlterTable
-ALTER TABLE "public"."Animal" ADD COLUMN     "approvedById" TEXT,
-ADD COLUMN     "createdById" TEXT,
-ADD COLUMN     "status" "public"."ContentStatus" NOT NULL DEFAULT 'PUBLISHED';
+-- 3) Foreign keys: create only if missing (Postgres has no IF NOT EXISTS for constraints)
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'Animal_createdById_fkey') THEN
+    ALTER TABLE "public"."Animal"
+      ADD CONSTRAINT "Animal_createdById_fkey"
+      FOREIGN KEY ("createdById") REFERENCES "public"."User"("id")
+      ON DELETE SET NULL ON UPDATE CASCADE;
+  END IF;
 
--- AlterTable
-ALTER TABLE "public"."Post" ADD COLUMN     "approvedById" TEXT,
-ADD COLUMN     "createdById" TEXT,
-ADD COLUMN     "status" "public"."ContentStatus" NOT NULL DEFAULT 'PUBLISHED',
-ADD COLUMN     "updatedAt" TIMESTAMP(3) NOT NULL;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'Animal_approvedById_fkey') THEN
+    ALTER TABLE "public"."Animal"
+      ADD CONSTRAINT "Animal_approvedById_fkey"
+      FOREIGN KEY ("approvedById") REFERENCES "public"."User"("id")
+      ON DELETE SET NULL ON UPDATE CASCADE;
+  END IF;
 
--- CreateTable
-CREATE TABLE "public"."Notification" (
-    "id" TEXT NOT NULL,
-    "userId" TEXT NOT NULL,
-    "type" TEXT NOT NULL,
-    "title" TEXT NOT NULL,
-    "message" TEXT NOT NULL,
-    "readAt" TIMESTAMP(3),
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'Post_createdById_fkey') THEN
+    ALTER TABLE "public"."Post"
+      ADD CONSTRAINT "Post_createdById_fkey"
+      FOREIGN KEY ("createdById") REFERENCES "public"."User"("id")
+      ON DELETE SET NULL ON UPDATE CASCADE;
+  END IF;
 
-    CONSTRAINT "Notification_pkey" PRIMARY KEY ("id")
-);
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'Post_approvedById_fkey') THEN
+    ALTER TABLE "public"."Post"
+      ADD CONSTRAINT "Post_approvedById_fkey"
+      FOREIGN KEY ("approvedById") REFERENCES "public"."User"("id")
+      ON DELETE SET NULL ON UPDATE CASCADE;
+  END IF;
+END $$;
 
--- AddForeignKey
-ALTER TABLE "public"."Animal" ADD CONSTRAINT "Animal_createdById_fkey" FOREIGN KEY ("createdById") REFERENCES "public"."User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "public"."Animal" ADD CONSTRAINT "Animal_approvedById_fkey" FOREIGN KEY ("approvedById") REFERENCES "public"."User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "public"."Post" ADD CONSTRAINT "Post_createdById_fkey" FOREIGN KEY ("createdById") REFERENCES "public"."User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "public"."Post" ADD CONSTRAINT "Post_approvedById_fkey" FOREIGN KEY ("approvedById") REFERENCES "public"."User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "public"."Notification" ADD CONSTRAINT "Notification_userId_fkey" FOREIGN KEY ("userId") REFERENCES "public"."User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+-- 4) Helpful indexes (safe)
+CREATE INDEX IF NOT EXISTS "Animal_status_idx" ON "public"."Animal" ("status");
+CREATE INDEX IF NOT EXISTS "Post_status_idx"   ON "public"."Post" ("status");

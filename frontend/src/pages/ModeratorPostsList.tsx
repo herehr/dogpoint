@@ -17,7 +17,10 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api'
 type PostMedia = {
   id: string
   url: string
-  typ: string
+  typ?: string
+  type?: string
+  poster?: string | null
+  posterUrl?: string | null
 }
 
 type Animal = {
@@ -37,6 +40,18 @@ type PendingPost = {
   media?: PostMedia[]
 }
 
+function isVideoMedia(m: PostMedia): boolean {
+  const t = String(m.typ || m.type || '').toLowerCase()
+  if (t.includes('video')) return true
+  return /\.(mp4|webm|m4v|mov)(\?|$)/i.test(m.url || '')
+}
+
+function guessVideoMime(url: string): string {
+  const u = (url || '').toLowerCase()
+  if (u.includes('.webm')) return 'video/webm'
+  return 'video/mp4'
+}
+
 export default function ModeratorPostsList() {
   const [params] = useSearchParams()
   const tab = (params.get('tab') || 'pending').toLowerCase()
@@ -46,10 +61,7 @@ export default function ModeratorPostsList() {
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
 
-  // For now we only implement the pending queue,
-  // because backend currently has /api/posts/pending ready.
   const isPendingTab = tab === 'pending'
-
   const token = useMemo(() => sessionStorage.getItem('moderatorToken'), [])
 
   const load = useCallback(async () => {
@@ -62,7 +74,6 @@ export default function ModeratorPostsList() {
     }
 
     if (!isPendingTab) {
-      // until we add backend endpoints for approved/rejected
       setItems([])
       return
     }
@@ -236,14 +247,23 @@ export default function ModeratorPostsList() {
                 <>
                   <Divider sx={{ my: 2 }} />
                   <Typography sx={{ fontWeight: 800, mb: 1 }}>Média</Typography>
+
                   <Stack spacing={1}>
                     {p.media.map((m) => {
-                      const isVideo = (m.typ || '').toLowerCase().includes('video')
+                      const isVideo = isVideoMedia(m)
+                      const poster = m.posterUrl || m.poster || undefined
+
                       return (
                         <Box key={m.id}>
                           {isVideo ? (
-                            <video controls style={{ width: '100%' }}>
-                              <source src={m.url} />
+                            <video
+                              controls
+                              preload="metadata"
+                              playsInline
+                              poster={poster}
+                              style={{ width: '100%', borderRadius: 8 }}
+                            >
+                              <source src={m.url} type={guessVideoMime(m.url)} />
                             </video>
                           ) : (
                             <img src={m.url} alt="" style={{ width: '100%', borderRadius: 8 }} />

@@ -1,6 +1,8 @@
 // backend/src/controllers/authExtra.ts
 import { prisma } from '../prisma'
 import { SubscriptionStatus } from '@prisma/client'
+import { notifyAdoptionStarted } from '../services/notifyAdoptionStarted'
+import { sendEmail } from '../services/email'
 
 function appendNote(note: string | null, msg: string): string {
   const base = note?.trim() ? `${note.trim()}\n` : ''
@@ -16,6 +18,17 @@ function hasPaymentCurrency(): boolean {
 function normalizeEmail(e: string | null | undefined): string | null {
   const s = (e ?? '').trim().toLowerCase()
   return s || null
+}
+
+async function safeNotifyAdoptionStarted(userId: string, animalId: string) {
+  try {
+    await notifyAdoptionStarted(userId, animalId, {
+      sendEmail: true,
+      sendEmailFn: sendEmail,
+    })
+  } catch (e) {
+    console.warn('[notifyAdoptionStarted] failed', e)
+  }
 }
 
 /**
@@ -34,10 +47,7 @@ export async function linkPaidOrRecentPledgesToUser(
   const graceSince = new Date(now.getTime() - graceMinutes * 60_000)
 
   const normEmail = normalizeEmail(email)
-  if (!normEmail) {
-    // Nothing sensible to do without an email
-    return { processed: 0 }
-  }
+  if (!normEmail) return { processed: 0 }
 
   // 1) Load relevant pledges (PAID or recent PENDING) for this email
   const pledges = await prisma.pledge.findMany({
@@ -63,6 +73,7 @@ export async function linkPaidOrRecentPledgesToUser(
       })
 
       const monthlyAmount = pledge.amount ?? 0
+      const pledgeIsPaid = pledge.status === 'PAID'
 
       if (!sub) {
         // no subscription yet -> create one
@@ -73,11 +84,16 @@ export async function linkPaidOrRecentPledgesToUser(
               animalId: pledge.animalId,
               monthlyAmount: monthlyAmount as any,
               provider: 'STRIPE' as any,
-              status: pledge.status === 'PAID' ? ('ACTIVE' as any) : ('PENDING' as any),
+              status: pledgeIsPaid ? ('ACTIVE' as any) : ('PENDING' as any),
               startedAt: new Date() as any,
-              interval: pledge.interval as any,
+              // interval removed (Subscription model has no interval field)
             } as any,
           })
+
+          // ✅ If we created an ACTIVE subscription from a PAID pledge → notify now
+          if (pledgeIsPaid) {
+            await safeNotifyAdoptionStarted(userId, pledge.animalId)
+          }
         } catch (err) {
           console.error(
             '[linkPaidOrRecentPledgesToUser] create subscription with pledge info failed, retrying minimal:',
@@ -93,21 +109,26 @@ export async function linkPaidOrRecentPledgesToUser(
               provider: 'STRIPE' as any, // required
             } as any,
           })
+
+          // If fallback happened and pledge is PAID, we still want the notification.
+          if (pledgeIsPaid) {
+            await safeNotifyAdoptionStarted(userId, pledge.animalId)
+          }
         }
-      } else if (pledge.status === 'PAID' && (sub as any).status && (sub as any).status !== 'ACTIVE') {
+      } else if (pledgeIsPaid && (sub as any).status && (sub as any).status !== 'ACTIVE') {
         // 3) If we already have a subscription but payment is now PAID → set ACTIVE
         //    BUT: never re-activate a user-canceled subscription.
         if ((sub as any).status === SubscriptionStatus.CANCELED || (sub as any).status === 'CANCELED') {
-          console.log(
-            '[linkPaidOrRecentPledgesToUser] skip re-activating canceled subscription',
-            sub.id
-          )
+          console.log('[linkPaidOrRecentPledgesToUser] skip re-activating canceled subscription', sub.id)
         } else {
           try {
             sub = await prisma.subscription.update({
               where: { id: sub.id },
               data: { status: 'ACTIVE' as any },
             })
+
+            // ✅ We activated it now → notify
+            await safeNotifyAdoptionStarted(userId, pledge.animalId)
           } catch (err) {
             console.error('[linkPaidOrRecentPledgesToUser] update subscription status failed:', err)
           }
@@ -115,7 +136,7 @@ export async function linkPaidOrRecentPledgesToUser(
       }
 
       // 4) For PAID pledges, create a Payment row (idempotent per providerRef)
-      if (pledge.status === 'PAID') {
+      if (pledgeIsPaid) {
         const providerRef = pledge.providerId ?? `pledge:${pledge.id}`
 
         try {
@@ -155,7 +176,6 @@ export async function linkPaidOrRecentPledgesToUser(
       } else {
         // PENDING within grace period
         try {
-          // Only move to PENDING if it's not ACTIVE and not CANCELED
           const currentStatus = (sub as any).status
           if (
             currentStatus &&
