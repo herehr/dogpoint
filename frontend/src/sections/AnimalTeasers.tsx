@@ -22,11 +22,6 @@ const SPACE_CDN = 'https://dogpoint.fra1.digitaloceanspaces.com'
 
 // ---------- helpers ----------
 
-function stripCache(url?: string | null): string {
-  if (!url) return ''
-  return url.split('?')[0]
-}
-
 function isVideoUrl(url?: string | null): boolean {
   const u = String(url || '').toLowerCase()
   return /\.(mp4|webm|mov|m4v)(\?|$)/i.test(u)
@@ -66,13 +61,17 @@ function pickMainMedia(a: Animal): { url: string; isVideo: boolean } {
   if (main) return { url: main, isVideo: isVideoUrl(main) }
 
   // 2) from gallery: prefer VIDEO
-  const gal: any[] = Array.isArray((a as any).galerie) ? (a as any).galerie : Array.isArray((a as any).gallery) ? (a as any).gallery : []
+  const gal: any[] = Array.isArray((a as any).galerie)
+    ? (a as any).galerie
+    : Array.isArray((a as any).gallery)
+      ? (a as any).gallery
+      : []
 
   const normalized = gal
     .map((g) => {
       const url = resolveMediaUrl(g?.url ?? null, g?.key ?? null)
       const typ = String(g?.type || g?.typ || (isVideoUrl(url) ? 'video' : 'image')).toLowerCase()
-      return { url, typ, poster: g?.posterUrl || g?.poster || null }
+      return { url, typ }
     })
     .filter((g) => !!g.url)
 
@@ -158,39 +157,50 @@ export default function AnimalTeasers() {
                       overflow: 'visible',
                     }}
                   >
+                    {/* IMPORTANT: overflow visible here so the button can stick out */}
                     <Box
                       sx={{
                         position: 'relative',
                         height: 220,
-                        overflow: 'hidden',
+                        overflow: 'visible',
                         cursor: 'pointer',
                         borderTopLeftRadius: 4,
                         borderTopRightRadius: 4,
-                        bgcolor: '#000',
                       }}
                       onClick={goDetail}
                     >
-                      {isVideo ? (
-                        <video
-                          muted
-                          autoPlay
-                          loop
-                          playsInline
-                          preload="metadata"
-                          controls={false}
-                          style={{ width: '100%', height: 220, objectFit: 'cover', display: 'block' }}
-                        >
-                          <source src={mainUrl} type={guessVideoMime(mainUrl)} />
-                        </video>
-                      ) : (
-                        <CardMedia
-                          component="img"
-                          height="220"
-                          image={mainUrl || FALLBACK_IMG}
-                          alt={name}
-                          sx={{ objectFit: 'cover' }}
-                        />
-                      )}
+                      {/* Inner wrapper clips the actual media */}
+                      <Box
+                        sx={{
+                          height: 220,
+                          overflow: 'hidden',
+                          borderTopLeftRadius: 4,
+                          borderTopRightRadius: 4,
+                          bgcolor: '#000',
+                        }}
+                      >
+                        {isVideo ? (
+                          <video
+                            muted
+                            autoPlay
+                            loop
+                            playsInline
+                            preload="metadata"
+                            controls={false}
+                            style={{ width: '100%', height: 220, objectFit: 'cover', display: 'block' }}
+                          >
+                            <source src={mainUrl} type={guessVideoMime(mainUrl)} />
+                          </video>
+                        ) : (
+                          <CardMedia
+                            component="img"
+                            height="220"
+                            image={mainUrl || FALLBACK_IMG}
+                            alt={name}
+                            sx={{ objectFit: 'cover' }}
+                          />
+                        )}
+                      </Box>
 
                       <Button
                         onClick={(e) => {
@@ -211,6 +221,7 @@ export default function AnimalTeasers() {
                           boxShadow: 3,
                           bgcolor: 'secondary.main',
                           '&:hover': { bgcolor: 'secondary.dark' },
+                          zIndex: 2,
                         }}
                       >
                         {name}
