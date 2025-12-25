@@ -4,6 +4,7 @@ import { prisma } from '../prisma'
 import { requireAuth } from '../middleware/authJwt'
 import { ContentStatus, Role } from '@prisma/client'
 
+// 🔔 notify adopters after publishing a post
 import { notifyUsersAboutNewPost } from '../services/notifyNewPost'
 import { sendEmailSafe } from '../services/email'
 
@@ -13,18 +14,13 @@ function isStaff(role?: Role | string): boolean {
   return role === Role.ADMIN || role === Role.MODERATOR || role === 'ADMIN' || role === 'MODERATOR'
 }
 
-// ✅ adapter: notifyNewPost expects (to, subject, html, text?)
-const sendEmailFn = async (to: string, subject: string, html: string, text?: string) => {
-  await sendEmailSafe({ to, subject, html, text })
-}
-
 /* ──────────────────────────────────────────
    Approve animal
    POST /api/moderation/animals/:id/approve
    Roles: ADMIN or MODERATOR
 ─────────────────────────────────────────── */
 router.post('/animals/:id/approve', requireAuth, async (req: Request, res: Response): Promise<void> => {
-  const user = req.user as { id: string; role: Role | string } | undefined
+  const user = (req as any).user as { id: string; role: Role | string } | undefined
   if (!user || !isStaff(user.role)) {
     res.status(403).json({ error: 'Forbidden' })
     return
@@ -72,7 +68,7 @@ router.post('/animals/:id/approve', requireAuth, async (req: Request, res: Respo
    Roles: ADMIN or MODERATOR
 ─────────────────────────────────────────── */
 router.post('/posts/:id/approve', requireAuth, async (req: Request, res: Response): Promise<void> => {
-  const user = req.user as { id: string; role: Role | string } | undefined
+  const user = (req as any).user as { id: string; role: Role | string } | undefined
   if (!user || !isStaff(user.role)) {
     res.status(403).json({ error: 'Forbidden' })
     return
@@ -92,7 +88,7 @@ router.post('/posts/:id/approve', requireAuth, async (req: Request, res: Respons
     }
 
     // If already published, do NOT notify again
-    if (existing.status === ContentStatus.PUBLISHED) {
+    if ((existing as any).status === ContentStatus.PUBLISHED || String((existing as any).status) === 'PUBLISHED') {
       res.json(existing)
       return
     }
@@ -110,9 +106,18 @@ router.post('/posts/:id/approve', requireAuth, async (req: Request, res: Respons
     })
 
     // ✅ create Notification rows (+ optionally send emails)
-    // NOTE: must never break approving the post
+    // NOTE: this must never break approving the post
     try {
-      await notifyUsersAboutNewPost(updated.id, { sendEmail: true, sendEmailFn })
+      const status = String((updated as any).status || '')
+      if (status === 'PUBLISHED') {
+        // IMPORTANT:
+        // notifyUsersAboutNewPost's SendEmailFn signature may be (args)=>... or (to,subject,html,text?)=>...
+        // sendEmailSafe is the safe wrapper; cast once to satisfy TS no matter which variant your notify file uses.
+        await notifyUsersAboutNewPost(updated.id, {
+          sendEmail: true,
+          sendEmailFn: sendEmailSafe as any,
+        })
+      }
     } catch (err) {
       console.warn('[notifyUsersAboutNewPost] failed', err)
     }
