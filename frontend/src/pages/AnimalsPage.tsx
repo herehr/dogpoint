@@ -6,16 +6,15 @@ import {
   Card,
   CardActions,
   CardContent,
-  CardMedia,
   Container,
   Grid,
   Skeleton,
   Stack,
   Typography,
 } from '@mui/material'
-import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline'
 import { Link as RouterLink, useNavigate } from 'react-router-dom'
 import { getAnimals } from '../api'
+import MainMedia from '../components/MainMedia'
 
 type Media = {
   url?: string
@@ -52,12 +51,6 @@ function isVideoUrl(url?: string | null): boolean {
   return /\.(mp4|webm|mov|m4v)(\?|$)/i.test(u)
 }
 
-function guessVideoMime(url: string): string {
-  const u = (url || '').toLowerCase()
-  if (u.includes('.webm')) return 'video/webm'
-  return 'video/mp4'
-}
-
 function displayName(a: Animal): string {
   return String(a.jmeno || a.name || 'Zvíře')
 }
@@ -71,9 +64,27 @@ function mediaUrl(m?: Media | null): string {
   return String(m?.url || m?.key || '')
 }
 
-function firstImageFromGallery(gal: Media[]): string | null {
-  const img = gal.find((m) => !isVideoUrl(mediaUrl(m)))
-  return img ? mediaUrl(img) : null
+/**
+ * ✅ Choose main media:
+ * 1) a.main ALWAYS wins (image or video)
+ * 2) else: first VIDEO in gallery
+ * 3) else: first IMAGE in gallery
+ * 4) else: first gallery item
+ * 5) else: fallback
+ */
+function pickMainMedia(a: Animal, gal: Media[]): string {
+  if (a.main) return a.main
+
+  const firstVideo = gal.find((m) => isVideoUrl(mediaUrl(m)))
+  if (firstVideo) return mediaUrl(firstVideo)
+
+  const firstImage = gal.find((m) => !isVideoUrl(mediaUrl(m)) && mediaUrl(m))
+  if (firstImage) return mediaUrl(firstImage)
+
+  const any = gal.find((m) => mediaUrl(m))
+  if (any) return mediaUrl(any)
+
+  return FALLBACK_IMG
 }
 
 function shortLine(a: Animal): string {
@@ -162,16 +173,14 @@ export default function AnimalsPage() {
               const name = displayName(a).toUpperCase()
               const gal = pickGallery(a)
 
-              // ✅ MAIN always wins (image OR video)
-              const main = a.main ? a.main : firstImageFromGallery(gal) || mediaUrl(gal[0]) || FALLBACK_IMG
-              const mainIsVideo = isVideoUrl(main)
-
-              // ✅ poster lookup works for url OR key
-              const mainEntry = gal.find((m) => stripCache(mediaUrl(m)) === stripCache(main))
-              const poster = mainEntry?.posterUrl || mainEntry?.poster || undefined
-
+              const main = pickMainMedia(a, gal)
               const detailUrl = `/zvirata/${encodeURIComponent(a.id)}`
               const goDetail = () => navigate(detailUrl)
+
+              // optional: if main is a gallery url with cache buster, keep it as-is;
+              // if it’s matched by clean URL, also fine.
+              const _mainEntry = gal.find((m) => stripCache(mediaUrl(m)) === stripCache(main))
+              void _mainEntry
 
               return (
                 <Grid item xs={12} sm={6} md={4} key={a.id}>
@@ -192,47 +201,12 @@ export default function AnimalsPage() {
                         cursor: 'pointer',
                         borderTopLeftRadius: 4,
                         borderTopRightRadius: 4,
+                        bgcolor: '#000',
                       }}
                       onClick={goDetail}
                     >
-                      {mainIsVideo ? (
-                        <Box sx={{ position: 'relative', width: '100%', height: 220, bgcolor: '#000' }}>
-                          {/* NOTE: no Date.now cache-bust here (public listing) */}
-                          <video
-                            muted
-                            playsInline
-                            preload="metadata"
-                            poster={poster}
-                            style={{ width: '100%', height: 220, objectFit: 'cover', display: 'block' }}
-                          >
-                            <source src={main} type={guessVideoMime(main)} />
-                          </video>
-
-                          <Box
-                            sx={{
-                              position: 'absolute',
-                              inset: 0,
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              pointerEvents: 'none',
-                              background: poster
-                                ? 'none'
-                                : 'linear-gradient(180deg, rgba(0,0,0,0.10), rgba(0,0,0,0.25))',
-                            }}
-                          >
-                            <PlayCircleOutlineIcon sx={{ fontSize: 56, color: 'rgba(255,255,255,0.92)' }} />
-                          </Box>
-                        </Box>
-                      ) : (
-                        <CardMedia
-                          component="img"
-                          height="220"
-                          image={main}
-                          alt={name}
-                          sx={{ objectFit: 'cover' }}
-                        />
-                      )}
+                      {/* ✅ always autoplay videos (no overlay, no poster, no preview state) */}
+                      <MainMedia url={main} alt={name} height={220} rounded={0} variant="card" mode="cover" />
 
                       <Button
                         onClick={(e) => {

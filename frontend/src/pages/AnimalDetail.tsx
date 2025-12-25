@@ -516,8 +516,9 @@ export default function AnimalDetail() {
   ])
 
   // ✅ MAIN picks animal.main if exists, else first gallery item (video allowed)
-  const mainUrl = animal.main || merged[0]?.url || '/no-image.jpg'
-  const mainPoster = findPosterForUrl(merged, mainUrl)
+  const firstVideo = merged.find((m) => m?.url && isVideoMedia(m))
+const mainUrl = animal.main || firstVideo?.url || merged[0]?.url || '/no-image.jpg'
+const mainPoster = findPosterForUrl(merged, mainUrl)
 
   // ✅ extras should not duplicate mainUrl (strip cache compare)
   const extras = merged.filter((m) => stripCache(m.url) !== stripCache(mainUrl))

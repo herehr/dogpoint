@@ -1,3 +1,4 @@
+// frontend/src/components/MainMedia.tsx
 import React from 'react'
 import { Box } from '@mui/material'
 
@@ -16,10 +17,13 @@ type Props = {
   alt?: string
   height?: number
   rounded?: number
-  poster?: string
   mode?: 'cover' | 'contain'
-  // card mode = autoplay muted loop (no controls)
+  /**
+   * card = small autoplay loop
+   * detail = autoplay (no preview) + optionally controls (but default off)
+   */
   variant?: 'card' | 'detail'
+  controls?: boolean
 }
 
 export default function MainMedia({
@@ -27,9 +31,9 @@ export default function MainMedia({
   alt = '',
   height = 220,
   rounded = 12,
-  poster,
   mode = 'cover',
   variant = 'card',
+  controls = false,
 }: Props) {
   const isVideo = isVideoUrl(url)
 
@@ -50,8 +54,7 @@ export default function MainMedia({
     )
   }
 
-  // Video rendering
-  const cardMode = variant === 'card'
+  const isCard = variant === 'card'
 
   return (
     <Box
@@ -64,15 +67,18 @@ export default function MainMedia({
       }}
     >
       <video
-        // Card previews: silent autoplay loop
-        muted={cardMode}
-        autoPlay={cardMode}
-        loop={cardMode}
+        // ✅ must be muted for autoplay to work reliably on mobile browsers
+        muted
+        // ✅ always autoplay so there is no "preview" state
+        autoPlay
         playsInline
-        // Detail: user-friendly controls
-        controls={!cardMode}
-        preload="metadata"
-        poster={poster}
+        // cards loop forever; detail can loop too (feels nicer for hero videos)
+        loop={isCard || variant === 'detail'}
+        // no preview / no poster
+        poster={undefined}
+        // no controls by default (you can pass controls={true} if you want)
+        controls={controls}
+        preload="auto"
         style={{
           width: '100%',
           height: '100%',
