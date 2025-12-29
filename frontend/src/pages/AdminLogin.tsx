@@ -4,6 +4,9 @@ import { Container, Paper, Stack, Typography, TextField, Button, Alert } from '@
 import { useNavigate } from 'react-router-dom'
 import { loginAdmin as login, setPasswordFirstTime } from '../api'
 
+// ✅ add this import (from your services/api.ts)
+import { setAdminToken } from '../services/api'
+
 export default function AdminLogin() {
   const nav = useNavigate()
   const [email, setEmail] = useState('')
@@ -18,15 +21,15 @@ export default function AdminLogin() {
     setErr(null)
     setSaving(true)
     try {
-      await login(email.trim(), password)
-      // where to go:
-      // - Admins to /admin
-      // - Moderators to /moderator
-      // - Users to a future /user dashboard
-      // We don’t know the role here; redirect to home for now.
-      nav('/', { replace: true })
+      // ✅ IMPORTANT: capture response
+      const res = await login(email.trim(), password)
+
+      // ✅ store as adminToken (and sync accessToken)
+      if (res?.token) setAdminToken(res.token)
+
+      // ✅ go to admin area
+      nav('/admin', { replace: true })
     } catch (e: any) {
-      // If backend returns 409 with PASSWORD_NOT_SET, flip UI to “set password” mode
       const msg = String(e?.message || '')
       if (msg.includes('PASSWORD_NOT_SET') || msg.includes('409')) {
         setMode('setpw')
@@ -49,8 +52,14 @@ export default function AdminLogin() {
         setSaving(false)
         return
       }
-      await setPasswordFirstTime(email.trim(), newPassword)
-      nav('/', { replace: true })
+
+      // This endpoint usually returns a token too
+      const res = await setPasswordFirstTime(email.trim(), newPassword)
+
+      // ✅ store as admin token if present
+      if ((res as any)?.token) setAdminToken((res as any).token)
+
+      nav('/admin', { replace: true })
     } catch (e: any) {
       setErr('Nastavení hesla selhalo.')
     } finally {

@@ -17,9 +17,36 @@ export function apiUrl(path = ''): string {
 
 const tokenKey = 'accessToken'
 
+/**
+ * ✅ IMPORTANT:
+ * We keep accessToken as the “generic” token AND also store role-specific keys.
+ * Admin pages must send adminToken, moderator pages can send moderatorToken.
+ */
+
+/** generic (kept for compatibility) */
 export function setToken(token: string) {
   try {
     sessionStorage.setItem(tokenKey, token)
+  } catch {}
+}
+
+/** ✅ NEW: store ADMIN token (and keep accessToken in sync) */
+export function setAdminToken(token: string) {
+  try {
+    sessionStorage.setItem('adminToken', token)
+    sessionStorage.setItem(tokenKey, token) // keep generic in sync
+    // avoid sending wrong role token later
+    sessionStorage.removeItem('moderatorToken')
+  } catch {}
+}
+
+/** ✅ NEW: store MODERATOR token (and keep accessToken in sync) */
+export function setModeratorToken(token: string) {
+  try {
+    sessionStorage.setItem('moderatorToken', token)
+    sessionStorage.setItem(tokenKey, token) // keep generic in sync
+    // avoid sending wrong role token later
+    sessionStorage.removeItem('adminToken')
   } catch {}
 }
 
@@ -31,11 +58,11 @@ export function setToken(token: string) {
  */
 export function getToken(): string | null {
   try {
-    // ✅ CHANGED: adminToken first
+    // ✅ admin first
     const admin = sessionStorage.getItem('adminToken')
     if (admin) return admin
 
-    // then current default key
+    // then generic
     const t = sessionStorage.getItem(tokenKey)
     if (t) return t
 
@@ -53,12 +80,22 @@ export function getToken(): string | null {
 
 export function clearToken() {
   try {
-    sessionStorage.removeItem(tokenKey)
+    // ✅ remove ALL possible keys
+    sessionStorage.removeItem(tokenKey) // accessToken
+    sessionStorage.removeItem('adminToken')
+    sessionStorage.removeItem('moderatorToken')
+    sessionStorage.removeItem('token')
+    localStorage.removeItem('dp:token')
+    localStorage.removeItem('token')
   } catch {}
 }
 
 // Back-compat aliases
-export { setToken as setAuthToken, getToken as getAuthToken, clearToken as clearAuthToken }
+export {
+  setToken as setAuthToken,
+  getToken as getAuthToken,
+  clearToken as clearAuthToken,
+}
 
 export function authHeader(): Record<string, string> {
   const t = getToken()
