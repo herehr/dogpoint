@@ -239,6 +239,39 @@ const ModeratorAnimals: React.FC = () => {
     }
   }
 
+  // ✅ NEW: delete pending post (soft delete on backend)
+  const handleDeletePost = async (id: string) => {
+    if (!token) {
+      alert('Nejste přihlášen jako moderátor / admin.')
+      return
+    }
+
+    const ok = window.confirm('Opravdu chcete tento příspěvek smazat?')
+    if (!ok) return
+
+    try {
+      setLoading(true)
+      setError(null)
+      const res = await fetch(
+        `${API_BASE_URL}/api/moderation/posts/${id}`,
+        {
+          method: 'DELETE',
+          headers: {
+            'Content-Type': 'application/json',
+            ...authHeaders,
+          },
+        },
+      )
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      await fetchPendingPosts()
+    } catch (e: any) {
+      console.error('delete post error', e)
+      setError('Nepodařilo se smazat příspěvek.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   /* ---------- RENDER HELPERS ---------- */
 
   const renderAnimalCard = (animal: Animal, isPending: boolean) => {
@@ -340,7 +373,17 @@ const ModeratorAnimals: React.FC = () => {
             )}
           </Stack>
         </CardContent>
-        <CardActions sx={{ justifyContent: 'flex-end' }}>
+
+        {/* ✅ CHANGED: add "Smazat" button next to approve */}
+        <CardActions sx={{ justifyContent: 'flex-end', gap: 1 }}>
+          <Button
+            variant="outlined"
+            color="error"
+            size="small"
+            onClick={() => handleDeletePost(post.id)}
+          >
+            Smazat
+          </Button>
           <Button
             variant="contained"
             size="small"

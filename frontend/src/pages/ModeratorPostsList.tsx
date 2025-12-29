@@ -116,7 +116,8 @@ export default function ModeratorPostsList() {
     }
 
     try {
-      const res = await fetch(`${API_BASE}/posts/${encodeURIComponent(postId)}/approve`, {
+      // ✅ use moderation endpoint
+      const res = await fetch(`${API_BASE}/moderation/posts/${encodeURIComponent(postId)}/approve`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -129,10 +130,45 @@ export default function ModeratorPostsList() {
       }
 
       setSuccess('Příspěvek byl schválen.')
+      // remove locally for instant UI + then reload (safe)
+      setItems((prev) => prev.filter((x) => x.id !== postId))
       await load()
     } catch (e: any) {
       console.error('[ModeratorPostsList] approve error', e)
       setError(e?.message || 'Nepodařilo se schválit příspěvek.')
+    }
+  }
+
+  const removePost = async (postId: string) => {
+    setError(null)
+    setSuccess(null)
+
+    if (!token) {
+      setError('Nejste přihlášen jako moderátor/admin. Přihlaste se prosím znovu.')
+      return
+    }
+
+    const ok = window.confirm('Opravdu chcete tento příspěvek smazat?')
+    if (!ok) return
+
+    try {
+      const res = await fetch(`${API_BASE}/moderation/posts/${encodeURIComponent(postId)}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      })
+
+      if (!res.ok) {
+        const txt = await res.text()
+        throw new Error(`Smazání selhalo (${res.status}): ${txt}`)
+      }
+
+      setSuccess('Příspěvek byl smazán.')
+      setItems((prev) => prev.filter((x) => x.id !== postId))
+    } catch (e: any) {
+      console.error('[ModeratorPostsList] delete error', e)
+      setError(e?.message || 'Nepodařilo se smazat příspěvek.')
     }
   }
 
@@ -224,9 +260,14 @@ export default function ModeratorPostsList() {
                   </Typography>
                 </Box>
 
-                <Button variant="contained" onClick={() => approve(p.id)}>
-                  Schválit
-                </Button>
+                <Stack direction="row" spacing={1}>
+                  <Button variant="contained" onClick={() => approve(p.id)}>
+                    Schválit
+                  </Button>
+                  <Button variant="outlined" color="error" onClick={() => removePost(p.id)}>
+                    Smazat
+                  </Button>
+                </Stack>
               </Stack>
 
               <Divider sx={{ my: 2 }} />

@@ -126,4 +126,47 @@ router.post('/posts/:id/approve', requireAuth, async (req: Request, res: Respons
   }
 })
 
+/* ──────────────────────────────────────────
+   Delete (reject) post
+   DELETE /api/moderation/posts/:id
+   Roles: ADMIN or MODERATOR
+   Soft delete: active=false, status=REJECTED
+─────────────────────────────────────────── */
+router.delete('/posts/:id', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const user = req.user as { id: string; role: Role | string } | undefined
+  if (!user || !isStaff(user.role)) {
+    res.status(403).json({ error: 'Forbidden' })
+    return
+  }
+
+  const id = String(req.params.id)
+
+  try {
+    const existing = await prisma.post.findUnique({
+      where: { id },
+      select: { id: true, status: true, active: true },
+    })
+
+    if (!existing) {
+      res.status(404).json({ error: 'Not found' })
+      return
+    }
+
+    const updated = await prisma.post.update({
+      where: { id },
+      data: {
+        active: false,
+        status: ContentStatus.REJECTED,
+        approvedById: user.id,
+      },
+      include: { animal: true, media: true },
+    })
+
+    res.json(updated)
+  } catch (e: any) {
+    console.error('DELETE /api/moderation/posts/:id error:', e?.message || e)
+    res.status(500).json({ error: 'Internal error deleting post' })
+  }
+})
+
 export default router
