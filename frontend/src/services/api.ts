@@ -23,14 +23,24 @@ export function setToken(token: string) {
   } catch {}
 }
 
+/**
+ * ✅ FIX:
+ * Prefer adminToken BEFORE accessToken.
+ * Reason: if you previously logged in as moderator, accessToken might still contain
+ * a moderator JWT, but admin pages must send the admin JWT (stored as adminToken).
+ */
 export function getToken(): string | null {
   try {
+    // ✅ CHANGED: adminToken first
+    const admin = sessionStorage.getItem('adminToken')
+    if (admin) return admin
+
+    // then current default key
     const t = sessionStorage.getItem(tokenKey)
     if (t) return t
 
     // fallbacks (older keys)
     return (
-      sessionStorage.getItem('adminToken') ||
       sessionStorage.getItem('moderatorToken') ||
       sessionStorage.getItem('token') ||
       localStorage.getItem('dp:token') ||
@@ -147,7 +157,6 @@ async function doFetch<T>(path: string, opts: FetchOpts = {}): Promise<T> {
         }
       } catch {}
 
-      // IMPORTANT: no automatic clearToken() on 401 anymore.
       const msg =
         (serverMsg || `HTTP ${res.status}`) + (serverDetail ? ` – ${serverDetail}` : '')
       throw new Error(msg)
@@ -320,10 +329,6 @@ export type MyAdoptedItem = {
   status?: 'ACTIVE' | 'PENDING' | 'CANCELED'
 }
 
-/**
- * Prefer backend /api/adoption/my.
- * If 404, fallback to /api/auth/me and build items from subscriptions.
- */
 export async function myAdoptedAnimals(): Promise<MyAdoptedItem[]> {
   try {
     const raw = await getJSON<MyAdoptedItem[]>('/api/adoption/my')
@@ -440,16 +445,9 @@ export async function fetchPostsForAnimal(animalId: string): Promise<any[]> {
   return await res.json()
 }
 
-/**
- * Build notification list:
- * 1) load my adoptions
- * 2) for each animal load posts
- * 3) attach animal name (prefer included ad.animal)
- */
 export async function fetchMyNotifications(): Promise<MyNotificationItem[]> {
   const adoptions = await fetchMyAdoptions()
 
-  // Only active-ish adoptions
   const active = (adoptions || []).filter(
     (a: any) => !a.status || a.status === 'ACTIVE' || a.status === 'PENDING'
   )
@@ -477,7 +475,6 @@ export async function fetchMyNotifications(): Promise<MyNotificationItem[]> {
 
   const flat = allPostsPerAnimal.flat()
 
-  // newest first
   flat.sort(
     (a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()
   )
