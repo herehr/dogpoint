@@ -8,6 +8,7 @@ import {
 import DeleteIcon from '@mui/icons-material/Delete'
 import LockResetIcon from '@mui/icons-material/LockReset'
 import PersonAddAlt1Icon from '@mui/icons-material/PersonAddAlt1'
+import MarkEmailUnreadIcon from '@mui/icons-material/MarkEmailUnread'
 import {
   listModerators, createModerator, deleteModerator, resetModeratorPassword
 } from '../api'
@@ -77,6 +78,41 @@ export default function AdminModerators() {
     }
   }
 
+  /* ──────────────────────────────────────────────
+     NEW: resend invitation (admin)
+     POST /api/admin/moderators/:id/resend-invite
+  ────────────────────────────────────────────── */
+  async function onResendInvite(id: string) {
+    setErr(null); setOk(null)
+    try {
+      const token = sessionStorage.getItem('adminToken')
+      if (!token) {
+        setErr('Nejste přihlášen jako admin.')
+        return
+      }
+
+      const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
+      const res = await fetch(
+        `${API_BASE_URL}/api/admin/moderators/${encodeURIComponent(id)}/resend-invite`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        },
+      )
+
+      const txt = await res.text()
+      if (!res.ok) throw new Error(`Odeslání pozvánky selhalo (${res.status}): ${txt}`)
+
+      const data = txt ? JSON.parse(txt) : null
+      const sentTo = data?.sentTo ? ` (${data.sentTo})` : ''
+      setOk(`Pozvánka byla znovu odeslána${sentTo}.`)
+    } catch (e: any) {
+      setErr(e?.message || 'Nepodařilo se znovu poslat pozvánku.')
+    }
+  }
+
   return (
     <Container maxWidth="lg" sx={{ py: 6 }}>
       <Typography variant="h5" sx={{ fontWeight: 900, mb: 2 }}>
@@ -137,9 +173,19 @@ export default function AdminModerators() {
                 <TableCell>{m.role}</TableCell>
                 <TableCell align="right">
                   <Stack direction="row" spacing={1} justifyContent="flex-end">
+                    {/* NEW: resend invite */}
+                    <IconButton
+                      size="small"
+                      onClick={() => onResendInvite(m.id)}
+                      title="Znovu poslat pozvánku"
+                    >
+                      <MarkEmailUnreadIcon fontSize="small" />
+                    </IconButton>
+
                     <IconButton size="small" onClick={() => openReset(m.id)} title="Reset hesla">
                       <LockResetIcon fontSize="small" />
                     </IconButton>
+
                     <IconButton size="small" color="error" onClick={() => onDelete(m.id)} title="Smazat">
                       <DeleteIcon fontSize="small" />
                     </IconButton>
