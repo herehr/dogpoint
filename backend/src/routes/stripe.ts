@@ -127,22 +127,27 @@ rawRouter.post(
       let event: Stripe.Event
 
       // If we don't have a webhook secret, signature, or stripe client → dev/preview fallback
-      if (!webhookSecret || !sig || !stripe) {
-        try {
-          event = JSON.parse(req.body.toString() || '{}') as Stripe.Event
-        } catch {
-          res.status(400).send('Invalid webhook payload')
-          return
-        }
-      } else {
-        try {
-          event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret)
-        } catch (err: any) {
-          console.error('[stripe webhook] signature verification failed:', err?.message)
-          res.status(400).send(`Webhook Error: ${err?.message}`)
-          return
-        }
-      }
+      const isProd = process.env.NODE_ENV === 'production'
+
+if (!stripe) {
+  return res.status(500).send('Stripe not configured')
+}
+
+if (!webhookSecret) {
+  return res.status(500).send('Missing STRIPE_WEBHOOK_SECRET')
+}
+
+if (!sig) {
+  // This is what your curl test should return
+  return res.status(400).send('Missing Stripe-Signature')
+}
+
+try {
+  event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret)
+} catch (err: any) {
+  console.error('[stripe webhook] signature verification failed:', err?.message)
+  return res.status(400).send(`Webhook Error: ${err?.message}`)
+}
 
       // best-effort: persist raw event if you have such a table
       try {

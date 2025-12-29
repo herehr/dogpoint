@@ -10,7 +10,6 @@ import animalRoutes from './routes/animals'
 import uploadRoutes from './routes/upload'
 import postsRoutes from './routes/posts'
 import adoptionRouter from './routes/adoption'
-import emailTest from './routes/emailTest'
 import emailTestRoutes from './routes/emailTest'
 import adminModeratorsRoutes from './routes/adminModerators'
 import adminStatsRoutes from './routes/adminStats'
@@ -19,15 +18,13 @@ import subscriptionRoutes from './routes/subscriptionRoutes'
 import paymentRouter from './routes/paymentRoutes'
 import gpwebpayRoutes from './routes/gpwebpay'
 import notificationRoutes from './routes/notification'
-import moderationRoutes from './routes/moderation' 
+import moderationRoutes from './routes/moderation'
 import notificationTestRoutes from './routes/notificationsTest'
 
 import { prisma } from './prisma'
 
 /* ──────────────────────────────────────────────
  * CORS
- * CORS_ORIGIN / CORS_ALLOWED_ORIGINS can be a comma-separated list, e.g.
- * CORS_ORIGIN="https://sea-lion-app-6pdrc.ondigitalocean.app,https://pomaham.dog-point.cz"
  * ──────────────────────────────────────────── */
 
 // Support both env names, use whichever is set
@@ -70,8 +67,12 @@ app.set('trust proxy', 1)
 app.use(cors(corsOptions))
 app.options('*', cors(corsOptions))
 
-// IMPORTANT: Stripe RAW webhook FIRST (no JSON parser before this)
-app.use('/api/stripe', stripeRawRouter) // POST /api/stripe/webhook
+/* ──────────────────────────────────────────────
+ * Stripe
+ * IMPORTANT: raw webhook MUST be mounted BEFORE express.json()
+ * This mounts POST /api/stripe/webhook with express.raw() inside rawRouter.
+ * ──────────────────────────────────────────── */
+app.use('/api/stripe', stripeRawRouter)
 
 // JSON parser for the rest
 app.use(express.json({ limit: '2mb' }))
@@ -85,7 +86,10 @@ app.use((req, _res, next) => {
 // ----- Routes -----
 app.use('/api/auth', authRoutes)
 app.use('/api/animals', animalRoutes)
+
+// Stripe JSON routes AFTER express.json()
 app.use('/api/stripe', stripeJsonRouter)
+
 app.use('/api/adoption', adoptionRouter)
 app.use('/api/upload', uploadRoutes)
 app.use('/api/posts', postsRoutes)
@@ -95,11 +99,10 @@ app.use('/api/admin', adminModeratorsRoutes)
 app.use('/api/subscriptions', subscriptionRoutes)
 app.use('/api/payments', paymentRouter)
 app.use('/api/notifications', notificationRoutes)
-app.use('/api/test', emailTest)
 app.use('/api/moderation', moderationRoutes)
+
 app.use('/api/email', emailTestRoutes)
 app.use('/api/notifications', notificationTestRoutes)
-
 
 // GP webpay (feature flag)
 const gpEnabled =
