@@ -188,6 +188,36 @@ export async function loginAdmin(
   return data
 }
 
+// ---- Tax (admin) ----
+
+export async function sendTaxRequestByEmail(email: string) {
+  const clean = email.trim().toLowerCase()
+
+  const res = await fetch(apiUrl('/api/tax/send'), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeader(),
+    },
+    body: JSON.stringify({ email: clean }),
+  })
+
+  if (!res.ok) {
+    throw new Error(
+      `API ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`,
+    )
+  }
+
+  return res.json() as Promise<{
+    ok: boolean
+    sentTo: string
+    expiresAt: string
+    link: string
+  }>
+}
+
+
+
 /**
  * ✅ Align to backend: GET /api/adoption/my
  * (your backend does NOT have /me or /my-animals)

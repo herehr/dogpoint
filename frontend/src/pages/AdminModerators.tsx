@@ -1,16 +1,36 @@
 // frontend/src/pages/AdminModerators.tsx
 import React, { useEffect, useState } from 'react'
 import {
-  Container, Typography, Paper, Stack, TextField, Button, Alert,
-  Table, TableHead, TableRow, TableCell, TableBody, IconButton, Dialog,
-  DialogTitle, DialogContent, DialogActions
+  Container,
+  Typography,
+  Paper,
+  Stack,
+  TextField,
+  Button,
+  Alert,
+  Table,
+  TableHead,
+  TableRow,
+  TableCell,
+  TableBody,
+  IconButton,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from '@mui/material'
 import DeleteIcon from '@mui/icons-material/Delete'
 import LockResetIcon from '@mui/icons-material/LockReset'
 import PersonAddAlt1Icon from '@mui/icons-material/PersonAddAlt1'
 import MarkEmailUnreadIcon from '@mui/icons-material/MarkEmailUnread'
+import RequestQuoteIcon from '@mui/icons-material/RequestQuote'
 import {
-  listModerators, createModerator, deleteModerator, resetModeratorPassword, apiUrl
+  listModerators,
+  createModerator,
+  deleteModerator,
+  resetModeratorPassword,
+  apiUrl,
+  sendTaxRequestByEmail,
 } from '../api'
 
 type ModRow = { id: string; email: string; role: string; active?: boolean }
@@ -27,6 +47,10 @@ export default function AdminModerators() {
   const [resetId, setResetId] = useState<string | null>(null)
   const [resetPass, setResetPass] = useState('')
 
+  // per-row loading (resend/tax)
+  const [sendingInviteForId, setSendingInviteForId] = useState<string | null>(null)
+  const [sendingTaxForId, setSendingTaxForId] = useState<string | null>(null)
+
   async function refresh() {
     setErr(null)
     try {
@@ -37,24 +61,32 @@ export default function AdminModerators() {
     }
   }
 
-  useEffect(() => { refresh() }, [])
+  useEffect(() => {
+    refresh()
+  }, [])
 
   async function onCreate(e: React.FormEvent) {
     e.preventDefault()
-    setErr(null); setOk(null); setLoading(true)
+    setErr(null)
+    setOk(null)
+    setLoading(true)
     try {
       await createModerator(email.trim(), password)
       setOk('Moderátor vytvořen')
-      setEmail(''); setPassword('')
+      setEmail('')
+      setPassword('')
       await refresh()
     } catch (e: any) {
       setErr(e?.message || 'Vytvoření selhalo')
-    } finally { setLoading(false) }
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function onDelete(id: string) {
     if (!confirm('Opravdu odstranit tohoto moderátora?')) return
-    setErr(null); setOk(null)
+    setErr(null)
+    setOk(null)
     try {
       await deleteModerator(id)
       setOk('Moderátor odstraněn')
@@ -65,34 +97,41 @@ export default function AdminModerators() {
   }
 
   function openReset(id: string) {
-    setResetId(id); setResetPass(''); setResetOpen(true)
+    setResetId(id)
+    setResetPass('')
+    setResetOpen(true)
   }
 
   async function onReset() {
     if (!resetId) return
     try {
       await resetModeratorPassword(resetId, resetPass)
-      setOk('Heslo změněno'); setResetOpen(false); setResetId(null); setResetPass('')
+      setOk('Heslo změněno')
+      setResetOpen(false)
+      setResetId(null)
+      setResetPass('')
     } catch (e: any) {
       setErr(e?.message || 'Změna hesla selhala')
     }
   }
 
   /* ──────────────────────────────────────────────
-     NEW: resend invitation (admin)
+     Resend invitation (admin)
      POST /api/admin/moderators/:id/resend-invite
   ────────────────────────────────────────────── */
   async function onResendInvite(id: string) {
-    setErr(null); setOk(null)
+    setErr(null)
+    setOk(null)
+
     try {
-      // ✅ CHANGED: use accessToken (this is the one you actually have)
       const token = sessionStorage.getItem('accessToken')
       if (!token || token === 'null' || token === 'undefined') {
         setErr('Nejste přihlášen jako admin.')
         return
       }
 
-      // ✅ CHANGED: use apiUrl() so base URL is correct
+      setSendingInviteForId(id)
+
       const res = await fetch(
         apiUrl(`/api/admin/moderators/${encodeURIComponent(id)}/resend-invite`),
         {
@@ -109,6 +148,27 @@ export default function AdminModerators() {
       setOk(`Pozvánka byla znovu odeslána${sentTo}.`)
     } catch (e: any) {
       setErr(e?.message || 'Nepodařilo se znovu poslat pozvánku.')
+    } finally {
+      setSendingInviteForId(null)
+    }
+  }
+
+  /* ──────────────────────────────────────────────
+     NEW: Ask for tax details (admin)
+     POST /api/tax/send  body: { email }
+  ────────────────────────────────────────────── */
+  async function onAskTaxDetails(email: string, rowId: string) {
+    setErr(null)
+    setOk(null)
+    try {
+      setSendingTaxForId(rowId)
+
+      const resp = await sendTaxRequestByEmail(email)
+      setOk(`Žádost o daňové údaje byla odeslána (${resp.sentTo}).`)
+    } catch (e: any) {
+      setErr(e?.message || 'Nepodařilo se odeslat žádost o daňové údaje.')
+    } finally {
+      setSendingTaxForId(null)
     }
   }
 
@@ -118,8 +178,16 @@ export default function AdminModerators() {
         Moderátoři
       </Typography>
 
-      {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
-      {ok && <Alert severity="success" sx={{ mb: 2 }}>{ok}</Alert>}
+      {err && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {err}
+        </Alert>
+      )}
+      {ok && (
+        <Alert severity="success" sx={{ mb: 2 }}>
+          {ok}
+        </Alert>
+      )}
 
       <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, mb: 3 }}>
         <Typography variant="subtitle1" sx={{ fontWeight: 800, mb: 1 }}>
@@ -165,17 +233,30 @@ export default function AdminModerators() {
               <TableCell align="right">Akce</TableCell>
             </TableRow>
           </TableHead>
+
           <TableBody>
-            {mods.map(m => (
+            {mods.map((m) => (
               <TableRow key={m.id} hover>
                 <TableCell>{m.email}</TableCell>
                 <TableCell>{m.role}</TableCell>
                 <TableCell align="right">
                   <Stack direction="row" spacing={1} justifyContent="flex-end">
+                    {/* NEW: ask for tax details */}
+                    <IconButton
+                      size="small"
+                      onClick={() => onAskTaxDetails(m.email, m.id)}
+                      title="Požádat o daňové údaje"
+                      disabled={sendingTaxForId === m.id}
+                    >
+                      <RequestQuoteIcon fontSize="small" />
+                    </IconButton>
+
+                    {/* resend invite */}
                     <IconButton
                       size="small"
                       onClick={() => onResendInvite(m.id)}
                       title="Znovu poslat pozvánku"
+                      disabled={sendingInviteForId === m.id}
                     >
                       <MarkEmailUnreadIcon fontSize="small" />
                     </IconButton>
@@ -184,13 +265,19 @@ export default function AdminModerators() {
                       <LockResetIcon fontSize="small" />
                     </IconButton>
 
-                    <IconButton size="small" color="error" onClick={() => onDelete(m.id)} title="Smazat">
+                    <IconButton
+                      size="small"
+                      color="error"
+                      onClick={() => onDelete(m.id)}
+                      title="Smazat"
+                    >
                       <DeleteIcon fontSize="small" />
                     </IconButton>
                   </Stack>
                 </TableCell>
               </TableRow>
             ))}
+
             {mods.length === 0 && (
               <TableRow>
                 <TableCell colSpan={3} align="center" sx={{ py: 4, color: 'text.secondary' }}>
@@ -217,7 +304,9 @@ export default function AdminModerators() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setResetOpen(false)}>Zrušit</Button>
-          <Button variant="contained" onClick={onReset} disabled={!resetPass}>Uložit</Button>
+          <Button variant="contained" onClick={onReset} disabled={!resetPass}>
+            Uložit
+          </Button>
         </DialogActions>
       </Dialog>
     </Container>
