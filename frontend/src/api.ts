@@ -438,3 +438,34 @@ export async function resetModeratorPassword(id: string, newPassword: string) {
     )
   return res.json()
 }
+// ---- Tax (public token form) ----
+export type TaxTokenInfo = {
+  ok: boolean
+  token: string
+  expiresAt: string
+  user: { id: string; email: string }
+  taxProfile: any | null
+  defaults: {
+    firstName?: string | null
+    lastName?: string | null
+    street?: string | null
+    streetNo?: string | null
+    zip?: string | null
+    city?: string | null
+  }
+}
+
+export async function getTaxTokenInfo(token: string) {
+  return getJSON<TaxTokenInfo>(`/api/tax/token/${encodeURIComponent(token)}`)
+}
+
+export async function submitTaxToken(token: string, payload: any) {
+  const res = await fetch(apiUrl(`/api/tax/token/${encodeURIComponent(token)}`), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok)
+    throw new Error(`API ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`)
+  return res.json()
+}
