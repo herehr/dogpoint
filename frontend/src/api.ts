@@ -255,14 +255,27 @@ export async function endAdoption(animalId: string) {
 export async function setPasswordFirstTime(email: string, password: string) {
   const res = await fetch(apiUrl('/api/auth/set-password-first-time'), {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeader() },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
   })
-  if (!res.ok)
+
+  if (!res.ok) {
     throw new Error(
       `API ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`,
     )
-  return res.json()
+  }
+
+  const data = (await res.json()) as { ok?: boolean; token?: string; role?: 'ADMIN' | 'MODERATOR' | 'USER' }
+
+  // ✅ IMPORTANT: store token so you are actually logged in after setting password
+  if (data?.token) {
+    sessionStorage.setItem('accessToken', data.token)
+
+    if (data.role === 'ADMIN') sessionStorage.setItem('adminToken', data.token)
+    if (data.role === 'MODERATOR') sessionStorage.setItem('moderatorToken', data.token)
+  }
+
+  return data
 }
 
 // ---- Posts ----
