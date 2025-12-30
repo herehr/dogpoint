@@ -422,14 +422,12 @@ export async function deleteModerator(id: string) {
 }
 
 /** Reset a moderator’s password (admin only) */
-export async function resetModeratorPassword(
-  id: string,
-  newPassword: string,
-) {
+/** Reset a moderator’s password (admin only) */
+export async function resetModeratorPassword(id: string, newPassword: string) {
   const res = await fetch(
-    apiUrl(`/api/admin/moderators/${encodeURIComponent(id)}/reset-password`),
+    apiUrl(`/api/admin/moderators/${encodeURIComponent(id)}/password`), // ✅ CHANGED PATH
     {
-      method: 'POST',
+      method: 'PATCH', // ✅ CHANGED METHOD
       headers: { 'Content-Type': 'application/json', ...authHeader() },
       body: JSON.stringify({ password: newPassword }),
     },

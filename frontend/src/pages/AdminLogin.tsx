@@ -4,9 +4,6 @@ import { Container, Paper, Stack, Typography, TextField, Button, Alert } from '@
 import { useNavigate } from 'react-router-dom'
 import { loginAdmin as login, setPasswordFirstTime } from '../api'
 
-// ✅ add this import (from your services/api.ts)
-import { setAdminToken } from '../services/api'
-
 export default function AdminLogin() {
   const nav = useNavigate()
   const [email, setEmail] = useState('')
@@ -21,14 +18,8 @@ export default function AdminLogin() {
     setErr(null)
     setSaving(true)
     try {
-      // ✅ IMPORTANT: capture response
-      const res = await login(email.trim(), password)
-
-      // ✅ store as adminToken (and sync accessToken)
-      if (res?.token) setAdminToken(res.token)
-
-      // ✅ go to admin area
-      nav('/admin', { replace: true })
+      await login(email.trim(), password) // stores accessToken/adminToken in api.ts
+      nav('/admin', { replace: true })    // ✅ go to admin area
     } catch (e: any) {
       const msg = String(e?.message || '')
       if (msg.includes('PASSWORD_NOT_SET') || msg.includes('409')) {
@@ -53,12 +44,7 @@ export default function AdminLogin() {
         return
       }
 
-      // This endpoint usually returns a token too
-      const res = await setPasswordFirstTime(email.trim(), newPassword)
-
-      // ✅ store as admin token if present
-      if ((res as any)?.token) setAdminToken((res as any).token)
-
+      await setPasswordFirstTime(email.trim(), newPassword) // api.ts stores token (accessToken/adminToken)
       nav('/admin', { replace: true })
     } catch (e: any) {
       setErr('Nastavení hesla selhalo.')
@@ -70,8 +56,15 @@ export default function AdminLogin() {
   return (
     <Container maxWidth="sm" sx={{ py: 6 }}>
       <Paper variant="outlined" sx={{ p: 3, borderRadius: 3 }}>
-        <Typography variant="h5" sx={{ fontWeight: 900, mb: 2 }}>Přihlášení</Typography>
-        {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
+        <Typography variant="h5" sx={{ fontWeight: 900, mb: 2 }}>
+          Přihlášení
+        </Typography>
+
+        {err && (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {err}
+          </Alert>
+        )}
 
         {mode === 'login' ? (
           <form onSubmit={onLogin}>
@@ -114,7 +107,9 @@ export default function AdminLogin() {
                 helperText="Minimálně 6 znaků"
               />
               <Stack direction="row" spacing={1}>
-                <Button variant="text" onClick={() => setMode('login')}>Zpět</Button>
+                <Button variant="text" onClick={() => setMode('login')}>
+                  Zpět
+                </Button>
                 <Button type="submit" variant="contained" disabled={saving}>
                   {saving ? 'Ukládám…' : 'Nastavit heslo'}
                 </Button>
