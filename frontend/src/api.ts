@@ -11,14 +11,17 @@ export { getJSON, apiUrl }
 function token() {
   if (typeof window === 'undefined') return null
 
-  // ✅ FIX: prefer adminToken first on admin pages
-  // because accessToken might still contain an old moderator JWT
-  return (
-    sessionStorage.getItem('adminToken') ||
+  // ✅ FIX: prefer accessToken first (this is the one you actually have)
+  const t =
     sessionStorage.getItem('accessToken') ||
+    sessionStorage.getItem('adminToken') ||
     sessionStorage.getItem('moderatorToken') ||
     null
-  )
+
+  // extra safety: avoid sending "Bearer null"/"Bearer undefined"
+  if (t === 'null' || t === 'undefined' || t === '') return null
+
+  return t
 }
 
 export function authHeader(): Record<string, string> {
