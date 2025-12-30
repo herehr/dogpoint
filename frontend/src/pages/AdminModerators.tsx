@@ -10,7 +10,7 @@ import LockResetIcon from '@mui/icons-material/LockReset'
 import PersonAddAlt1Icon from '@mui/icons-material/PersonAddAlt1'
 import MarkEmailUnreadIcon from '@mui/icons-material/MarkEmailUnread'
 import {
-  listModerators, createModerator, deleteModerator, resetModeratorPassword
+  listModerators, createModerator, deleteModerator, resetModeratorPassword, apiUrl
 } from '../api'
 
 type ModRow = { id: string; email: string; role: string; active?: boolean }
@@ -85,20 +85,19 @@ export default function AdminModerators() {
   async function onResendInvite(id: string) {
     setErr(null); setOk(null)
     try {
-      const token = sessionStorage.getItem('adminToken')
-      if (!token) {
+      // ✅ CHANGED: use accessToken (this is the one you actually have)
+      const token = sessionStorage.getItem('accessToken')
+      if (!token || token === 'null' || token === 'undefined') {
         setErr('Nejste přihlášen jako admin.')
         return
       }
 
-      const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
+      // ✅ CHANGED: use apiUrl() so base URL is correct
       const res = await fetch(
-        `${API_BASE_URL}/api/admin/moderators/${encodeURIComponent(id)}/resend-invite`,
+        apiUrl(`/api/admin/moderators/${encodeURIComponent(id)}/resend-invite`),
         {
           method: 'POST',
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
+          headers: { Authorization: `Bearer ${token}` },
         },
       )
 
@@ -173,7 +172,6 @@ export default function AdminModerators() {
                 <TableCell>{m.role}</TableCell>
                 <TableCell align="right">
                   <Stack direction="row" spacing={1} justifyContent="flex-end">
-                    {/* NEW: resend invite */}
                     <IconButton
                       size="small"
                       onClick={() => onResendInvite(m.id)}
