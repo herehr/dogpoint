@@ -11,10 +11,11 @@ export { getJSON, apiUrl }
 function token() {
   if (typeof window === 'undefined') return null
 
-  // ✅ accept whatever token is present (your app uses multiple keys)
+  // ✅ FIX: prefer adminToken first on admin pages
+  // because accessToken might still contain an old moderator JWT
   return (
-    sessionStorage.getItem('accessToken') ||
     sessionStorage.getItem('adminToken') ||
+    sessionStorage.getItem('accessToken') ||
     sessionStorage.getItem('moderatorToken') ||
     null
   )
@@ -154,6 +155,34 @@ export async function login(
     throw new Error(`API ${res.status}: ${text || res.statusText}`)
   }
   return res.json()
+}
+
+/** ADMIN login — stores admin token into sessionStorage('adminToken') */
+export async function loginAdmin(
+  email: string,
+  password: string,
+): Promise<{ token: string; role?: 'ADMIN' | 'MODERATOR' | 'USER' }> {
+  const res = await fetch(apiUrl('/api/auth/login'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  })
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    throw new Error(`API ${res.status}: ${text || res.statusText}`)
+  }
+
+  const data = (await res.json()) as { token: string; role?: 'ADMIN' | 'MODERATOR' | 'USER' }
+
+  // ✅ THIS is the important fix
+  sessionStorage.setItem('adminToken', data.token)
+  sessionStorage.setItem('accessToken', data.token)
+
+  // optional: avoid accidentally using a moderator token later
+  sessionStorage.removeItem('moderatorToken')
+
+  return data
 }
 
 /**
