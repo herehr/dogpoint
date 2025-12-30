@@ -37,6 +37,7 @@ import OchranaOsobnichUdaju from './pages/OchranaOsobnichUdaju'
 import NotificationsPage from './pages/NotificationsPage'
 import UXPrototype from './prototypes/UXPrototype'
 import ResetPassword from './pages/ResetPassword'
+import SetPasswordFromInvite from './pages/SetPasswordFromInvite'
 
 import 'react-quill/dist/quill.snow.css'
 
@@ -111,6 +112,7 @@ export default function App() {
         <Route path="zvirata/:id" element={<AnimalDetail />} />
         <Route path="ochrana-osobnich-udaju" element={<OchranaOsobnichUdaju />} />
         <Route path="notifikace" element={<NotificationsPage />} />
+        <Route path="/nastavit-heslo" element={<SetPasswordFromInvite />} />
 
 
         {/* Auth */}
