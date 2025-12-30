@@ -37,6 +37,8 @@ model User {
 
   taxProfile TaxProfile?
   taxTokens  TaxRequestToken[]
+
+  @@index([email])
 }
 
 model Animal {
