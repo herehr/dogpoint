@@ -11,13 +11,17 @@ export { getJSON, apiUrl }
 function token() {
   if (typeof window === 'undefined') return null
 
-  // ✅ accept whatever token is present (your app uses multiple keys)
-  return (
+  // ✅ FIX: prefer accessToken first (this is the one you actually have)
+  const t =
     sessionStorage.getItem('accessToken') ||
     sessionStorage.getItem('adminToken') ||
     sessionStorage.getItem('moderatorToken') ||
     null
-  )
+
+  // extra safety: avoid sending "Bearer null"/"Bearer undefined"
+  if (t === 'null' || t === 'undefined' || t === '') return null
+
+  return t
 }
 
 export function authHeader(): Record<string, string> {
@@ -156,6 +160,34 @@ export async function login(
   return res.json()
 }
 
+/** ADMIN login — stores admin token into sessionStorage('adminToken') */
+export async function loginAdmin(
+  email: string,
+  password: string,
+): Promise<{ token: string; role?: 'ADMIN' | 'MODERATOR' | 'USER' }> {
+  const res = await fetch(apiUrl('/api/auth/login'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  })
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    throw new Error(`API ${res.status}: ${text || res.statusText}`)
+  }
+
+  const data = (await res.json()) as { token: string; role?: 'ADMIN' | 'MODERATOR' | 'USER' }
+
+  // ✅ THIS is the important fix
+  sessionStorage.setItem('adminToken', data.token)
+  sessionStorage.setItem('accessToken', data.token)
+
+  // optional: avoid accidentally using a moderator token later
+  sessionStorage.removeItem('moderatorToken')
+
+  return data
+}
+
 /**
  * ✅ Align to backend: GET /api/adoption/my
  * (your backend does NOT have /me or /my-animals)
@@ -226,14 +258,27 @@ export async function endAdoption(animalId: string) {
 export async function setPasswordFirstTime(email: string, password: string) {
   const res = await fetch(apiUrl('/api/auth/set-password-first-time'), {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeader() },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
   })
-  if (!res.ok)
+
+  if (!res.ok) {
     throw new Error(
       `API ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`,
     )
-  return res.json()
+  }
+
+  const data = (await res.json()) as { ok?: boolean; token?: string; role?: 'ADMIN' | 'MODERATOR' | 'USER' }
+
+  // ✅ IMPORTANT: store token so you are actually logged in after setting password
+  if (data?.token) {
+    sessionStorage.setItem('accessToken', data.token)
+
+    if (data.role === 'ADMIN') sessionStorage.setItem('adminToken', data.token)
+    if (data.role === 'MODERATOR') sessionStorage.setItem('moderatorToken', data.token)
+  }
+
+  return data
 }
 
 // ---- Posts ----
@@ -377,14 +422,12 @@ export async function deleteModerator(id: string) {
 }
 
 /** Reset a moderator’s password (admin only) */
-export async function resetModeratorPassword(
-  id: string,
-  newPassword: string,
-) {
+/** Reset a moderator’s password (admin only) */
+export async function resetModeratorPassword(id: string, newPassword: string) {
   const res = await fetch(
-    apiUrl(`/api/admin/moderators/${encodeURIComponent(id)}/reset-password`),
+    apiUrl(`/api/admin/moderators/${encodeURIComponent(id)}/password`), // ✅ CHANGED PATH
     {
-      method: 'POST',
+      method: 'PATCH', // ✅ CHANGED METHOD
       headers: { 'Content-Type': 'application/json', ...authHeader() },
       body: JSON.stringify({ password: newPassword }),
     },
