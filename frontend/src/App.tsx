@@ -39,6 +39,7 @@ import UXPrototype from './prototypes/UXPrototype'
 import ResetPassword from './pages/ResetPassword'
 import SetPasswordFromInvite from './pages/SetPasswordFromInvite'
 import TaxFormPage from './pages/TaxFormPage'
+import AdminTax from './pages/AdminTax'
 
 import 'react-quill/dist/quill.snow.css'
 
@@ -115,6 +116,8 @@ export default function App() {
         <Route path="notifikace" element={<NotificationsPage />} />
         <Route path="/nastavit-heslo" element={<SetPasswordFromInvite />} />
         <Route path="/udaje-pro-potvrzeni" element={<TaxFormPage />} />
+        <Route path="/admin/tax" element={<AdminTax />} />
+        
 
 
         {/* Auth */}

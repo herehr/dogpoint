@@ -6,6 +6,7 @@ import PetsIcon from '@mui/icons-material/Pets'
 import PhotoLibraryIcon from '@mui/icons-material/PhotoLibrary'
 import DescriptionIcon from '@mui/icons-material/Description'
 import BarChartIcon from '@mui/icons-material/BarChart'
+import RequestQuoteIcon from '@mui/icons-material/RequestQuote'
 import { Link as RouterLink } from 'react-router-dom'
 
 export default function AdminDashboard() {
@@ -100,7 +101,33 @@ export default function AdminDashboard() {
           </Paper>
         </Grid>
 
-        {/* 4) Galerie (placeholder) */}
+        {/* 4) Daňové údaje */}
+        <Grid item xs={12} sm={6} md={4}>
+          <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, height: '100%' }}>
+            <Stack spacing={1.5}>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <RequestQuoteIcon />
+                <Typography variant="h6" sx={{ fontWeight: 800 }}>
+                  Daňové údaje
+                </Typography>
+              </Stack>
+              <Typography color="text.secondary">
+                Odeslat e-mail s odkazem pro doplnění údajů pro potvrzení o daru.
+              </Typography>
+              <Button
+                component={RouterLink}
+                to="/admin/tax"
+                variant="contained"
+                size="small"
+                sx={{ alignSelf: 'flex-start' }}
+              >
+                Otevřít
+              </Button>
+            </Stack>
+          </Paper>
+        </Grid>
+
+        {/* 5) Galerie (placeholder) */}
         <Grid item xs={12} sm={6} md={4}>
           <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, height: '100%' }}>
             <Stack spacing={1.5}>
@@ -120,7 +147,7 @@ export default function AdminDashboard() {
           </Paper>
         </Grid>
 
-        {/* 5) Statistiky (combined KPI + details) */}
+        {/* 6) Statistiky (combined KPI + details) */}
         <Grid item xs={12} sm={6} md={4}>
           <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, height: '100%' }}>
             <Stack spacing={1.5}>
@@ -146,7 +173,7 @@ export default function AdminDashboard() {
           </Paper>
         </Grid>
 
-        {/* 6) Adopce (placeholder) */}
+        {/* 7) Adopce (placeholder) */}
         <Grid item xs={12} sm={6} md={4}>
           <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, height: '100%' }}>
             <Stack spacing={1.5}>
