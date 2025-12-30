@@ -8,12 +8,15 @@ datasource db {
 }
 
 model User {
-  id              String         @id @default(cuid())
-  email           String         @unique
-  role            Role           @default(USER)
-  updatedAt       DateTime       @updatedAt
-  createdAt       DateTime       @default(now())
-  passwordHash    String?
+  id    String @id @default(cuid())
+  email String @unique
+  role  Role   @default(USER)
+
+  passwordHash String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   animalsApproved Animal[]       @relation("AnimalApprovedBy")
   animalsCreated  Animal[]       @relation("AnimalCreatedBy")
   notifications   Notification[]
@@ -21,6 +24,19 @@ model User {
   posts           Post[]         @relation("AuthorPosts")
   postsCreated    Post[]         @relation("PostCreatedBy")
   subscriptions   Subscription[]
+
+  firstName String?
+  lastName  String?
+  street    String?
+  streetNo  String?
+  zip       String?
+  city      String?
+
+  taxRequestSentAt DateTime?
+  taxRequestCount  Int       @default(0)
+
+  taxProfile TaxProfile?
+  taxTokens  TaxRequestToken[]
 }
 
 model Animal {
@@ -80,6 +96,54 @@ model AdoptionRequest {
 
   @@index([animalId])
   @@index([email, animalId])
+}
+
+model TaxProfile {
+  id String @id @default(cuid())
+
+  // 1:1 with User (optional on User side)
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // If tax subject is a company
+  isCompany   Boolean @default(false)
+  companyName String?
+  taxId       String?
+
+  // If tax subject is a different physical person (or fallback address)
+  firstName String?
+  lastName  String?
+
+  // Address (always here, because tax subject may differ from User)
+  street   String?
+  streetNo String?
+  zip      String?
+  city     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([isCompany])
+  @@index([taxId])
+}
+
+model TaxRequestToken {
+  id String @id @default(cuid())
+
+  token String @unique
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  usedAt    DateTime?
+  expiresAt DateTime
+
+  sentAt    DateTime @default(now())
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 model Post {
