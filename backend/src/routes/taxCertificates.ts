@@ -97,7 +97,7 @@ router.post('/run', requireAuth, async (req: any, res: Response) => {
         const html = renderTaxCertificateHtml({
           year: yearNum,
           recipient: r,
-          issuedAt: new Date(),
+          issueDate: new Date(),
         })
 
         const pdf = await htmlToPdfBuffer(html)

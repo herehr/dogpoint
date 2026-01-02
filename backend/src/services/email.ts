@@ -1,6 +1,5 @@
 // backend/src/services/email.ts
 import nodemailer from 'nodemailer'
-import type { Attachment } from 'nodemailer/lib/mailer'
 
 const EMAIL_ENABLED = (process.env.EMAIL_ENABLED ?? '1') !== '0'
 
@@ -26,12 +25,7 @@ if (!EMAIL_ENABLED) {
     port,
   })
 } else {
-  console.log('[email] SMTP configured', {
-    host,
-    port,
-    secure,
-    from,
-  })
+  console.log('[email] SMTP configured', { host, port, secure, from })
 }
 
 const transporter =
@@ -44,41 +38,97 @@ const transporter =
       })
     : null
 
+export type EmailAttachment = {
+  filename: string
+  content: Buffer | string
+  contentType?: string
+}
+
 export type SendEmailArgs = {
   to: string
   subject: string
   html: string
   text?: string
-  attachments?: Attachment[]
+  attachments?: EmailAttachment[]
 }
 
-export async function sendEmail(args: SendEmailArgs): Promise<void> {
+/**
+ * sendEmail supports BOTH styles:
+ *  - sendEmail({ to, subject, html, text?, attachments? })
+ *  - sendEmail(to, subject, html, text?)
+ */
+export function sendEmail(args: SendEmailArgs): Promise<void>
+export function sendEmail(
+  to: string,
+  subject: string,
+  html: string,
+  text?: string,
+): Promise<void>
+export async function sendEmail(
+  a: SendEmailArgs | string,
+  subject?: string,
+  html?: string,
+  text?: string,
+): Promise<void> {
+  const payload: SendEmailArgs =
+    typeof a === 'string'
+      ? { to: a, subject: subject || '', html: html || '', text }
+      : a
+
   if (!transporter) {
-    console.warn('[email] sendEmail skipped', { to: args.to, subject: args.subject })
+    console.warn('[email] sendEmail skipped', {
+      to: payload.to,
+      subject: payload.subject,
+    })
     return
   }
 
   const info = await transporter.sendMail({
     from,
-    to: args.to,
-    subject: args.subject,
-    html: args.html,
-    text: args.text,
-    attachments: args.attachments,
+    to: payload.to,
+    subject: payload.subject,
+    html: payload.html,
+    text: payload.text,
+    attachments: payload.attachments,
   })
 
-  console.log('[email] sent', { to: args.to, subject: args.subject, messageId: info.messageId })
+  console.log('[email] sent', {
+    to: payload.to,
+    subject: payload.subject,
+    messageId: info.messageId,
+  })
 }
 
-export async function sendEmailSafe(args: SendEmailArgs): Promise<void> {
+/**
+ * sendEmailSafe supports BOTH styles and NEVER throws
+ */
+export function sendEmailSafe(args: SendEmailArgs): Promise<void>
+export function sendEmailSafe(
+  to: string,
+  subject: string,
+  html: string,
+  text?: string,
+): Promise<void>
+export async function sendEmailSafe(
+  a: SendEmailArgs | string,
+  subject?: string,
+  html?: string,
+  text?: string,
+): Promise<void> {
   try {
-    await sendEmail(args)
+    if (typeof a === 'string') {
+      await sendEmail(a, subject || '', html || '', text)
+    } else {
+      await sendEmail(a)
+    }
   } catch (e: any) {
+    const to = typeof a === 'string' ? a : a.to
+    const subj = typeof a === 'string' ? subject : a.subject
     console.error('[email] send failed', {
-      to: args.to,
-      subject: args.subject,
+      to,
+      subject: subj,
       error: e?.message || e,
     })
-    // never throw from “notification email”
+    // intentionally swallow errors
   }
 }
