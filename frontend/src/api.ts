@@ -216,6 +216,24 @@ export async function sendTaxRequestByEmail(email: string) {
   }>
 }
 
+export async function runTaxCertificates(payload: {
+  year?: number
+  dryRun?: boolean
+  includePledges?: boolean
+  emails?: string[]
+  userIds?: string[]
+  limit?: number
+}) {
+  const res = await fetch(apiUrl('/api/tax-certificates/run'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeader() },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) {
+    throw new Error(`API ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`)
+  }
+  return res.json()
+}
 
 
 /**
