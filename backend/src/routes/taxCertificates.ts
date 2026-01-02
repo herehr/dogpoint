@@ -1,18 +1,15 @@
 // backend/src/routes/taxCertificates.ts
-import { Router, type Request, type Response } from 'express'
+import { Router, type Response } from 'express'
 import { requireAuth } from '../middleware/authJwt'
 import { Role } from '@prisma/client'
 import { loadTaxRecipients } from '../services/taxQuery'
-
-// You said HTML is stored in backend/src/templates/...
-// Adjust imports to your real filenames:
-import { renderTaxCertificateHtml } from '../templates/taxCertificateHtml' // <- you have this
-import { htmlToPdfBuffer } from '../services/pdf' // <- small helper below, or your existing one
+import { renderTaxCertificateHtml } from '../templates/taxCertificateHtml'
+import { htmlToPdfBuffer } from '../services/pdf'
 import { sendEmailSafe } from '../services/email'
 
 const router = Router()
 
-function isAdmin(req: any) {
+function isAdmin(req: any): boolean {
   const role = String(req.user?.role || '')
   return role === Role.ADMIN || role === 'ADMIN'
 }
@@ -20,18 +17,22 @@ function isAdmin(req: any) {
 /**
  * ADMIN
  * POST /api/tax-certificates/run
- * body: {
- *   year?: number (default 2025)
- *   dryRun?: boolean
- *   includePledges?: boolean
- *   emails?: string[]
- *   userIds?: string[]
- *   limit?: number
+ *
+ * body:
+ * {
+ *   year?: number            // default 2025
+ *   dryRun?: boolean         // default true
+ *   includePledges?: boolean // default true
+ *   emails?: string[]        // optional filter
+ *   userIds?: string[]       // optional filter
+ *   limit?: number           // optional limit
  * }
  */
 router.post('/run', requireAuth, async (req: any, res: Response) => {
   try {
-    if (!isAdmin(req)) return res.status(403).json({ error: 'Forbidden' })
+    if (!isAdmin(req)) {
+      return res.status(403).json({ error: 'Forbidden' })
+    }
 
     const {
       year = 2025,
@@ -40,27 +41,43 @@ router.post('/run', requireAuth, async (req: any, res: Response) => {
       emails,
       userIds,
       limit,
-    } = (req.body || {}) as any
+    } = req.body || {}
 
-    const recipients = await loadTaxRecipients({
-      year: Number(year),
-      includePledges: Boolean(includePledges),
-      emails: Array.isArray(emails) ? emails : undefined,
-      userIds: Array.isArray(userIds) ? userIds : undefined,
-      limit: typeof limit === 'number' ? limit : undefined,
-    })
+    const yearNum = Number(year)
 
-    // quick summary
+    // 1) Load base recipients (REAL function signature)
+    let recipients = await loadTaxRecipients(yearNum, Boolean(includePledges))
+
+    // 2) Optional filters
+    if (Array.isArray(emails) && emails.length) {
+      const emailSet = new Set(
+        emails.map((e) => String(e).trim().toLowerCase()).filter(Boolean),
+      )
+      recipients = recipients.filter((r) =>
+        emailSet.has(r.email.trim().toLowerCase()),
+      )
+    }
+
+    if (Array.isArray(userIds) && userIds.length) {
+      const idSet = new Set(userIds.map((id) => String(id)))
+      recipients = recipients.filter((r) => idSet.has(r.userId))
+    }
+
+    if (typeof limit === 'number' && limit > 0) {
+      recipients = recipients.slice(0, limit)
+    }
+
+    // 3) Summary
     const summary = {
-      year: Number(year),
+      year: yearNum,
       dryRun: Boolean(dryRun),
       includePledges: Boolean(includePledges),
       recipients: recipients.length,
       totalCzk: recipients.reduce((s, r) => s + (r.totalCzk || 0), 0),
     }
 
+    // 4) DRY RUN → no emails, no PDFs
     if (dryRun) {
-      // return sample recipients (safe subset)
       return res.json({
         ok: true,
         summary,
@@ -72,30 +89,33 @@ router.post('/run', requireAuth, async (req: any, res: Response) => {
       })
     }
 
-    // SEND mode
+    // 5) SEND MODE
     const results: Array<{ email: string; ok: boolean; error?: string }> = []
 
     for (const r of recipients) {
       try {
-        // Build HTML for this recipient
         const html = renderTaxCertificateHtml({
-          year: Number(year),
+          year: yearNum,
           recipient: r,
           issuedAt: new Date(),
         })
 
-        // Convert to PDF
         const pdf = await htmlToPdfBuffer(html)
 
-        // Send email with PDF attached
         await sendEmailSafe({
           to: r.email,
-          subject: `Potvrzení o daru za rok ${year} – Dogpoint`,
-          text: `Dobrý den,\n\nv příloze zasíláme potvrzení o daru za rok ${year}.\n\nDěkujeme,\nDogpoint`,
-          html: `<p>Dobrý den,</p><p>v příloze zasíláme <strong>potvrzení o daru za rok ${year}</strong>.</p><p>Děkujeme,<br/>Dogpoint</p>`,
+          subject: `Potvrzení o daru za rok ${yearNum} – Dogpoint`,
+          text:
+            `Dobrý den,\n\n` +
+            `v příloze zasíláme potvrzení o daru za rok ${yearNum}.\n\n` +
+            `Děkujeme,\nDogpoint`,
+          html:
+            `<p>Dobrý den,</p>` +
+            `<p>v příloze zasíláme <strong>potvrzení o daru za rok ${yearNum}</strong>.</p>` +
+            `<p>Děkujeme,<br/>Dogpoint</p>`,
           attachments: [
             {
-              filename: `potvrzeni-o-daru-${year}.pdf`,
+              filename: `potvrzeni-o-daru-${yearNum}.pdf`,
               content: pdf,
               contentType: 'application/pdf',
             },
@@ -104,14 +124,24 @@ router.post('/run', requireAuth, async (req: any, res: Response) => {
 
         results.push({ email: r.email, ok: true })
       } catch (e: any) {
-        results.push({ email: r.email, ok: false, error: e?.message || String(e) })
+        results.push({
+          email: r.email,
+          ok: false,
+          error: e?.message || String(e),
+        })
       }
     }
 
     const sent = results.filter((x) => x.ok).length
     const failed = results.filter((x) => !x.ok).length
 
-    return res.json({ ok: true, summary, sent, failed, results })
+    return res.json({
+      ok: true,
+      summary,
+      sent,
+      failed,
+      results,
+    })
   } catch (e) {
     console.error('[tax-certificates] run error', e)
     return res.status(500).json({ error: 'Internal error' })

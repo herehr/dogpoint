@@ -1,5 +1,6 @@
 // backend/src/services/email.ts
 import nodemailer from 'nodemailer'
+import type { Attachment } from 'nodemailer/lib/mailer'
 
 const EMAIL_ENABLED = (process.env.EMAIL_ENABLED ?? '1') !== '0'
 
@@ -7,7 +8,7 @@ const host = process.env.EMAIL_HOST
 const port = Number(process.env.EMAIL_PORT || 587)
 const user = process.env.EMAIL_USER
 
-// ✅ accept either EMAIL_PASS or EMAIL_PASSWORD
+// accept either EMAIL_PASS or EMAIL_PASSWORD
 const pass = process.env.EMAIL_PASS || process.env.EMAIL_PASSWORD
 
 const from = process.env.EMAIL_FROM || user
@@ -43,57 +44,41 @@ const transporter =
       })
     : null
 
-export type SendEmailAttachment = {
-  filename: string
-  content: Buffer
-  contentType?: string
-}
-
 export type SendEmailArgs = {
   to: string
   subject: string
   html: string
   text?: string
-  attachments?: SendEmailAttachment[]
+  attachments?: Attachment[]
 }
 
-export async function sendEmail(
-  to: string,
-  subject: string,
-  html: string,
-  text?: string,
-  attachments?: SendEmailAttachment[],
-): Promise<void> {
+export async function sendEmail(args: SendEmailArgs): Promise<void> {
   if (!transporter) {
-    console.warn('[email] sendEmail skipped', { to, subject })
+    console.warn('[email] sendEmail skipped', { to: args.to, subject: args.subject })
     return
   }
 
   const info = await transporter.sendMail({
     from,
-    to,
-    subject,
-    html,
-    text,
-    attachments: attachments?.map((a) => ({
-      filename: a.filename,
-      content: a.content,
-      contentType: a.contentType,
-    })),
+    to: args.to,
+    subject: args.subject,
+    html: args.html,
+    text: args.text,
+    attachments: args.attachments,
   })
 
-  console.log('[email] sent', { to, subject, messageId: info.messageId })
+  console.log('[email] sent', { to: args.to, subject: args.subject, messageId: info.messageId })
 }
 
 export async function sendEmailSafe(args: SendEmailArgs): Promise<void> {
   try {
-    await sendEmail(args.to, args.subject, args.html, args.text, args.attachments)
+    await sendEmail(args)
   } catch (e: any) {
     console.error('[email] send failed', {
       to: args.to,
       subject: args.subject,
       error: e?.message || e,
     })
-    // ✅ never throw from “notification email”
+    // never throw from “notification email”
   }
 }
