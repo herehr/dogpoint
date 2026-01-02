@@ -19,6 +19,7 @@ RUN (npm ci --no-audit --no-fund || npm install --no-audit --no-fund) \
 COPY prisma ./prisma
 RUN npx prisma generate --schema=./prisma/schema.prisma
 
+
 # ---------- builder ----------
 FROM node:${NODE_VERSION}-alpine AS builder
 WORKDIR /app
@@ -31,14 +32,28 @@ COPY prisma ./prisma
 # compile TS → dist
 RUN echo "[builder] tsc..." && npx tsc && echo "[builder] build done."
 
+
 # ---------- runner ----------
 FROM node:${NODE_VERSION}-alpine AS runner
 ENV NODE_ENV=production \
     PORT=8080
 WORKDIR /app
 
-# ✅ ffmpeg MUST be here (runtime!)
-RUN apk add --no-cache ffmpeg libc6-compat
+# ✅ Runtime system deps
+# ffmpeg = media
+# chromium + fonts = puppeteer-core PDF rendering
+RUN apk add --no-cache \
+    ffmpeg \
+    libc6-compat \
+    chromium \
+    nss \
+    freetype \
+    harfbuzz \
+    ca-certificates \
+    ttf-freefont
+
+# Puppeteer expects this path
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
 COPY package.json package-lock.json ./
 COPY --from=deps /app/node_modules ./node_modules

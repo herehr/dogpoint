@@ -1,19 +1,24 @@
-export async function runTaxCertificatesJob(opts?: {
-  year?: number
-  dryRun?: boolean
+// backend/src/jobs/taxCertificatesJob.ts
+import { prisma } from '../prisma'
+import { loadTaxRecipients } from '../services/taxQuery'
+
+type Options = {
   emails?: string[]
   userIds?: string[]
   limit?: number
-}) {
-  const year = opts?.year ?? Number(process.env.TAX_YEAR || new Date().getFullYear() - 1)
-  const dryRun = Boolean(opts?.dryRun)
+}
 
-  const emails = opts?.emails?.map(e => e.trim().toLowerCase()).filter(Boolean)
-  const userIds = opts?.userIds?.map(s => s.trim()).filter(Boolean)
-  const limit = opts?.limit
+export async function getTaxCertificateRecipients(year: number, opts: Options = {}) {
+  const all = await loadTaxRecipients(year, true)
 
-  // IMPORTANT: adapt your query to accept filters
-  const recipients = await getTaxCertificateRecipients(prisma, year, { emails, userIds, limit })
+  const emails = (opts.emails ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean)
+  const userIds = (opts.userIds ?? []).map((x) => x.trim()).filter(Boolean)
 
-  // ... send loop as before
+  let out = all
+
+  if (emails.length) out = out.filter((r) => emails.includes(r.email.toLowerCase()))
+  if (userIds.length) out = out.filter((r) => userIds.includes(r.userId))
+  if (opts.limit && opts.limit > 0) out = out.slice(0, opts.limit)
+
+  return out
 }
