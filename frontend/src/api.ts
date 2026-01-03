@@ -216,6 +216,60 @@ export async function sendTaxRequestByEmail(email: string) {
   }>
 }
 
+/**
+ * Admin UI: list users for tax requests dropdown/checklist
+ * GET /api/tax/admin/users
+ */
+export type AdminTaxUser = {
+  id: string
+  email: string
+  // optional fields (backend may or may not send all)
+  firstName?: string | null
+  lastName?: string | null
+  street?: string | null
+  streetNo?: string | null
+  zip?: string | null
+  city?: string | null
+
+  // whether they already have a TaxProfile filled
+  hasTaxProfile?: boolean
+
+  // tracking
+  taxRequestSentAt?: string | null
+  taxRequestCount?: number | null
+}
+
+export async function adminTaxUsers(): Promise<AdminTaxUser[]> {
+  return getJSON<AdminTaxUser[]>('/api/tax/admin/users', {
+    headers: { ...authHeader() } as HeadersInit,
+  })
+}
+
+/**
+ * Admin UI: send batch tax emails
+ * POST /api/tax/send-batch
+ * We support userIds + optional recheck flag (backend can ignore if not used).
+ */
+export async function sendTaxBatch(payload: {
+  emails?: string[]
+  userIds?: string[]
+  recheck?: boolean
+}) {
+  const res = await fetch(apiUrl('/api/tax/send-batch'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeader() },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) {
+    throw new Error(`API ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`)
+  }
+  return res.json() as Promise<{
+    ok: boolean
+    processed: number
+    results: Array<{ email: string; ok: boolean; error?: string }>
+  }>
+}
+
 export async function runTaxCertificates(payload: {
   year?: number
   dryRun?: boolean
@@ -234,7 +288,6 @@ export async function runTaxCertificates(payload: {
   }
   return res.json()
 }
-
 
 /**
  * ✅ Align to backend: GET /api/adoption/my
@@ -486,6 +539,7 @@ export async function resetModeratorPassword(id: string, newPassword: string) {
     )
   return res.json()
 }
+
 // ---- Tax (public token form) ----
 export type TaxTokenInfo = {
   ok: boolean

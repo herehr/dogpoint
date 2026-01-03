@@ -39,6 +39,18 @@ function addDays(d: Date, days: number) {
   return x
 }
 
+/** ---- helper: profile completeness ---- */
+function profileComplete(p: any | null): boolean {
+  if (!p) return false
+  const s = (v: any) => (v ?? '').toString().trim()
+  const isCompany = Boolean(p.isCompany)
+
+  if (isCompany) {
+    return !!s(p.companyName) && !!s(p.taxId) && !!s(p.street) && !!s(p.zip) && !!s(p.city)
+  }
+  return !!s(p.firstName) && !!s(p.lastName) && !!s(p.street) && !!s(p.zip) && !!s(p.city)
+}
+
 /* ──────────────────────────────────────────────
    PUBLIC
    GET /api/tax/token/:token
@@ -156,15 +168,49 @@ router.post('/token/:token', async (req: Request, res: Response) => {
 
 /* ──────────────────────────────────────────────
    ADMIN
+   GET /api/tax/admin/users
+   Returns all users with email + taxProfile status
+────────────────────────────────────────────── */
+router.get('/admin/users', requireAuth, async (req: any, res: Response) => {
+  try {
+    if (!requireAdmin(req, res)) return
+
+    const users = await prisma.user.findMany({
+      select: { id: true, email: true, taxProfile: true },
+      orderBy: { email: 'asc' },
+    })
+
+    res.json({
+      ok: true,
+      users: users.map((u) => ({
+        id: u.id,
+        email: u.email,
+        hasTaxProfile: !!u.taxProfile,
+        profileComplete: profileComplete(u.taxProfile),
+      })),
+    })
+  } catch (e) {
+    console.error('[tax] GET /admin/users error', e)
+    res.status(500).json({ error: 'Internal error' })
+  }
+})
+
+/* ──────────────────────────────────────────────
+   ADMIN
    POST /api/tax/send
-   body: { email } or { userId }
+   body: { email } or { userId } + optional { recheck?: boolean }
    Creates token + sends email
 ────────────────────────────────────────────── */
 router.post('/send', requireAuth, async (req: any, res: Response) => {
   try {
     if (!requireAdmin(req, res)) return
 
-    const { email, userId } = (req.body || {}) as { email?: string; userId?: string }
+    const { email, userId, recheck } = (req.body || {}) as {
+      email?: string
+      userId?: string
+      recheck?: boolean
+    }
+
     if (!email && !userId) return res.status(400).json({ error: 'Missing email or userId' })
 
     const user = await prisma.user.findFirst({
@@ -193,8 +239,24 @@ router.post('/send', requireAuth, async (req: any, res: Response) => {
     })
 
     const link = `${APP_BASE_URL}/udaje-pro-potvrzeni?token=${encodeURIComponent(token)}`
-    const subject = 'Dogpoint – údaje pro potvrzení o daru'
-    const text = `Dobrý den,
+    const subject = recheck
+      ? 'Dogpoint – prosíme o kontrolu údajů pro potvrzení o daru'
+      : 'Dogpoint – údaje pro potvrzení o daru'
+
+    const text = recheck
+      ? `Dobrý den,
+
+prosíme o kontrolu (a případnou opravu) údajů pro vystavení potvrzení o daru.
+
+Otevřete tento odkaz:
+${link}
+
+Odkaz je platný do: ${expiresAt.toISOString().slice(0, 10)}
+
+Děkujeme,
+tým DOG-POINT
+`
+      : `Dobrý den,
 
 prosíme o doplnění údajů pro vystavení potvrzení o daru.
 
@@ -206,9 +268,14 @@ Odkaz je platný do: ${expiresAt.toISOString().slice(0, 10)}
 Děkujeme,
 tým DOG-POINT
 `
+
     const html = `<!doctype html><html><body style="font-family:Arial,Helvetica,sans-serif">
       <p>Dobrý den,</p>
-      <p>prosíme o doplnění údajů pro vystavení <strong>potvrzení o daru</strong>.</p>
+      <p>${
+        recheck
+          ? 'prosíme o <strong>kontrolu</strong> (a případnou opravu) údajů pro vystavení <strong>potvrzení o daru</strong>.'
+          : 'prosíme o <strong>doplnění</strong> údajů pro vystavení <strong>potvrzení o daru</strong>.'
+      }</p>
       <p><a href="${link}">Otevřít formulář</a></p>
       <p style="color:#666;font-size:12px">Platnost odkazu do: ${expiresAt.toISOString().slice(0, 10)}</p>
       <p>Děkujeme,<br/>tým DOG-POINT</p>
@@ -226,15 +293,22 @@ tým DOG-POINT
 /* ──────────────────────────────────────────────
    ADMIN
    POST /api/tax/send-batch
-   body: { emails?: string[], userIds?: string[] }
+   body: { emails?: string[], userIds?: string[], recheck?: boolean }
    Creates tokens + sends emails
 ────────────────────────────────────────────── */
 router.post('/send-batch', requireAuth, async (req: any, res: Response) => {
   try {
     if (!requireAdmin(req, res)) return
 
-    const { emails, userIds } = (req.body || {}) as { emails?: string[]; userIds?: string[] }
-    const listEmails = Array.isArray(emails) ? emails.map((s) => String(s).trim().toLowerCase()).filter(Boolean) : []
+    const { emails, userIds, recheck } = (req.body || {}) as {
+      emails?: string[]
+      userIds?: string[]
+      recheck?: boolean
+    }
+
+    const listEmails = Array.isArray(emails)
+      ? emails.map((s) => String(s).trim().toLowerCase()).filter(Boolean)
+      : []
     const listIds = Array.isArray(userIds) ? userIds.map((s) => String(s).trim()).filter(Boolean) : []
 
     if (listEmails.length === 0 && listIds.length === 0)
@@ -267,8 +341,22 @@ router.post('/send-batch', requireAuth, async (req: any, res: Response) => {
         })
 
         const link = `${APP_BASE_URL}/udaje-pro-potvrzeni?token=${encodeURIComponent(token)}`
-        const subject = 'Dogpoint – údaje pro potvrzení o daru'
-        const text = `Dobrý den,
+        const subject = recheck
+          ? 'Dogpoint – prosíme o kontrolu údajů pro potvrzení o daru'
+          : 'Dogpoint – údaje pro potvrzení o daru'
+
+        const text = recheck
+          ? `Dobrý den,
+
+prosíme o kontrolu (a případnou opravu) údajů pro vystavení potvrzení o daru.
+
+Otevřete tento odkaz:
+${link}
+
+Děkujeme,
+tým DOG-POINT
+`
+          : `Dobrý den,
 
 prosíme o doplnění údajů pro vystavení potvrzení o daru.
 
@@ -278,11 +366,17 @@ ${link}
 Děkujeme,
 tým DOG-POINT
 `
+
         const html = `<!doctype html><html><body style="font-family:Arial,Helvetica,sans-serif">
           <p>Dobrý den,</p>
-          <p>prosíme o doplnění údajů pro vystavení <strong>potvrzení o daru</strong>.</p>
+          <p>${
+            recheck
+              ? 'Prosíme o <strong>kontrolu</strong> (a případnou opravu) údajů pro potvrzení o daru.'
+              : 'Prosíme o <strong>doplnění</strong> údajů pro potvrzení o daru.'
+          }</p>
           <p><a href="${link}">Otevřít formulář</a></p>
-          <p>Děkujeme,<br/>tým DOG-POINT</p>
+          <p style="color:#666;font-size:12px">Platnost odkazu do: ${expiresAt.toISOString().slice(0, 10)}</p>
+          <p>Děkujeme,<br/>Dogpoint</p>
         </body></html>`
 
         await sendEmailSafe({ to: u.email, subject, text, html })
