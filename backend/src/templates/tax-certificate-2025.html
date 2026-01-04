@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Potvrzení o bezúplatném plnění</title>
+  <style>
+    /* ─────────────────────────────────────────────
+       PRINT SETUP (Puppeteer-friendly)
+    ───────────────────────────────────────────── */
+    @page {
+      size: A4;
+      margin: 14mm 14mm 14mm 14mm;
+    }
+    html, body {
+      height: 100%;
+      background: #fff;
+      color: #111;
+      font-family: Arial, Helvetica, sans-serif;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    /* ─────────────────────────────────────────────
+       LAYOUT
+    ───────────────────────────────────────────── */
+    .page {
+      position: relative;
+      width: 100%;
+      min-height: 100%;
+      box-sizing: border-box;
+    }
+
+    .top {
+      display: grid;
+      grid-template-columns: 1fr 1.35fr;
+      gap: 10mm;
+      align-items: start;
+      margin-bottom: 8mm;
+    }
+
+    /* Left: logo + address block */
+    .brand {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 6mm;
+      align-items: start;
+    }
+
+    .logoBox {
+      width: 42mm;
+      height: 18mm;
+      display: grid;
+      place-items: center;
+      border: 0;
+      color: #111;
+      font-weight: 900;
+      letter-spacing: 0.4px;
+      line-height: 1;
+      font-size: 18px;
+      text-transform: uppercase;
+    }
+    .logoBox span {
+      display: block;
+    }
+    .logoBox .dog { color: #111; }
+    .logoBox .point { color: #18a7b5; }
+
+    .addr {
+      font-size: 11px;
+      line-height: 1.35;
+      color: #111;
+    }
+    .addr .muted { color: #444; }
+    .addr a { color: #111; text-decoration: none; }
+
+    /* Right: big heading */
+    .headline {
+      text-align: right;
+      padding-top: 2mm;
+    }
+    .headline .h1 {
+      font-size: 34px;
+      font-weight: 900;
+      letter-spacing: 0.4px;
+      color: #18a7b5; /* turquoise */
+      line-height: 1.02;
+    }
+    .headline .h2 {
+      margin-top: 2mm;
+      font-size: 20px;
+      font-weight: 900;
+      letter-spacing: 0.5px;
+      color: #18a7b5;
+      line-height: 1.05;
+    }
+    .headline .sub {
+      margin-top: 2mm;
+      font-size: 12px;
+      color: #333;
+      line-height: 1.35;
+    }
+
+    /* Main content */
+    .content {
+      margin-top: 2mm;
+    }
+
+    .intro {
+      font-size: 12px;
+      line-height: 1.45;
+      margin: 0 0 6mm 0;
+      color: #111;
+    }
+
+    /* Pink “filled text” block like in screenshot */
+    .pink {
+      color: #e0447d; /* pink/red */
+      font-size: 12px;
+      line-height: 1.45;
+      margin: 0 0 6mm 0;
+      white-space: pre-line;
+    }
+
+    /* 3-column contributions like the screenshot */
+    .contribGrid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 6mm;
+      margin: 6mm 0 8mm 0;
+    }
+    .contribCol {
+      font-size: 11.5px;
+      line-height: 1.5;
+      color: #e0447d;
+    }
+    .contribRow {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .footerText {
+      font-size: 11px;
+      line-height: 1.45;
+      color: #111;
+      margin-top: 2mm;
+    }
+    .footerText .pink2 { color: #e0447d; }
+
+    /* Bottom band (simple wave-like feel) */
+    .bottomArt {
+      position: absolute;
+      left: -14mm;
+      right: -14mm;
+      bottom: -14mm;
+      height: 48mm;
+      background: radial-gradient(120mm 60mm at 20% 70%, rgba(24,167,181,0.20), rgba(24,167,181,0) 60%),
+                  radial-gradient(140mm 70mm at 85% 100%, rgba(24,167,181,0.18), rgba(24,167,181,0) 60%);
+      pointer-events: none;
+    }
+
+    /* Stamp + signature area */
+    .signRow {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10mm;
+      align-items: end;
+      margin-top: 8mm;
+      position: relative;
+      z-index: 2;
+    }
+
+    .stamp {
+      width: 60mm;
+      height: 30mm;
+      border: 1px dashed rgba(24,167,181,0.8);
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      color: rgba(24,167,181,0.9);
+      font-weight: 800;
+      font-size: 12px;
+    }
+
+    .sig {
+      text-align: right;
+      font-size: 12px;
+      line-height: 1.35;
+      color: #111;
+    }
+    .sig .name {
+      margin-top: 10mm;
+      font-weight: 900;
+    }
+    .sig .role {
+      font-size: 11px;
+      color: #333;
+    }
+
+    /* Helpers */
+    .small {
+      font-size: 11px;
+      color: #444;
+    }
+    .hr {
+      height: 1px;
+      background: rgba(0,0,0,0.08);
+      margin: 4mm 0 6mm 0;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="page">
+    <div class="top">
+      <!-- LEFT: logo + contact -->
+      <div class="brand">
+        <div class="logoBox" aria-label="DOGPOINT">
+          <span class="dog">DOG</span>
+          <span class="point">POINT</span>
+        </div>
+
+        <div class="addr">
+          <div><strong>{{ORG_STREET_LINE}}</strong></div>
+          <div class="muted">č.ú.: {{ORG_BANK_ACCOUNT}}</div>
+          <div class="muted">IČO: {{ORG_ICO}}</div>
+          <div class="muted">E-mail: <a href="mailto:{{ORG_EMAIL}}">{{ORG_EMAIL}}</a></div>
+          <div class="muted">www: <a href="{{ORG_WEB}}">{{ORG_WEB}}</a></div>
+        </div>
+      </div>
+
+      <!-- RIGHT: main heading -->
+      <div class="headline">
+        <div class="h1">POTVRZENÍ</div>
+        <div class="h2">O BEZÚPLATNÉM PLNĚNÍ ZA ROK {{YEAR}}</div>
+        <div class="sub">
+          poskytnutého obecně prospěšné společnosti {{ORG_NAME}}.
+        </div>
+      </div>
+    </div>
+
+    <div class="content">
+      <p class="intro">
+        Kdyby naši psi svěřenci mohli podepisovat dokumenty, připojili by sem teď otisk tlapky.
+        Ale tohle je potřeba udělat správně, oficiálně.
+      </p>
+
+      <!-- “Pink” filled-out certificate text -->
+      <p class="pink">
+Tímto potvrzujeme, že {{TAX_SUBJECT_NAME}}, narozen/a {{BIRTHDATE_OR_NULL}}, bytem nebo sídlem {{TAX_ADDRESS_FULL}},
+poskytl/a v roce {{YEAR}} společnosti {{ORG_NAME}} finanční dar celkem ve výši {{TOTAL_AMOUNT_CZK}} Kč,
+a to v těchto příspěvcích:
+      </p>
+
+      <!-- Contributions in 3 columns (like screenshot) -->
+      <div class="contribGrid">
+        <div class="contribCol">
+          {{#COL1}}
+          <div class="contribRow">dne {{date}} částkou {{amount}} Kč</div>
+          {{/COL1}}
+        </div>
+        <div class="contribCol">
+          {{#COL2}}
+          <div class="contribRow">dne {{date}} částkou {{amount}} Kč</div>
+          {{/COL2}}
+        </div>
+        <div class="contribCol">
+          {{#COL3}}
+          <div class="contribRow">dne {{date}} částkou {{amount}} Kč</div>
+          {{/COL3}}
+        </div>
+      </div>
+
+      <div class="footerText">
+        <div class="pink2">
+          Příspěvky dorazily na účet číslo {{ORG_BANK_ACCOUNT}} patřící {{ORG_NAME}}.
+        </div>
+        <div class="pink2">
+          Dárkyně / dárce si může hodnotu tohoto daru odečíst od základu daně dle podmínek § 15 odst. 1 nebo § 20 odst. 8
+          zákona č. 586/1992 Sb. o daních z příjmů v znění pozdějších předpisů. Děkujeme za vaši štědrost.
+        </div>
+      </div>
+
+      <div class="signRow">
+        <div>
+          <div class="stamp">RAZÍTKO</div>
+        </div>
+        <div class="sig">
+          <div class="small">{{PLACE}}, dne {{ISSUE_DATE}}</div>
+          <div class="name">{{SIGN_NAME}}</div>
+          <div class="role">{{SIGN_ROLE}}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="bottomArt"></div>
+  </div>
+</body>
+</html>

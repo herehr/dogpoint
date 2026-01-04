@@ -7,7 +7,7 @@ const host = process.env.EMAIL_HOST
 const port = Number(process.env.EMAIL_PORT || 587)
 const user = process.env.EMAIL_USER
 
-// ✅ accept either EMAIL_PASS or EMAIL_PASSWORD (your code uses both)
+// accept either EMAIL_PASS or EMAIL_PASSWORD
 const pass = process.env.EMAIL_PASS || process.env.EMAIL_PASSWORD
 
 const from = process.env.EMAIL_FROM || user
@@ -25,12 +25,7 @@ if (!EMAIL_ENABLED) {
     port,
   })
 } else {
-  console.log('[email] SMTP configured', {
-    host,
-    port,
-    secure,
-    from,
-  })
+  console.log('[email] SMTP configured', { host, port, secure, from })
 }
 
 const transporter =
@@ -43,28 +38,97 @@ const transporter =
       })
     : null
 
+export type EmailAttachment = {
+  filename: string
+  content: Buffer | string
+  contentType?: string
+}
+
 export type SendEmailArgs = {
   to: string
   subject: string
   html: string
   text?: string
+  attachments?: EmailAttachment[]
 }
 
-export async function sendEmail(to: string, subject: string, html: string, text?: string): Promise<void> {
+/**
+ * sendEmail supports BOTH styles:
+ *  - sendEmail({ to, subject, html, text?, attachments? })
+ *  - sendEmail(to, subject, html, text?)
+ */
+export function sendEmail(args: SendEmailArgs): Promise<void>
+export function sendEmail(
+  to: string,
+  subject: string,
+  html: string,
+  text?: string,
+): Promise<void>
+export async function sendEmail(
+  a: SendEmailArgs | string,
+  subject?: string,
+  html?: string,
+  text?: string,
+): Promise<void> {
+  const payload: SendEmailArgs =
+    typeof a === 'string'
+      ? { to: a, subject: subject || '', html: html || '', text }
+      : a
+
   if (!transporter) {
-    console.warn('[email] sendEmail skipped', { to, subject })
+    console.warn('[email] sendEmail skipped', {
+      to: payload.to,
+      subject: payload.subject,
+    })
     return
   }
 
-  const info = await transporter.sendMail({ from, to, subject, html, text })
-  console.log('[email] sent', { to, subject, messageId: info.messageId })
+  const info = await transporter.sendMail({
+    from,
+    to: payload.to,
+    subject: payload.subject,
+    html: payload.html,
+    text: payload.text,
+    attachments: payload.attachments,
+  })
+
+  console.log('[email] sent', {
+    to: payload.to,
+    subject: payload.subject,
+    messageId: info.messageId,
+  })
 }
 
-export async function sendEmailSafe(args: SendEmailArgs): Promise<void> {
+/**
+ * sendEmailSafe supports BOTH styles and NEVER throws
+ */
+export function sendEmailSafe(args: SendEmailArgs): Promise<void>
+export function sendEmailSafe(
+  to: string,
+  subject: string,
+  html: string,
+  text?: string,
+): Promise<void>
+export async function sendEmailSafe(
+  a: SendEmailArgs | string,
+  subject?: string,
+  html?: string,
+  text?: string,
+): Promise<void> {
   try {
-    await sendEmail(args.to, args.subject, args.html, args.text)
+    if (typeof a === 'string') {
+      await sendEmail(a, subject || '', html || '', text)
+    } else {
+      await sendEmail(a)
+    }
   } catch (e: any) {
-    console.error('[email] send failed', { to: args.to, subject: args.subject, error: e?.message || e })
-    // ✅ never throw from “notification email”
+    const to = typeof a === 'string' ? a : a.to
+    const subj = typeof a === 'string' ? subject : a.subject
+    console.error('[email] send failed', {
+      to,
+      subject: subj,
+      error: e?.message || e,
+    })
+    // intentionally swallow errors
   }
 }
