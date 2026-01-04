@@ -5,6 +5,7 @@ import { prisma } from '../prisma'
 import { requireAuth } from '../middleware/authJwt'
 import { Role } from '@prisma/client'
 import { sendEmailSafe } from '../services/email'
+import { renderTaxRequestEmailHtml } from '../templates/taxRequestEmailHtml'
 
 const router = Router()
 
@@ -93,9 +94,7 @@ router.get('/token/:token', async (req: Request, res: Response) => {
         id: row.user.id,
         email: row.user.email,
       },
-      // existing saved tax profile (if any)
       taxProfile: row.user.taxProfile,
-      // defaults from User (so you can prefill)
       defaults: {
         firstName: row.user.firstName,
         lastName: row.user.lastName,
@@ -133,7 +132,6 @@ router.post('/token/:token', async (req: Request, res: Response) => {
 
     const body = (req.body || {}) as any
 
-    // Minimal normalization
     const payload = {
       isCompany: Boolean(body.isCompany),
       companyName: (body.companyName ?? '').toString().trim() || null,
@@ -146,15 +144,14 @@ router.post('/token/:token', async (req: Request, res: Response) => {
       city: (body.city ?? '').toString().trim() || null,
     }
 
-    const result = await prisma.$transaction(async (tx) => {
-      // Upsert tax profile (1:1 via userId unique)
-      const profile = await tx.taxProfile.upsert({
+    const profile = await prisma.$transaction(async (tx) => {
+      const p = await tx.taxProfile.upsert({
         where: { userId: row.userId },
         create: { userId: row.userId, ...payload },
         update: { ...payload },
       })
 
-      // ✅ ALSO write basic person/address back into User table (for admin UI + defaults)
+      // ✅ Write address/name back to User (this fixes your admin UI / defaults issue)
       await tx.user.update({
         where: { id: row.userId },
         data: {
@@ -167,16 +164,15 @@ router.post('/token/:token', async (req: Request, res: Response) => {
         },
       })
 
-      // Mark token used
       await tx.taxRequestToken.update({
         where: { id: row.id },
         data: { usedAt: new Date() },
       })
 
-      return profile
+      return p
     })
 
-    res.json({ ok: true, profile: result })
+    res.json({ ok: true, profile })
   } catch (e) {
     console.error('[tax] POST /token/:token error', e)
     res.status(500).json({ error: 'Internal error' })
@@ -187,13 +183,26 @@ router.post('/token/:token', async (req: Request, res: Response) => {
    ADMIN
    GET /api/tax/admin/users
    Returns all users with email + taxProfile status
+   (and ALSO returns User fields so the admin UI can show filled address)
 ────────────────────────────────────────────── */
 router.get('/admin/users', requireAuth, async (req: any, res: Response) => {
   try {
     if (!requireAdmin(req, res)) return
 
     const users = await prisma.user.findMany({
-      select: { id: true, email: true, taxProfile: true },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        street: true,
+        streetNo: true,
+        zip: true,
+        city: true,
+        taxRequestSentAt: true,
+        taxRequestCount: true,
+        taxProfile: true,
+      },
       orderBy: { email: 'asc' },
     })
 
@@ -202,6 +211,20 @@ router.get('/admin/users', requireAuth, async (req: any, res: Response) => {
       users: users.map((u) => ({
         id: u.id,
         email: u.email,
+
+        // ✅ include these for UI
+        firstName: u.firstName,
+        lastName: u.lastName,
+        street: u.street,
+        streetNo: u.streetNo,
+        zip: u.zip,
+        city: u.city,
+
+        // tracking
+        taxRequestSentAt: u.taxRequestSentAt,
+        taxRequestCount: u.taxRequestCount,
+
+        // tax profile status
         hasTaxProfile: !!u.taxProfile,
         profileComplete: profileComplete(u.taxProfile),
       })),
@@ -232,7 +255,7 @@ router.post('/send', requireAuth, async (req: any, res: Response) => {
 
     const user = await prisma.user.findFirst({
       where: userId ? { id: userId } : { email: String(email).trim().toLowerCase() },
-      select: { id: true, email: true, taxRequestCount: true },
+      select: { id: true, email: true },
     })
     if (!user) return res.status(404).json({ error: 'User not found' })
 
@@ -264,10 +287,10 @@ prosíme o kontrolu (a případnou opravu) údajů pro vystavení potvrzení o d
 Otevřete tento odkaz:
 ${link}
 
-Odkaz je platný do: ${expiresAt.toISOString().slice(0, 10)}
+Platnost odkazu do: ${expiresAt.toISOString().slice(0, 10)}
 
 Děkujeme,
-tým DOG-POINT
+Dogpoint
 `
       : `Dobrý den,
 
@@ -276,23 +299,18 @@ prosíme o doplnění údajů pro vystavení potvrzení o daru.
 Otevřete tento odkaz:
 ${link}
 
-Odkaz je platný do: ${expiresAt.toISOString().slice(0, 10)}
+Platnost odkazu do: ${expiresAt.toISOString().slice(0, 10)}
 
 Děkujeme,
-tým DOG-POINT
+Dogpoint
 `
 
-    const html = `<!doctype html><html><body style="font-family:Arial,Helvetica,sans-serif">
-      <p>Dobrý den,</p>
-      <p>${
-        recheck
-          ? 'prosíme o <strong>kontrolu</strong> (a případnou opravu) údajů pro vystavení <strong>potvrzení o daru</strong>.'
-          : 'prosíme o <strong>doplnění</strong> údajů pro vystavení <strong>potvrzení o daru</strong>.'
-      }</p>
-      <p><a href="${link}">Otevřít formulář</a></p>
-      <p style="color:#666;font-size:12px">Platnost odkazu do: ${expiresAt.toISOString().slice(0, 10)}</p>
-      <p>Děkujeme,<br/>tým DOG-POINT</p>
-    </body></html>`
+    // ✅ Use the new nice template
+    const html = renderTaxRequestEmailHtml({
+      link,
+      expiresDate: expiresAt.toISOString().slice(0, 10),
+      recheck: Boolean(recheck),
+    })
 
     await sendEmailSafe({ to: user.email, subject, text, html })
     res.json({ ok: true, sentTo: user.email, expiresAt, link })
@@ -320,7 +338,9 @@ router.post('/send-batch', requireAuth, async (req: any, res: Response) => {
     const listEmails = Array.isArray(emails)
       ? emails.map((s) => String(s).trim().toLowerCase()).filter(Boolean)
       : []
-    const listIds = Array.isArray(userIds) ? userIds.map((s) => String(s).trim()).filter(Boolean) : []
+    const listIds = Array.isArray(userIds)
+      ? userIds.map((s) => String(s).trim()).filter(Boolean)
+      : []
 
     if (listEmails.length === 0 && listIds.length === 0)
       return res.status(400).json({ error: 'Missing emails or userIds' })
@@ -348,7 +368,10 @@ router.post('/send-batch', requireAuth, async (req: any, res: Response) => {
 
         await prisma.user.update({
           where: { id: u.id },
-          data: { taxRequestSentAt: new Date(), taxRequestCount: { increment: 1 } },
+          data: {
+            taxRequestSentAt: new Date(),
+            taxRequestCount: { increment: 1 },
+          },
         })
 
         const link = `${APP_BASE_URL}/udaje-pro-potvrzeni?token=${encodeURIComponent(token)}`
@@ -364,8 +387,10 @@ prosíme o kontrolu (a případnou opravu) údajů pro vystavení potvrzení o d
 Otevřete tento odkaz:
 ${link}
 
+Platnost odkazu do: ${expiresAt.toISOString().slice(0, 10)}
+
 Děkujeme,
-tým DOG-POINT
+Dogpoint
 `
           : `Dobrý den,
 
@@ -374,21 +399,17 @@ prosíme o doplnění údajů pro vystavení potvrzení o daru.
 Otevřete tento odkaz:
 ${link}
 
+Platnost odkazu do: ${expiresAt.toISOString().slice(0, 10)}
+
 Děkujeme,
-tým DOG-POINT
+Dogpoint
 `
 
-        const html = `<!doctype html><html><body style="font-family:Arial,Helvetica,sans-serif">
-          <p>Dobrý den,</p>
-          <p>${
-            recheck
-              ? 'Prosíme o <strong>kontrolu</strong> (a případnou opravu) údajů pro potvrzení o daru.'
-              : 'Prosíme o <strong>doplnění</strong> údajů pro potvrzení o daru.'
-          }</p>
-          <p><a href="${link}">Otevřít formulář</a></p>
-          <p style="color:#666;font-size:12px">Platnost odkazu do: ${expiresAt.toISOString().slice(0, 10)}</p>
-          <p>Děkujeme,<br/>Dogpoint</p>
-        </body></html>`
+        const html = renderTaxRequestEmailHtml({
+          link,
+          expiresDate: expiresAt.toISOString().slice(0, 10),
+          recheck: Boolean(recheck),
+        })
 
         await sendEmailSafe({ to: u.email, subject, text, html })
         results.push({ email: u.email, ok: true })
