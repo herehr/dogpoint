@@ -110,9 +110,7 @@ export async function createAnimal(payload: Partial<Animal>) {
     body: JSON.stringify(payload),
   })
   if (!res.ok)
-    throw new Error(
-      `API ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`,
-    )
+    throw new Error(`API ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`)
   return res.json()
 }
 
@@ -123,9 +121,7 @@ export async function updateAnimal(id: string, payload: Partial<Animal>) {
     body: JSON.stringify(payload),
   })
   if (!res.ok)
-    throw new Error(
-      `API ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`,
-    )
+    throw new Error(`API ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`)
   return res.json()
 }
 
@@ -135,9 +131,7 @@ export async function deleteAnimal(id: string) {
     headers: { ...authHeader() },
   })
   if (!res.ok)
-    throw new Error(
-      `API ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`,
-    )
+    throw new Error(`API ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`)
   return res.json()
 }
 
@@ -178,11 +172,8 @@ export async function loginAdmin(
 
   const data = (await res.json()) as { token: string; role?: 'ADMIN' | 'MODERATOR' | 'USER' }
 
-  // ✅ THIS is the important fix
   sessionStorage.setItem('adminToken', data.token)
   sessionStorage.setItem('accessToken', data.token)
-
-  // optional: avoid accidentally using a moderator token later
   sessionStorage.removeItem('moderatorToken')
 
   return data
@@ -203,9 +194,7 @@ export async function sendTaxRequestByEmail(email: string) {
   })
 
   if (!res.ok) {
-    throw new Error(
-      `API ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`,
-    )
+    throw new Error(`API ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`)
   }
 
   return res.json() as Promise<{
@@ -218,37 +207,30 @@ export async function sendTaxRequestByEmail(email: string) {
 
 /**
  * Admin UI: list users for tax requests dropdown/checklist
+ * Backend returns: { ok: true, users: [...] }
  * GET /api/tax/admin/users
  */
 export type AdminTaxUser = {
   id: string
   email: string
-  // optional fields (backend may or may not send all)
-  firstName?: string | null
-  lastName?: string | null
-  street?: string | null
-  streetNo?: string | null
-  zip?: string | null
-  city?: string | null
-
-  // whether they already have a TaxProfile filled
-  hasTaxProfile?: boolean
-
-  // tracking
-  taxRequestSentAt?: string | null
-  taxRequestCount?: number | null
+  hasTaxProfile: boolean
+  profileComplete: boolean
 }
 
 export async function adminTaxUsers(): Promise<AdminTaxUser[]> {
-  return getJSON<AdminTaxUser[]>('/api/tax/admin/users', {
-    headers: { ...authHeader() } as HeadersInit,
+  const res = await fetch(apiUrl('/api/tax/admin/users'), {
+    headers: { 'Content-Type': 'application/json', ...authHeader() },
   })
+  if (!res.ok) {
+    throw new Error(`API ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`)
+  }
+  const data = (await res.json()) as { ok?: boolean; users?: AdminTaxUser[] }
+  return Array.isArray(data.users) ? data.users : []
 }
 
 /**
  * Admin UI: send batch tax emails
  * POST /api/tax/send-batch
- * We support userIds + optional recheck flag (backend can ignore if not used).
  */
 export async function sendTaxBatch(payload: {
   emails?: string[]
@@ -291,55 +273,41 @@ export async function runTaxCertificates(payload: {
 
 /**
  * ✅ Align to backend: GET /api/adoption/my
- * (your backend does NOT have /me or /my-animals)
  */
 export async function myAdoptedAnimals(): Promise<MyAdoptedItem[]> {
   const res = await fetch(apiUrl('/api/adoption/my'), {
     headers: { 'Content-Type': 'application/json', ...authHeader() },
   })
   if (!res.ok)
-    throw new Error(
-      `API ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`,
-    )
+    throw new Error(`API ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`)
   return res.json()
 }
 
-/** Backward compatible alias (if somewhere still calls getAdoptionMe) */
+/** Backward compatible alias */
 export async function getAdoptionMe() {
   return myAdoptedAnimals()
 }
 
 /** Mark all new updates for given animal as seen — ✅ aligns to /api/adoption/seen */
-export async function markAnimalSeen(
-  animalId: string,
-): Promise<{ ok: boolean }> {
+export async function markAnimalSeen(animalId: string): Promise<{ ok: boolean }> {
   const res = await fetch(apiUrl('/api/adoption/seen'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeader() },
     body: JSON.stringify({ animalId }),
   })
   if (!res.ok)
-    throw new Error(
-      `API ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`,
-    )
+    throw new Error(`API ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`)
   return res.json()
 }
 
-export async function startAdoption(
-  animalId: string,
-  email: string,
-  name: string,
-  monthly: number,
-) {
+export async function startAdoption(animalId: string, email: string, name: string, monthly: number) {
   const res = await fetch(apiUrl('/api/adoption/start'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeader() },
     body: JSON.stringify({ animalId, email, name, monthly }),
   })
   if (!res.ok)
-    throw new Error(
-      `API ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`,
-    )
+    throw new Error(`API ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`)
   return res.json()
 }
 
@@ -350,9 +318,7 @@ export async function endAdoption(animalId: string) {
     body: JSON.stringify({ animalId }),
   })
   if (!res.ok)
-    throw new Error(
-      `API ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`,
-    )
+    throw new Error(`API ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`)
   return res.json()
 }
 
@@ -364,17 +330,17 @@ export async function setPasswordFirstTime(email: string, password: string) {
   })
 
   if (!res.ok) {
-    throw new Error(
-      `API ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`,
-    )
+    throw new Error(`API ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`)
   }
 
-  const data = (await res.json()) as { ok?: boolean; token?: string; role?: 'ADMIN' | 'MODERATOR' | 'USER' }
+  const data = (await res.json()) as {
+    ok?: boolean
+    token?: string
+    role?: 'ADMIN' | 'MODERATOR' | 'USER'
+  }
 
-  // ✅ IMPORTANT: store token so you are actually logged in after setting password
   if (data?.token) {
     sessionStorage.setItem('accessToken', data.token)
-
     if (data.role === 'ADMIN') sessionStorage.setItem('adminToken', data.token)
     if (data.role === 'MODERATOR') sessionStorage.setItem('moderatorToken', data.token)
   }
@@ -384,10 +350,7 @@ export async function setPasswordFirstTime(email: string, password: string) {
 
 // ---- Posts ----
 
-export async function listPostsPublic(params?: {
-  animalId?: string
-  limit?: number
-}) {
+export async function listPostsPublic(params?: { animalId?: string; limit?: number }) {
   const q = new URLSearchParams()
   if (params?.animalId) q.set('animalId', params.animalId)
   if (params?.limit) q.set('limit', String(params.limit))
@@ -405,14 +368,11 @@ export async function listPostsPublic(params?: {
       headers: { 'Content-Type': 'application/json' },
     })
     if (!alt.ok)
-      throw new Error(
-        `API ${alt.status}: ${(await alt.text().catch(() => '')) || alt.statusText}`,
-      )
+      throw new Error(`API ${alt.status}: ${(await alt.text().catch(() => '')) || alt.statusText}`)
     return alt.json()
   }
-  throw new Error(
-    `API ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`,
-  )
+
+  throw new Error(`API ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`)
 }
 
 export async function createPost(post: {
@@ -427,9 +387,7 @@ export async function createPost(post: {
     body: JSON.stringify(post),
   })
   if (!res.ok)
-    throw new Error(
-      `API ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`,
-    )
+    throw new Error(`API ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`)
   return res.json()
 }
 
@@ -450,11 +408,11 @@ export async function uploadMedia(file: File) {
     body: fd,
   })
   if (!res.ok)
-    throw new Error(
-      `Upload ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`,
-    )
+    throw new Error(`Upload ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`)
+
   const data = await res.json().catch(() => ({}))
   const payload = (data?.data ?? data) as any
+
   return {
     url: payload.url,
     key: payload.key,
@@ -462,7 +420,6 @@ export async function uploadMedia(file: File) {
   }
 }
 
-/** Optional batch helper kept for legacy callers */
 export async function uploadMediaMany(files: File[]) {
   const out: any[] = []
   for (const f of files) {
@@ -491,9 +448,7 @@ export async function createModerator(
     body: JSON.stringify({ email, password, role }),
   })
   if (!res.ok)
-    throw new Error(
-      `API ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`,
-    )
+    throw new Error(`API ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`)
   return res.json()
 }
 
@@ -504,9 +459,7 @@ export async function updateModerator(id: string, patch: Partial<Moderator>) {
     body: JSON.stringify(patch),
   })
   if (!res.ok)
-    throw new Error(
-      `API ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`,
-    )
+    throw new Error(`API ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`)
   return res.json()
 }
 
@@ -516,31 +469,23 @@ export async function deleteModerator(id: string) {
     headers: { ...authHeader() },
   })
   if (!res.ok)
-    throw new Error(
-      `API ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`,
-    )
+    throw new Error(`API ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`)
   return res.json()
 }
 
-/** Reset a moderator’s password (admin only) */
-/** Reset a moderator’s password (admin only) */
 export async function resetModeratorPassword(id: string, newPassword: string) {
-  const res = await fetch(
-    apiUrl(`/api/admin/moderators/${encodeURIComponent(id)}/password`), // ✅ CHANGED PATH
-    {
-      method: 'PATCH', // ✅ CHANGED METHOD
-      headers: { 'Content-Type': 'application/json', ...authHeader() },
-      body: JSON.stringify({ password: newPassword }),
-    },
-  )
+  const res = await fetch(apiUrl(`/api/admin/moderators/${encodeURIComponent(id)}/password`), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...authHeader() },
+    body: JSON.stringify({ password: newPassword }),
+  })
   if (!res.ok)
-    throw new Error(
-      `API ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`,
-    )
+    throw new Error(`API ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`)
   return res.json()
 }
 
 // ---- Tax (public token form) ----
+
 export type TaxTokenInfo = {
   ok: boolean
   token: string
