@@ -114,7 +114,7 @@ router.get('/token/:token', async (req: Request, res: Response) => {
 /* ──────────────────────────────────────────────
    PUBLIC
    POST /api/tax/token/:token
-   Save data into TaxProfile + mark token used
+   Save data into TaxProfile + ALSO update User defaults + mark token used
 ────────────────────────────────────────────── */
 router.post('/token/:token', async (req: Request, res: Response) => {
   try {
@@ -146,20 +146,37 @@ router.post('/token/:token', async (req: Request, res: Response) => {
       city: (body.city ?? '').toString().trim() || null,
     }
 
-    // Upsert tax profile (1:1 via userId unique)
-    const profile = await prisma.taxProfile.upsert({
-      where: { userId: row.userId },
-      create: { userId: row.userId, ...payload },
-      update: { ...payload },
+    const result = await prisma.$transaction(async (tx) => {
+      // Upsert tax profile (1:1 via userId unique)
+      const profile = await tx.taxProfile.upsert({
+        where: { userId: row.userId },
+        create: { userId: row.userId, ...payload },
+        update: { ...payload },
+      })
+
+      // ✅ ALSO write basic person/address back into User table (for admin UI + defaults)
+      await tx.user.update({
+        where: { id: row.userId },
+        data: {
+          firstName: payload.firstName,
+          lastName: payload.lastName,
+          street: payload.street,
+          streetNo: payload.streetNo,
+          zip: payload.zip,
+          city: payload.city,
+        },
+      })
+
+      // Mark token used
+      await tx.taxRequestToken.update({
+        where: { id: row.id },
+        data: { usedAt: new Date() },
+      })
+
+      return profile
     })
 
-    // Mark token used
-    await prisma.taxRequestToken.update({
-      where: { id: row.id },
-      data: { usedAt: new Date() },
-    })
-
-    res.json({ ok: true, profile })
+    res.json({ ok: true, profile: result })
   } catch (e) {
     console.error('[tax] POST /token/:token error', e)
     res.status(500).json({ error: 'Internal error' })
@@ -223,11 +240,7 @@ router.post('/send', requireAuth, async (req: any, res: Response) => {
     const expiresAt = addDays(new Date(), 30)
 
     await prisma.taxRequestToken.create({
-      data: {
-        token,
-        userId: user.id,
-        expiresAt,
-      },
+      data: { token, userId: user.id, expiresAt },
     })
 
     await prisma.user.update({
@@ -282,7 +295,6 @@ tým DOG-POINT
     </body></html>`
 
     await sendEmailSafe({ to: user.email, subject, text, html })
-
     res.json({ ok: true, sentTo: user.email, expiresAt, link })
   } catch (e) {
     console.error('[tax] POST /send error', e)
@@ -294,7 +306,6 @@ tým DOG-POINT
    ADMIN
    POST /api/tax/send-batch
    body: { emails?: string[], userIds?: string[], recheck?: boolean }
-   Creates tokens + sends emails
 ────────────────────────────────────────────── */
 router.post('/send-batch', requireAuth, async (req: any, res: Response) => {
   try {
