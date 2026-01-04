@@ -19,12 +19,16 @@ Projects/
 adopt-backup/
 adopt1/
 *.zip
+
+# PostgreSQL dumps
+*.dump
+
 # Ignore backup snapshots
 _backup/
+
+# Keep Prisma migrations
 !backend/prisma/migrations/**
-!backend/prisma/migrations/**
-!backend/prisma/migrations/**
-!backend/prisma/migrations/**
+
 # seed scripts (local only)
 **/scripts/seed*.mjs
 **/scripts/seed*.js
