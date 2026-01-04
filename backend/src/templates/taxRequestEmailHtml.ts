@@ -32,7 +32,7 @@ export function renderTaxRequestEmailHtml({
               <table width="100%">
                 <tr>
                   <td align="left">
-                    <img src="https://patron.dog-point.cz/logo-email.png"
+                    <img src="https://patron.dog-point.cz/logo1.png" />
                          alt="Dogpoint"
                          height="32"
                          style="display:block;border:0;" />
