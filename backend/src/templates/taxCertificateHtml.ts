@@ -5,7 +5,13 @@ import type { TaxRecipient } from '../services/taxQuery'
  * Tax certificate HTML (ready for printing / PDF generation)
  * - all fonts in BLACK
  * - logo loaded via EMAIL_LOGO_URL (same as other e-mails), with fallbacks
- * - layout inspired by your screenshot (header, title, body, 3-column list, signature)
+ * - layout inspired by your screenshot (header, title, body, list, signature)
+ *
+ * FIXES:
+ * - Prevent ugly word splitting (Infolink-a / E-m-ail / obecně→o becně …)
+ * - Donation list shows ALL payments in the given year (incl. single payments)
+ * - If only ONE payment: show only ONE line and use singular wording
+ * - Intro line uses NAME + (tax) ADDRESS, never email
  */
 export function renderTaxCertificateHtml(args: {
   year: number
@@ -16,10 +22,6 @@ export function renderTaxCertificateHtml(args: {
   const issueDate = args.issueDate ?? new Date()
 
   // ✅ Use the same logo approach as in e-mails:
-  // Set in env: EMAIL_LOGO_URL=https://.../dogpoint-logo.png
-  // Fallbacks:
-  //  - DO_SPACE_PUBLIC_BASE + /assets/logo.png (or /logo.png)
-  //  - hard fallback to dog-point.cz (you can replace)
   const logoUrl =
     process.env.EMAIL_LOGO_URL ||
     (process.env.DO_SPACE_PUBLIC_BASE
@@ -27,8 +29,7 @@ export function renderTaxCertificateHtml(args: {
       : '') ||
     'https://dog-point.cz/wp-content/uploads/2023/01/dogpoint-logo.png'
 
-  // Signature image (optional). If you want the Michaela block as image:
-  // set env SIGNATURE_IMG_URL or use DO_SPACE_PUBLIC_BASE fallback.
+  // Signature image (optional)
   const signatureUrl =
     process.env.SIGNATURE_IMG_URL ||
     (process.env.DO_SPACE_PUBLIC_BASE
@@ -47,66 +48,89 @@ export function renderTaxCertificateHtml(args: {
 
   const fmtCzk = (n: number | null | undefined) => {
     const v = Number(n ?? 0)
-    // Czech-ish formatting with spaces
     return v.toLocaleString('cs-CZ').replace(/\u00A0/g, ' ')
   }
 
-  // --- Recipient fields (kept flexible, because your TaxRecipient may evolve) ---
-  const fullName =
-    (recipient as any).displayName ||
-    [String((recipient as any).title ?? '').trim(), String((recipient as any).firstName ?? '').trim(), String((recipient as any).lastName ?? '').trim()]
-      .filter(Boolean)
-      .join(' ')
-      .trim() ||
-    (recipient as any).name ||
-    (recipient as any).email ||
-    ''
+  // --- Recipient identity (NEVER email) ---
+  const isCompany =
+    Boolean((recipient as any).isCompany) ||
+    Boolean((recipient as any).companyName) ||
+    Boolean((recipient as any).ico) ||
+    Boolean((recipient as any).ic) ||
+    Boolean((recipient as any).taxId)
 
-  const name2 = String((recipient as any).name2 ?? '').trim()
-  const namesLine = name2 ? `${fullName} / ${name2}` : fullName
+  const firstName = String((recipient as any).firstName ?? '').trim()
+  const lastName = String((recipient as any).lastName ?? '').trim()
+  const title = String((recipient as any).title ?? '').trim()
+  const companyName = String((recipient as any).companyName ?? (recipient as any).name ?? '').trim()
+
+  const personName = [title, firstName, lastName].filter(Boolean).join(' ').trim()
+  const displayName =
+    (isCompany ? companyName : personName) ||
+    String((recipient as any).displayName ?? '').trim() ||
+    '—'
+
+  // --- Address (prefer TAX address if available) ---
+  const taxStreet = String((recipient as any).taxStreet ?? (recipient as any).tax_address_street ?? '').trim()
+  const taxStreetNo = String((recipient as any).taxStreetNo ?? (recipient as any).tax_address_street_no ?? '').trim()
+  const taxZip = String((recipient as any).taxZip ?? (recipient as any).tax_address_zip ?? '').trim()
+  const taxCity = String((recipient as any).taxCity ?? (recipient as any).tax_address_city ?? '').trim()
+  const taxCountry = String((recipient as any).taxCountry ?? (recipient as any).tax_address_country ?? '').trim()
 
   const street = String((recipient as any).street ?? '').trim()
   const streetNo = String((recipient as any).streetNo ?? (recipient as any).houseNo ?? '').trim()
   const zip = String((recipient as any).zip ?? '').trim()
   const city = String((recipient as any).city ?? '').trim()
+  const country = String((recipient as any).country ?? '').trim()
 
-  const addressLine = [street, streetNo].filter(Boolean).join(' ')
-  const zipCityLine = [zip, city].filter(Boolean).join(' ')
+  const hasTaxAddress = Boolean(taxStreet || taxZip || taxCity || taxCountry)
+
+  const addrStreet = hasTaxAddress ? taxStreet : street
+  const addrStreetNo = hasTaxAddress ? taxStreetNo : streetNo
+  const addrZip = hasTaxAddress ? taxZip : zip
+  const addrCity = hasTaxAddress ? taxCity : city
+  const addrCountry = hasTaxAddress ? taxCountry : country
+
+  const addressLine = [addrStreet, addrStreetNo].filter(Boolean).join(' ').trim()
+  const zipCityLine = [addrZip, addrCity].filter(Boolean).join(' ').trim()
+  const countryLine = addrCountry.trim()
+
+  const addressFull = [addressLine, zipCityLine, countryLine].filter(Boolean).join(', ').trim()
 
   const totalCzk = Number((recipient as any).totalCzk ?? 0)
 
-  // Donations list
+  // Donations list: show ALL in the year (incl. single payments)
   type DonationItem = { date?: string | Date; amountCzk?: number }
-  const donations: DonationItem[] = Array.isArray((recipient as any).donations)
+  const rawDonations: DonationItem[] = Array.isArray((recipient as any).donations)
     ? ((recipient as any).donations as DonationItem[])
     : Array.isArray((recipient as any).items)
       ? ((recipient as any).items as DonationItem[])
       : []
 
-  // Render up to 12 items into 3 columns x 4 rows (like screenshot)
-  const donationLines = donations
+  const donationLines = rawDonations
     .filter((x) => x && (x.date || x.amountCzk != null))
-    .slice(0, 12)
-    .map((x) => ({
-      date: x.date ? fmtDateCz(x.date) : '',
-      amount: fmtCzk(Number(x.amountCzk ?? 0)),
-    }))
+    .map((x) => {
+      const dt = x.date ? new Date(x.date as any) : null
+      const ts = dt && !Number.isNaN(dt.getTime()) ? dt.getTime() : Number.POSITIVE_INFINITY
+      return {
+        ts,
+        date: x.date ? fmtDateCz(x.date) : '',
+        amount: fmtCzk(Number(x.amountCzk ?? 0)),
+      }
+    })
+    .sort((a, b) => a.ts - b.ts)
 
-  // Split into 3 columns
-  const col1 = donationLines.slice(0, 4)
-  const col2 = donationLines.slice(4, 8)
-  const col3 = donationLines.slice(8, 12)
-
-  // if no donations, still show 4 placeholder rows
-  const ensure4 = (arr: { date: string; amount: string }[]) => {
-    const out = [...arr]
-    while (out.length < 4) out.push({ date: 'dd.mm.rrrr', amount: 'XY' })
-    return out
-  }
-
-  const listCols = [ensure4(col1), ensure4(col2), ensure4(col3)]
+  const donationCount = donationLines.length
+  const donationIntro =
+    donationCount === 1 ? 'a to v tomto příspěvku:' : 'a to v těchto příspěvcích:'
 
   const issueDateStr = fmtDateCz(issueDate)
+
+  // Multi-column layout for many payments (still prints nicely)
+  const columnCount = donationCount <= 8 ? 1 : donationCount <= 18 ? 2 : 3
+
+  // For Czech text: address label depends on person/company
+  const addrLabel = isCompany ? 'se sídlem' : 'bytem'
 
   return `<!doctype html>
 <html lang="cs">
@@ -114,13 +138,22 @@ export function renderTaxCertificateHtml(args: {
   <meta charset="utf-8" />
   <title>Potvrzení o bezúplatném plnění za rok ${year}</title>
   <style>
-    /* Page setup for PDF printers */
     @page { size: A4; margin: 0; }
     html, body { margin: 0; padding: 0; background: #fff; }
 
+    /* IMPORTANT: prevent ugly word splitting in PDF renderers */
+    * {
+      box-sizing: border-box;
+      hyphens: none !important;
+      -webkit-hyphens: none !important;
+      -ms-hyphens: none !important;
+      word-break: normal !important;
+      overflow-wrap: normal !important;
+    }
+
     body {
-      font-family: Arial, Helvetica, sans-serif;
-      color: #000; /* ✅ all fonts black */
+      font-family: Helvetica, Arial, sans-serif;
+      color: #000;
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
     }
@@ -130,11 +163,9 @@ export function renderTaxCertificateHtml(args: {
       height: 297mm;
       position: relative;
       padding: 16mm 14mm 14mm 14mm;
-      box-sizing: border-box;
       overflow: hidden;
     }
 
-    /* soft circles like screenshot (but keep text black) */
     .circle {
       position: absolute;
       border-radius: 9999px;
@@ -149,7 +180,7 @@ export function renderTaxCertificateHtml(args: {
 
     .header {
       display: grid;
-      grid-template-columns: 62mm 1fr;
+      grid-template-columns: 70mm 1fr;
       column-gap: 10mm;
       align-items: start;
       margin-bottom: 10mm;
@@ -160,6 +191,7 @@ export function renderTaxCertificateHtml(args: {
       grid-template-columns: 38mm 1fr;
       column-gap: 4mm;
       align-items: start;
+      min-width: 0;
     }
 
     .logo {
@@ -172,23 +204,42 @@ export function renderTaxCertificateHtml(args: {
       font-size: 9pt;
       line-height: 1.25;
       margin-top: 1mm;
+      min-width: 0;
+    }
+    .contactRow{
+      display: grid;
+      grid-template-columns: 18mm 1fr;
+      column-gap: 3mm;
+      align-items: baseline;
+      margin: 0.2mm 0;
+      min-width: 0;
+    }
+    .contactLabel{
       white-space: nowrap;
+      font-weight: 700;
+    }
+    .contactValue{
+      white-space: nowrap;
+      min-width: 0;
     }
 
     .titleBlock {
       text-align: right;
       padding-top: 2mm;
+      min-width: 0;
     }
     .title1 {
       font-size: 34pt;
       font-weight: 800;
       letter-spacing: 0.5px;
       margin: 0;
+      white-space: nowrap;
     }
     .title2 {
       font-size: 16pt;
       font-weight: 800;
       margin: 2mm 0 0 0;
+      white-space: nowrap;
     }
     .subtitle {
       font-size: 12pt;
@@ -198,6 +249,7 @@ export function renderTaxCertificateHtml(args: {
     .intro {
       font-size: 11pt;
       margin: 2mm 0 8mm 0;
+      line-height: 1.45;
     }
 
     .mainText {
@@ -206,17 +258,25 @@ export function renderTaxCertificateHtml(args: {
       margin-top: 2mm;
     }
 
-    .donationsGrid {
-      display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
-      column-gap: 10mm;
-      margin-top: 6mm;
-      margin-bottom: 10mm;
+    .donationsOne {
+      margin-top: 4mm;
+      font-size: 11pt;
+      line-height: 1.55;
     }
 
-    .donCol {
+    .donationsMulti {
+      margin-top: 4mm;
+      column-count: ${columnCount};
+      column-gap: 10mm;
       font-size: 11pt;
-      line-height: 1.6;
+      line-height: 1.55;
+    }
+
+    .donLine {
+      break-inside: avoid;
+      -webkit-column-break-inside: avoid;
+      margin: 0 0 1.2mm 0;
+      white-space: nowrap;
     }
 
     .legal {
@@ -243,9 +303,9 @@ export function renderTaxCertificateHtml(args: {
       font-size: 11pt;
       font-weight: 700;
       margin-top: 10mm;
+      line-height: 1.3;
     }
 
-    /* small helper */
     .nowrap { white-space: nowrap; }
   </style>
 </head>
@@ -260,12 +320,12 @@ export function renderTaxCertificateHtml(args: {
         <div class="logoRow">
           <img class="logo" src="${logoUrl}" alt="Dogpoint logo" />
           <div class="addr">
-            Milánská 452 | Praha 15 | 109 00<br/>
-            Útulek: Lhotky 60 | Malotice | 281 63<br/>
-            Účet: <span class="nowrap">2201505311/2010</span><br/>
-            Infolinka: 296 330 541<br/>
-            E-mail: darce@dog-point.cz<br/>
-            www.dog-point.cz
+            <div class="contactRow"><div class="contactLabel">Adresa:</div><div class="contactValue">Milánská 452 | Praha 15 | 109 00</div></div>
+            <div class="contactRow"><div class="contactLabel">Útulek:</div><div class="contactValue">Lhotky 60 | Malotice | 281 63</div></div>
+            <div class="contactRow"><div class="contactLabel">Účet:</div><div class="contactValue"><span class="nowrap">2201505311/2010</span></div></div>
+            <div class="contactRow"><div class="contactLabel">Infolinka:</div><div class="contactValue">296 330 541</div></div>
+            <div class="contactRow"><div class="contactLabel">E-mail:</div><div class="contactValue">darce@dog-point.cz</div></div>
+            <div class="contactRow"><div class="contactLabel">Web:</div><div class="contactValue">www.dog-point.cz</div></div>
           </div>
         </div>
 
@@ -283,26 +343,28 @@ export function renderTaxCertificateHtml(args: {
 
       <div class="mainText">
         <div>
-          Tímto potvrzujeme, že <strong>${escapeHtml(namesLine)}</strong>${addressLine || zipCityLine ? ',' : ''}
-          ${addressLine ? ` bytem nebo sídlem <strong>${escapeHtml(addressLine)}</strong>` : ''}
-          ${zipCityLine ? `, <strong>${escapeHtml(zipCityLine)}</strong>` : ''},
+          Tímto potvrzujeme, že <strong>${escapeHtml(displayName)}</strong>
+          ${addressFull ? `, ${addrLabel} <strong>${escapeHtml(addressFull)}</strong>,` : ','}
           v roce ${year} podpořil / podpořila činnost obecně prospěšné společnosti Dogpoint, o. p. s.,
-          celkovou částkou <strong>${fmtCzk(totalCzk)} Kč</strong>, a to v těchto příspěvcích:
+          celkovou částkou <strong>${fmtCzk(totalCzk)} Kč</strong>, ${donationIntro}
         </div>
 
-        <div class="donationsGrid">
-          ${listCols
-            .map(
-              (col) => `
-            <div class="donCol">
-              ${col
-                .map((d) => `dne ${escapeHtml(d.date)}. částkou ${escapeHtml(d.amount)} Kč,`)
-                .join('<br/>')}
-            </div>
-          `,
-            )
-            .join('')}
-        </div>
+        ${
+          donationCount === 0
+            ? `<div class="donationsOne"><span class="donLine">dne dd.mm.rrrr částkou XY Kč.</span></div>`
+            : donationCount === 1
+              ? `<div class="donationsOne">
+                   <div class="donLine">dne ${escapeHtml(donationLines[0].date)} částkou ${escapeHtml(donationLines[0].amount)} Kč.</div>
+                 </div>`
+              : `<div class="donationsMulti">
+                   ${donationLines
+                     .map((d, idx) => {
+                       const isLast = idx === donationLines.length - 1
+                       return `<div class="donLine">dne ${escapeHtml(d.date)} částkou ${escapeHtml(d.amount)} Kč${isLast ? '.' : ','}</div>`
+                     })
+                     .join('')}
+                 </div>`
+        }
 
         <div class="legal">
           Příspěvky dorazily na účet číslo <strong>2201505311/2010</strong> patřící Dogpoint, o. p. s.
@@ -316,7 +378,11 @@ export function renderTaxCertificateHtml(args: {
 
       <div class="signature">
         ${signatureUrl ? `<img class="sigImg" src="${signatureUrl}" alt="Podpis" />` : ''}
-        ${signatureUrl ? '' : `<div class="sigFallback">Bc. Michaela Zemánková<br/><span style="font-weight:400;">ředitelka o. p. s.</span></div>`}
+        ${
+          signatureUrl
+            ? ''
+            : `<div class="sigFallback">Bc. Michaela Zemánková<br/><span style="font-weight:400;">ředitelka o. p. s.</span></div>`
+        }
       </div>
     </div>
   </div>
