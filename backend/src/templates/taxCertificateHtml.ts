@@ -13,6 +13,17 @@ import type { TaxRecipient } from '../services/taxQuery'
  * - If only ONE payment: show only ONE line and use singular wording
  * - Intro line uses NAME + (tax) ADDRESS, never email
  */
+
+// Cache-busting version for static assets (logo, signature)
+// Change this string whenever you replace the PNGs in Spaces/assets
+const ASSET_VERSION = '2026-01-10'
+
+// Helper: append version query safely (handles existing ? in URL)
+function withVersion(url: string) {
+  if (!url) return ''
+  return url.includes('?') ? `${url}&v=${ASSET_VERSION}` : `${url}?v=${ASSET_VERSION}`
+}
+
 export function renderTaxCertificateHtml(args: {
   year: number
   recipient: TaxRecipient
@@ -21,24 +32,21 @@ export function renderTaxCertificateHtml(args: {
   const { year, recipient } = args
   const issueDate = args.issueDate ?? new Date()
 
-  // ✅ Use the same logo approach as in e-mails:
- const logoUrl =
-  (process.env.EMAIL_LOGO_URL
-    ? `${process.env.EMAIL_LOGO_URL}?v=${ASSET_VERSION}`
-    : '') ||
-  (process.env.DO_SPACE_PUBLIC_BASE
-    ? `${process.env.DO_SPACE_PUBLIC_BASE.replace(/\/$/, '')}/assets/dogpoint-logo.png?v=${ASSET_VERSION}`
-    : '') ||
-  `https://dog-point.cz/wp-content/uploads/2023/01/dogpoint-logo.png?v=${ASSET_VERSION}`
+  // ✅ Use the same logo approach as in e-mails (with cache-busting)
+  const logoUrl =
+    (process.env.EMAIL_LOGO_URL ? withVersion(process.env.EMAIL_LOGO_URL) : '') ||
+    (process.env.DO_SPACE_PUBLIC_BASE
+      ? withVersion(`${process.env.DO_SPACE_PUBLIC_BASE.replace(/\/$/, '')}/assets/dogpoint-logo.png`)
+      : '') ||
+    withVersion('https://dog-point.cz/wp-content/uploads/2023/01/dogpoint-logo.png')
 
-const signatureUrl =
-  (process.env.SIGNATURE_IMG_URL
-    ? `${process.env.SIGNATURE_IMG_URL}?v=${ASSET_VERSION}`
-    : '') ||
-  (process.env.DO_SPACE_PUBLIC_BASE
-    ? `${process.env.DO_SPACE_PUBLIC_BASE.replace(/\/$/, '')}/assets/michaela_podpis.png?v=${ASSET_VERSION}`
-    : '') ||
-  ''
+  // Signature image (optional) (with cache-busting)
+  const signatureUrl =
+    (process.env.SIGNATURE_IMG_URL ? withVersion(process.env.SIGNATURE_IMG_URL) : '') ||
+    (process.env.DO_SPACE_PUBLIC_BASE
+      ? withVersion(`${process.env.DO_SPACE_PUBLIC_BASE.replace(/\/$/, '')}/assets/michaela_podpis.png`)
+      : '') ||
+    ''
 
   const fmtDateCz = (d: Date | string) => {
     const dt = typeof d === 'string' ? new Date(d) : d
@@ -124,8 +132,7 @@ const signatureUrl =
     .sort((a, b) => a.ts - b.ts)
 
   const donationCount = donationLines.length
-  const donationIntro =
-    donationCount === 1 ? 'a to v tomto příspěvku:' : 'a to v těchto příspěvcích:'
+  const donationIntro = donationCount === 1 ? 'a to v tomto příspěvku:' : 'a to v těchto příspěvcích:'
 
   const issueDateStr = fmtDateCz(issueDate)
 
