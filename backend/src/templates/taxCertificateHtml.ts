@@ -22,20 +22,23 @@ export function renderTaxCertificateHtml(args: {
   const issueDate = args.issueDate ?? new Date()
 
   // ✅ Use the same logo approach as in e-mails:
-  const logoUrl =
-    process.env.EMAIL_LOGO_URL ||
-    (process.env.DO_SPACE_PUBLIC_BASE
-      ? `${process.env.DO_SPACE_PUBLIC_BASE.replace(/\/$/, '')}/assets/dogpoint-logo.png`
-      : '') ||
-    'https://dog-point.cz/wp-content/uploads/2023/01/dogpoint-logo.png'
+ const logoUrl =
+  (process.env.EMAIL_LOGO_URL
+    ? `${process.env.EMAIL_LOGO_URL}?v=${ASSET_VERSION}`
+    : '') ||
+  (process.env.DO_SPACE_PUBLIC_BASE
+    ? `${process.env.DO_SPACE_PUBLIC_BASE.replace(/\/$/, '')}/assets/dogpoint-logo.png?v=${ASSET_VERSION}`
+    : '') ||
+  `https://dog-point.cz/wp-content/uploads/2023/01/dogpoint-logo.png?v=${ASSET_VERSION}`
 
-  // Signature image (optional)
-  const signatureUrl =
-    process.env.SIGNATURE_IMG_URL ||
-    (process.env.DO_SPACE_PUBLIC_BASE
-      ? `${process.env.DO_SPACE_PUBLIC_BASE.replace(/\/$/, '')}/assets/michaela_podpis.png`
-      : '') ||
-    ''
+const signatureUrl =
+  (process.env.SIGNATURE_IMG_URL
+    ? `${process.env.SIGNATURE_IMG_URL}?v=${ASSET_VERSION}`
+    : '') ||
+  (process.env.DO_SPACE_PUBLIC_BASE
+    ? `${process.env.DO_SPACE_PUBLIC_BASE.replace(/\/$/, '')}/assets/michaela_podpis.png?v=${ASSET_VERSION}`
+    : '') ||
+  ''
 
   const fmtDateCz = (d: Date | string) => {
     const dt = typeof d === 'string' ? new Date(d) : d
