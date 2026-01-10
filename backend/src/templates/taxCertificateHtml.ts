@@ -12,16 +12,19 @@ import type { TaxRecipient } from '../services/taxQuery'
  * - Donation list shows ALL payments in the given year (incl. single payments)
  * - If only ONE payment: show only ONE line and use singular wording
  * - Intro line uses NAME + (tax) ADDRESS, never email
+ *
+ * NOTES (important for email sending):
+ * - Keep URLs clean and robust (do NOT break env URLs)
+ * - Add cache-busting for Space assets only (logo/signature filenames)
  */
 
-// Cache-busting version for static assets (logo, signature)
-// Change this string whenever you replace the PNGs in Spaces/assets
+// Change this value when you upload new PNGs to Spaces (cache bust)
 const ASSET_VERSION = '2026-01-10'
 
-// Helper: append version query safely (handles existing ? in URL)
-function withVersion(url: string) {
+function appendVersion(url: string, version: string) {
   if (!url) return ''
-  return url.includes('?') ? `${url}&v=${ASSET_VERSION}` : `${url}?v=${ASSET_VERSION}`
+  // if url already has ?, append &v=..., otherwise ?v=...
+  return url.includes('?') ? `${url}&v=${encodeURIComponent(version)}` : `${url}?v=${encodeURIComponent(version)}`
 }
 
 export function renderTaxCertificateHtml(args: {
@@ -32,19 +35,29 @@ export function renderTaxCertificateHtml(args: {
   const { year, recipient } = args
   const issueDate = args.issueDate ?? new Date()
 
-  // ✅ Use the same logo approach as in e-mails (with cache-busting)
+  // ✅ Base: if EMAIL_LOGO_URL is set, use it (and only add ?v=... safely)
+  // Fallback: DO_SPACE_PUBLIC_BASE/assets/dogpoint-logo.png
+  // Hard fallback: dog-point.cz wordpress image
   const logoUrl =
-    (process.env.EMAIL_LOGO_URL ? withVersion(process.env.EMAIL_LOGO_URL) : '') ||
+    (process.env.EMAIL_LOGO_URL ? appendVersion(process.env.EMAIL_LOGO_URL, ASSET_VERSION) : '') ||
     (process.env.DO_SPACE_PUBLIC_BASE
-      ? withVersion(`${process.env.DO_SPACE_PUBLIC_BASE.replace(/\/$/, '')}/assets/dogpoint-logo.png`)
+      ? appendVersion(
+          `${process.env.DO_SPACE_PUBLIC_BASE.replace(/\/$/, '')}/assets/dogpoint-logo.png`,
+          ASSET_VERSION,
+        )
       : '') ||
-    withVersion('https://dog-point.cz/wp-content/uploads/2023/01/dogpoint-logo.png')
+    appendVersion('https://dog-point.cz/wp-content/uploads/2023/01/dogpoint-logo.png', ASSET_VERSION)
 
-  // Signature image (optional) (with cache-busting)
+  // Signature image (optional)
+  // If SIGNATURE_IMG_URL is set, use it (append version safely)
+  // Else use Spaces asset (append version safely)
   const signatureUrl =
-    (process.env.SIGNATURE_IMG_URL ? withVersion(process.env.SIGNATURE_IMG_URL) : '') ||
+    (process.env.SIGNATURE_IMG_URL ? appendVersion(process.env.SIGNATURE_IMG_URL, ASSET_VERSION) : '') ||
     (process.env.DO_SPACE_PUBLIC_BASE
-      ? withVersion(`${process.env.DO_SPACE_PUBLIC_BASE.replace(/\/$/, '')}/assets/michaela_podpis.png`)
+      ? appendVersion(
+          `${process.env.DO_SPACE_PUBLIC_BASE.replace(/\/$/, '')}/assets/michaela_podpis.png`,
+          ASSET_VERSION,
+        )
       : '') ||
     ''
 
@@ -133,7 +146,6 @@ export function renderTaxCertificateHtml(args: {
 
   const donationCount = donationLines.length
   const donationIntro = donationCount === 1 ? 'a to v tomto příspěvku:' : 'a to v těchto příspěvcích:'
-
   const issueDateStr = fmtDateCz(issueDate)
 
   // Multi-column layout for many payments (still prints nicely)
