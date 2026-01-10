@@ -12,19 +12,27 @@ import type { TaxRecipient } from '../services/taxQuery'
  * - Donation list shows ALL payments in the given year (incl. single payments)
  * - If only ONE payment: show only ONE line and use singular wording
  * - Intro line uses NAME + (tax) ADDRESS, never email
- *
- * NOTES (important for email sending):
- * - Keep URLs clean and robust (do NOT break env URLs)
- * - Add cache-busting for Space assets only (logo/signature filenames)
  */
 
-// Change this value when you upload new PNGs to Spaces (cache bust)
+// Cache-busting for *our own public Space assets only*
+// IMPORTANT: Do NOT append this to signed URLs (EMAIL_LOGO_URL / SIGNATURE_IMG_URL)
 const ASSET_VERSION = '2026-01-10'
 
-function appendVersion(url: string, version: string) {
+function withVersionForSpaceAsset(url: string) {
   if (!url) return ''
-  // if url already has ?, append &v=..., otherwise ?v=...
-  return url.includes('?') ? `${url}&v=${encodeURIComponent(version)}` : `${url}?v=${encodeURIComponent(version)}`
+  return url.includes('?') ? `${url}&v=${encodeURIComponent(ASSET_VERSION)}` : `${url}?v=${encodeURIComponent(ASSET_VERSION)}`
+}
+
+/**
+ * Minimal HTML escaping for dynamic text fields.
+ */
+function escapeHtml(input: string) {
+  return String(input ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
 }
 
 export function renderTaxCertificateHtml(args: {
@@ -35,30 +43,24 @@ export function renderTaxCertificateHtml(args: {
   const { year, recipient } = args
   const issueDate = args.issueDate ?? new Date()
 
-  // ✅ Base: if EMAIL_LOGO_URL is set, use it (and only add ?v=... safely)
-  // Fallback: DO_SPACE_PUBLIC_BASE/assets/dogpoint-logo.png
-  // Hard fallback: dog-point.cz wordpress image
+  const doBase = process.env.DO_SPACE_PUBLIC_BASE ? process.env.DO_SPACE_PUBLIC_BASE.replace(/\/$/, '') : ''
+
+  // ✅ Use the same logo approach as in e-mails:
+  // 1) EMAIL_LOGO_URL (as-is; could be signed!)
+  // 2) DO_SPACE_PUBLIC_BASE/assets/dogpoint-logo.png (cache-busted)
+  // 3) hard fallback (as-is)
   const logoUrl =
-    (process.env.EMAIL_LOGO_URL ? appendVersion(process.env.EMAIL_LOGO_URL, ASSET_VERSION) : '') ||
-    (process.env.DO_SPACE_PUBLIC_BASE
-      ? appendVersion(
-          `${process.env.DO_SPACE_PUBLIC_BASE.replace(/\/$/, '')}/assets/dogpoint-logo.png`,
-          ASSET_VERSION,
-        )
-      : '') ||
-    appendVersion('https://dog-point.cz/wp-content/uploads/2023/01/dogpoint-logo.png', ASSET_VERSION)
+    process.env.EMAIL_LOGO_URL ||
+    (doBase ? withVersionForSpaceAsset(`${doBase}/assets/dogpoint-logo.png`) : '') ||
+    'https://dog-point.cz/wp-content/uploads/2023/01/dogpoint-logo.png'
 
   // Signature image (optional)
-  // If SIGNATURE_IMG_URL is set, use it (append version safely)
-  // Else use Spaces asset (append version safely)
+  // 1) SIGNATURE_IMG_URL (as-is; could be signed!)
+  // 2) DO_SPACE_PUBLIC_BASE/assets/michaela_podpis.png (cache-busted)
+  // 3) empty -> fallback text block
   const signatureUrl =
-    (process.env.SIGNATURE_IMG_URL ? appendVersion(process.env.SIGNATURE_IMG_URL, ASSET_VERSION) : '') ||
-    (process.env.DO_SPACE_PUBLIC_BASE
-      ? appendVersion(
-          `${process.env.DO_SPACE_PUBLIC_BASE.replace(/\/$/, '')}/assets/michaela_podpis.png`,
-          ASSET_VERSION,
-        )
-      : '') ||
+    process.env.SIGNATURE_IMG_URL ||
+    (doBase ? withVersionForSpaceAsset(`${doBase}/assets/michaela_podpis.png`) : '') ||
     ''
 
   const fmtDateCz = (d: Date | string) => {
@@ -118,7 +120,6 @@ export function renderTaxCertificateHtml(args: {
   const addressLine = [addrStreet, addrStreetNo].filter(Boolean).join(' ').trim()
   const zipCityLine = [addrZip, addrCity].filter(Boolean).join(' ').trim()
   const countryLine = addrCountry.trim()
-
   const addressFull = [addressLine, zipCityLine, countryLine].filter(Boolean).join(', ').trim()
 
   const totalCzk = Number((recipient as any).totalCzk ?? 0)
@@ -307,6 +308,7 @@ export function renderTaxCertificateHtml(args: {
       margin-top: 10mm;
     }
 
+    /* Signature stays bottom-right */
     .signature {
       position: absolute;
       right: 14mm;
@@ -410,16 +412,4 @@ export function renderTaxCertificateHtml(args: {
   </div>
 </body>
 </html>`
-}
-
-/**
- * Minimal HTML escaping for dynamic text fields.
- */
-function escapeHtml(input: string) {
-  return String(input ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;')
 }
