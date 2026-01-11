@@ -304,7 +304,7 @@ export function renderTaxCertificateHtml(args: {
     /* Title moved DOWN below the address block */
     .titleBlock {
       text-align: right;
-      padding-top: 18mm;
+      padding-top: 68mm;
       min-width: 0;
     }
     .title1 {
