@@ -428,25 +428,17 @@ export function renderTaxCertificateHtml(args: {
         ${
           donationCount === 0
             ? `<div class="donationsOne">
-                 <div style="margin-top:2mm;">V daném roce nebyly nalezeny žádné přijaté platby.</div>
-               </div>`
-            : donationCount === 1
-              ? `<div class="donationsOne">
-                   <div class="donLine">${escapeHtml(donationLines[0].date)}: ${escapeHtml(
-                   donationLines[0].amount,
-                 )} Kč.</div>
-                 </div>`
-              : `<div class="donationsMulti">
-                   ${donationLines
-                     .map((d, idx) => {
-                       const isLast = idx === donationLines.length - 1
-                       return `<div class="donLine">${escapeHtml(d.date)}: ${escapeHtml(d.amount)} Kč${
-                         isLast ? '.' : ','
-                       }</div>`
-                     })
-                     .join('')}
-                 </div>`
-        }
+              <div style="margin-top:2mm;">V daném roce nebyly nalezeny žádné přijaté platby.</div>
+             </div>`
+          : `<div class="donationsOne">
+             <div class="donLine">
+               ${donationLines
+                .map((d) => `${escapeHtml(d.date)}: ${escapeHtml(d.amount)} Kč`)
+               .join('; ')}.
+         </div>
+       </div>`
+    }
+
 
         <div class="legal">
           Příspěvky dorazily na účet číslo <strong>2201505311/2010</strong> patřící Dogpoint, o. p. s.
