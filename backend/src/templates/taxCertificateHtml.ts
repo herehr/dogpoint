@@ -10,7 +10,7 @@ import type { TaxRecipient } from '../services/taxQuery'
  * FIXES:
  * - Prevent ugly word splitting (Infolink-a / E-m-ail / obecně→o becně …)
  * - Donation list shows ALL payments in the given year (incl. single payments)
- * - If only ONE payment: show only ONE line and use singular wording
+ * - Payments printed in ONE LINE: "dd.mm.yyyy: 100 Kč; dd.mm.yyyy: 200 Kč; ..."
  * - Intro line uses NAME + (tax) ADDRESS, never email
  *
  * IMPORTANT (email reliability):
@@ -52,18 +52,12 @@ export function renderTaxCertificateHtml(args: {
   const doBase = process.env.DO_SPACE_PUBLIC_BASE ? process.env.DO_SPACE_PUBLIC_BASE.replace(/\/$/, '') : ''
 
   // ✅ Logo
-  // 1) EMAIL_LOGO_URL (as-is; could be signed!)
-  // 2) DO_SPACE_PUBLIC_BASE/assets/dogpoint-logo.png (cache-busted)
-  // 3) hard fallback
   const logoUrl =
     process.env.EMAIL_LOGO_URL ||
     (doBase ? withVersionForSpaceAsset(`${doBase}/assets/dogpoint-logo.png`) : '') ||
     'https://dog-point.cz/wp-content/uploads/2023/01/dogpoint-logo.png'
 
   // ✅ Signature (optional)
-  // 1) SIGNATURE_IMG_URL (as-is; could be signed!)
-  // 2) DO_SPACE_PUBLIC_BASE/assets/michaela_podpis.png (cache-busted)
-  // 3) empty -> fallback text block
   const signatureUrl =
     process.env.SIGNATURE_IMG_URL ||
     (doBase ? withVersionForSpaceAsset(`${doBase}/assets/michaela_podpis.png`) : '') ||
@@ -83,61 +77,71 @@ export function renderTaxCertificateHtml(args: {
     return v.toLocaleString('cs-CZ').replace(/\u00A0/g, ' ')
   }
 
-  // --- Recipient identity (NEVER email) ---
-  const isCompany =
-    Boolean((recipient as any).isCompany) ||
-    Boolean((recipient as any).companyName) ||
-    Boolean((recipient as any).ico) ||
-    Boolean((recipient as any).ic) ||
-    Boolean((recipient as any).taxId)
+  // ============================================================
+  // Recipient identity & address
+  // Uses your Prisma schema:
+  // - User has firstName/lastName/street/streetNo/zip/city
+  // - TaxProfile can override both name + address and can be company
+  // ============================================================
+  const tp = ((recipient as any).taxProfile ?? null) as
+    | null
+    | {
+        isCompany?: boolean
+        companyName?: string | null
+        taxId?: string | null
+        firstName?: string | null
+        lastName?: string | null
+        street?: string | null
+        streetNo?: string | null
+        zip?: string | null
+        city?: string | null
+      }
 
-  const firstName = String((recipient as any).firstName ?? '').trim()
-  const lastName = String((recipient as any).lastName ?? '').trim()
-  const title = String((recipient as any).title ?? '').trim()
-  const companyName = String((recipient as any).companyName ?? (recipient as any).name ?? '').trim()
+  const userFirstName = String((recipient as any).firstName ?? '').trim()
+  const userLastName = String((recipient as any).lastName ?? '').trim()
+  const userTitle = String((recipient as any).title ?? '').trim()
 
-  const personName = [title, firstName, lastName].filter(Boolean).join(' ').trim()
-  const displayName =
-    (isCompany ? companyName : personName) ||
-    String((recipient as any).displayName ?? '').trim() ||
-    '—'
+  const userStreet = String((recipient as any).street ?? '').trim()
+  const userStreetNo = String((recipient as any).streetNo ?? '').trim()
+  const userZip = String((recipient as any).zip ?? '').trim()
+  const userCity = String((recipient as any).city ?? '').trim()
 
-  // --- Address (prefer TAX address if available) ---
-  const taxStreet = String((recipient as any).taxStreet ?? (recipient as any).tax_address_street ?? '').trim()
-  const taxStreetNo = String((recipient as any).taxStreetNo ?? (recipient as any).tax_address_street_no ?? '').trim()
-  const taxZip = String((recipient as any).taxZip ?? (recipient as any).tax_address_zip ?? '').trim()
-  const taxCity = String((recipient as any).taxCity ?? (recipient as any).tax_address_city ?? '').trim()
-  const taxCountry = String((recipient as any).taxCountry ?? (recipient as any).tax_address_country ?? '').trim()
+  const taxIsCompany = Boolean(tp?.isCompany) || Boolean((recipient as any).isCompany)
+  const taxCompanyName = String(tp?.companyName ?? (recipient as any).companyName ?? (recipient as any).name ?? '').trim()
 
-  const street = String((recipient as any).street ?? '').trim()
-  const streetNo = String((recipient as any).streetNo ?? (recipient as any).houseNo ?? '').trim()
-  const zip = String((recipient as any).zip ?? '').trim()
-  const city = String((recipient as any).city ?? '').trim()
-  const country = String((recipient as any).country ?? '').trim()
+  const taxFirstName = String(tp?.firstName ?? '').trim()
+  const taxLastName = String(tp?.lastName ?? '').trim()
 
-  const hasTaxAddress = Boolean(taxStreet || taxZip || taxCity || taxCountry)
+  const displayName = (() => {
+    if (taxIsCompany) {
+      return taxCompanyName || '—'
+    }
+    const personFromTax = [taxFirstName, taxLastName].filter(Boolean).join(' ').trim()
+    if (personFromTax) return personFromTax
+    const personFromUser = [userTitle, userFirstName, userLastName].filter(Boolean).join(' ').trim()
+    return personFromUser || String((recipient as any).displayName ?? '').trim() || '—'
+  })()
 
-  const addrStreet = hasTaxAddress ? taxStreet : street
-  const addrStreetNo = hasTaxAddress ? taxStreetNo : streetNo
-  const addrZip = hasTaxAddress ? taxZip : zip
-  const addrCity = hasTaxAddress ? taxCity : city
-  const addrCountry = hasTaxAddress ? taxCountry : country
+  const addrStreet = String(tp?.street ?? userStreet ?? '').trim()
+  const addrStreetNo = String(tp?.streetNo ?? userStreetNo ?? '').trim()
+  const addrZip = String(tp?.zip ?? userZip ?? '').trim()
+  const addrCity = String(tp?.city ?? userCity ?? '').trim()
 
   const addressLine = [addrStreet, addrStreetNo].filter(Boolean).join(' ').trim()
   const zipCityLine = [addrZip, addrCity].filter(Boolean).join(' ').trim()
-  const countryLine = addrCountry.trim()
-  const addressFull = [addressLine, zipCityLine, countryLine].filter(Boolean).join(', ').trim()
+  const addressFull = [addressLine, zipCityLine].filter(Boolean).join(', ').trim()
 
-  const totalCzk = Number((recipient as any).totalCzk ?? 0)
+  // Czech text: address label depends on company/person
+  const addrLabel = taxIsCompany ? 'se sídlem' : 'bytem'
 
   // ============================================================
-  // Payments / donations list (robust)
-  // We try multiple shapes (donations/items/payments/paymentLines)
-  // and multiple possible field names for date+amount.
-  // Output format requested: "dd.mm.yyyy: 100 Kč, ..."
+  // Payments / donation lines (robust parsing)
+  // - Accepts various shapes: donations/items/payments/transactions/paymentLines
+  // - Picks (date) from: date/paidAt/receivedAt/createdAt/...
+  // - Picks (amount) from: amountCzk/amount/amountCZK/value/...
+  // - Prints ONE LINE separated by "; "
   // ============================================================
   type AnyItem = Record<string, any>
-
   const candidateArrays: AnyItem[][] = []
   const pushIfArray = (v: any) => {
     if (Array.isArray(v)) candidateArrays.push(v as AnyItem[])
@@ -191,24 +195,28 @@ export function renderTaxCertificateHtml(args: {
       return {
         ts,
         date: fmtDateCz(dt),
+        amountNum: a,
         amount: fmtCzk(a),
       }
     })
-    .filter(Boolean) as Array<{ ts: number; date: string; amount: string }>
+    .filter(Boolean) as Array<{ ts: number; date: string; amountNum: number; amount: string }>
+
   donationLines.sort((a, b) => a.ts - b.ts)
 
   const donationCount = donationLines.length
   const donationIntro = donationCount === 1 ? 'a to v tomto příspěvku:' : 'a to v těchto příspěvcích:'
   const issueDateStr = fmtDateCz(issueDate)
 
-  // Multi-column layout for many payments (still prints nicely)
-  const columnCount = donationCount <= 8 ? 1 : donationCount <= 18 ? 2 : 3
-
-  // For Czech text: address label depends on person/company
-  const addrLabel = isCompany ? 'se sídlem' : 'bytem'
+  // total: prefer provided totalCzk; otherwise compute from donationLines
+  const providedTotal = Number((recipient as any).totalCzk ?? 0)
+  const computedTotal = donationLines.reduce((sum, d) => sum + Number(d.amountNum || 0), 0)
+  const totalCzk = providedTotal > 0 ? providedTotal : computedTotal
 
   // Signature sizing: 70% of original 75mm = 52.5mm
   const sigImgWidthMm = 52.5
+
+  // Title position: ~5cm lower than before
+  const titlePaddingTopMm = 68 // was 18mm; 18 + 50 = 68mm
 
   return `<!doctype html>
 <html lang="cs">
@@ -226,6 +234,12 @@ export function renderTaxCertificateHtml(args: {
       -webkit-hyphens: none !important;
       -ms-hyphens: none !important;
       word-break: normal !important;
+      overflow-wrap: normal !important;
+    }
+
+    /* Stronger guard for Czech text blocks */
+    .mainText, .intro, .legal, .donLine {
+      word-break: keep-all !important;
       overflow-wrap: normal !important;
     }
 
@@ -301,10 +315,10 @@ export function renderTaxCertificateHtml(args: {
       min-width: 0;
     }
 
-    /* Title moved DOWN below the address block */
+    /* Title moved DOWN */
     .titleBlock {
       text-align: right;
-      padding-top: 68mm;
+      padding-top: ${titlePaddingTopMm}mm;
       min-width: 0;
     }
     .title1 {
@@ -343,19 +357,9 @@ export function renderTaxCertificateHtml(args: {
       line-height: 1.55;
     }
 
-    .donationsMulti {
-      margin-top: 4mm;
-      column-count: ${columnCount};
-      column-gap: 10mm;
-      font-size: 11pt;
-      line-height: 1.55;
-    }
-
     .donLine {
-      break-inside: avoid;
-      -webkit-column-break-inside: avoid;
-      margin: 0 0 1.2mm 0;
-      white-space: nowrap;
+      margin: 0;
+      white-space: normal; /* allow wrapping on spaces/semicolons, not per-letter */
     }
 
     .legal {
@@ -364,7 +368,7 @@ export function renderTaxCertificateHtml(args: {
       margin-top: 10mm;
     }
 
-    /* (1) Signature should be ~5 lines below the last text line */
+    /* Signature: ~5 lines below last text line */
     .signature {
       margin-top: 5.6em; /* ~5 lines spacing */
       text-align: right;
@@ -428,17 +432,16 @@ export function renderTaxCertificateHtml(args: {
         ${
           donationCount === 0
             ? `<div class="donationsOne">
-              <div style="margin-top:2mm;">V daném roce nebyly nalezeny žádné přijaté platby.</div>
-             </div>`
-          : `<div class="donationsOne">
-             <div class="donLine">
-               ${donationLines
-                .map((d) => `${escapeHtml(d.date)}: ${escapeHtml(d.amount)} Kč`)
-               .join('; ')}.
-         </div>
-       </div>`
-    }
-
+                 <div style="margin-top:2mm;">V daném roce nebyly nalezeny žádné přijaté platby.</div>
+               </div>`
+            : `<div class="donationsOne">
+                 <div class="donLine">
+                   ${donationLines
+                     .map((d) => `${escapeHtml(d.date)}: ${escapeHtml(d.amount)} Kč`)
+                     .join('; ')}.
+                 </div>
+               </div>`
+        }
 
         <div class="legal">
           Příspěvky dorazily na účet číslo <strong>2201505311/2010</strong> patřící Dogpoint, o. p. s.
