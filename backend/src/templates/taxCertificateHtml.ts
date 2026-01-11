@@ -12,15 +12,21 @@ import type { TaxRecipient } from '../services/taxQuery'
  * - Donation list shows ALL payments in the given year (incl. single payments)
  * - If only ONE payment: show only ONE line and use singular wording
  * - Intro line uses NAME + (tax) ADDRESS, never email
+ *
+ * IMPORTANT (email reliability):
+ * - Do NOT append ?v=... to EMAIL_LOGO_URL / SIGNATURE_IMG_URL (can be signed URLs)
+ * - Cache-bust only our own public Space assets
  */
 
 // Cache-busting for *our own public Space assets only*
-// IMPORTANT: Do NOT append this to signed URLs (EMAIL_LOGO_URL / SIGNATURE_IMG_URL)
+// Change when you replace PNGs in Spaces/assets
 const ASSET_VERSION = '2026-01-10'
 
 function withVersionForSpaceAsset(url: string) {
   if (!url) return ''
-  return url.includes('?') ? `${url}&v=${encodeURIComponent(ASSET_VERSION)}` : `${url}?v=${encodeURIComponent(ASSET_VERSION)}`
+  return url.includes('?')
+    ? `${url}&v=${encodeURIComponent(ASSET_VERSION)}`
+    : `${url}?v=${encodeURIComponent(ASSET_VERSION)}`
 }
 
 /**
@@ -45,16 +51,16 @@ export function renderTaxCertificateHtml(args: {
 
   const doBase = process.env.DO_SPACE_PUBLIC_BASE ? process.env.DO_SPACE_PUBLIC_BASE.replace(/\/$/, '') : ''
 
-  // ✅ Use the same logo approach as in e-mails:
+  // ✅ Logo
   // 1) EMAIL_LOGO_URL (as-is; could be signed!)
   // 2) DO_SPACE_PUBLIC_BASE/assets/dogpoint-logo.png (cache-busted)
-  // 3) hard fallback (as-is)
+  // 3) hard fallback
   const logoUrl =
     process.env.EMAIL_LOGO_URL ||
     (doBase ? withVersionForSpaceAsset(`${doBase}/assets/dogpoint-logo.png`) : '') ||
     'https://dog-point.cz/wp-content/uploads/2023/01/dogpoint-logo.png'
 
-  // Signature image (optional)
+  // ✅ Signature (optional)
   // 1) SIGNATURE_IMG_URL (as-is; could be signed!)
   // 2) DO_SPACE_PUBLIC_BASE/assets/michaela_podpis.png (cache-busted)
   // 3) empty -> fallback text block
@@ -120,6 +126,7 @@ export function renderTaxCertificateHtml(args: {
   const addressLine = [addrStreet, addrStreetNo].filter(Boolean).join(' ').trim()
   const zipCityLine = [addrZip, addrCity].filter(Boolean).join(' ').trim()
   const countryLine = addrCountry.trim()
+
   const addressFull = [addressLine, zipCityLine, countryLine].filter(Boolean).join(', ').trim()
 
   const totalCzk = Number((recipient as any).totalCzk ?? 0)
@@ -154,6 +161,9 @@ export function renderTaxCertificateHtml(args: {
 
   // For Czech text: address label depends on person/company
   const addrLabel = isCompany ? 'se sídlem' : 'bytem'
+
+  // Signature sizing: 70% of original 75mm = 52.5mm
+  const sigImgWidthMm = 52.5
 
   return `<!doctype html>
 <html lang="cs">
@@ -246,9 +256,10 @@ export function renderTaxCertificateHtml(args: {
       min-width: 0;
     }
 
+    /* (1) Title moved DOWN below the address block */
     .titleBlock {
       text-align: right;
-      padding-top: 2mm;
+      padding-top: 18mm; /* <-- key change: pushes title below header address */
       min-width: 0;
     }
     .title1 {
@@ -308,16 +319,16 @@ export function renderTaxCertificateHtml(args: {
       margin-top: 10mm;
     }
 
-    /* Signature stays bottom-right */
+    /* (2) Signature bottom-right, smaller (70%) */
     .signature {
       position: absolute;
       right: 14mm;
       bottom: 14mm;
-      width: 75mm;
+      width: 70mm; /* container */
       text-align: right;
     }
     .sigImg {
-      width: 75mm;
+      width: ${sigImgWidthMm}mm; /* 70% size */
       height: auto;
       display: ${signatureUrl ? 'block' : 'none'};
       margin-left: auto;
@@ -375,16 +386,22 @@ export function renderTaxCertificateHtml(args: {
 
         ${
           donationCount === 0
-            ? `<div class="donationsOne"><span class="donLine">dne dd.mm.rrrr částkou XY Kč.</span></div>`
+            ? `<div class="donationsOne">
+                 <div style="margin-top:2mm;">V daném roce nebyly nalezeny žádné přijaté platby.</div>
+               </div>`
             : donationCount === 1
               ? `<div class="donationsOne">
-                   <div class="donLine">dne ${escapeHtml(donationLines[0].date)} částkou ${escapeHtml(donationLines[0].amount)} Kč.</div>
+                   <div class="donLine">dne ${escapeHtml(donationLines[0].date)} částkou ${escapeHtml(
+                   donationLines[0].amount,
+                 )} Kč.</div>
                  </div>`
               : `<div class="donationsMulti">
                    ${donationLines
                      .map((d, idx) => {
                        const isLast = idx === donationLines.length - 1
-                       return `<div class="donLine">dne ${escapeHtml(d.date)} částkou ${escapeHtml(d.amount)} Kč${isLast ? '.' : ','}</div>`
+                       return `<div class="donLine">dne ${escapeHtml(d.date)} částkou ${escapeHtml(d.amount)} Kč${
+                         isLast ? '.' : ','
+                       }</div>`
                      })
                      .join('')}
                  </div>`
