@@ -126,31 +126,76 @@ export function renderTaxCertificateHtml(args: {
   const addressLine = [addrStreet, addrStreetNo].filter(Boolean).join(' ').trim()
   const zipCityLine = [addrZip, addrCity].filter(Boolean).join(' ').trim()
   const countryLine = addrCountry.trim()
-
   const addressFull = [addressLine, zipCityLine, countryLine].filter(Boolean).join(', ').trim()
 
   const totalCzk = Number((recipient as any).totalCzk ?? 0)
 
-  // Donations list: show ALL in the year (incl. single payments)
-  type DonationItem = { date?: string | Date; amountCzk?: number }
-  const rawDonations: DonationItem[] = Array.isArray((recipient as any).donations)
-    ? ((recipient as any).donations as DonationItem[])
-    : Array.isArray((recipient as any).items)
-      ? ((recipient as any).items as DonationItem[])
-      : []
+  // ============================================================
+  // Payments / donations list (robust)
+  // We try multiple shapes (donations/items/payments/paymentLines)
+  // and multiple possible field names for date+amount.
+  // Output format requested: "dd.mm.yyyy: 100 Kč, ..."
+  // ============================================================
+  type AnyItem = Record<string, any>
 
-  const donationLines = rawDonations
-    .filter((x) => x && (x.date || x.amountCzk != null))
+  const candidateArrays: AnyItem[][] = []
+  const pushIfArray = (v: any) => {
+    if (Array.isArray(v)) candidateArrays.push(v as AnyItem[])
+  }
+
+  pushIfArray((recipient as any).donations)
+  pushIfArray((recipient as any).items)
+  pushIfArray((recipient as any).payments)
+  pushIfArray((recipient as any).paymentLines)
+  pushIfArray((recipient as any).transactions)
+
+  const rawItems: AnyItem[] = candidateArrays.length ? candidateArrays.flat() : []
+
+  const pickDate = (x: AnyItem): string | Date | null => {
+    return (
+      x?.date ||
+      x?.paidAt ||
+      x?.receivedAt ||
+      x?.createdAt ||
+      x?.created_at ||
+      x?.paid_at ||
+      x?.received_at ||
+      x?.timestamp ||
+      null
+    )
+  }
+
+  const pickAmount = (x: AnyItem): number | null => {
+    const v =
+      x?.amountCzk ??
+      x?.amountCZK ??
+      x?.amount ??
+      x?.czk ??
+      x?.valueCzk ??
+      x?.value ??
+      x?.paidAmount ??
+      x?.sum ??
+      null
+    if (v == null) return null
+    const num = Number(v)
+    return Number.isFinite(num) ? num : null
+  }
+
+  const donationLines = rawItems
     .map((x) => {
-      const dt = x.date ? new Date(x.date as any) : null
-      const ts = dt && !Number.isNaN(dt.getTime()) ? dt.getTime() : Number.POSITIVE_INFINITY
+      const d = pickDate(x)
+      const a = pickAmount(x)
+      if (!d || a == null) return null
+      const dt = new Date(d as any)
+      const ts = !Number.isNaN(dt.getTime()) ? dt.getTime() : Number.POSITIVE_INFINITY
       return {
         ts,
-        date: x.date ? fmtDateCz(x.date) : '',
-        amount: fmtCzk(Number(x.amountCzk ?? 0)),
+        date: fmtDateCz(dt),
+        amount: fmtCzk(a),
       }
     })
-    .sort((a, b) => a.ts - b.ts)
+    .filter(Boolean) as Array<{ ts: number; date: string; amount: string }>
+  donationLines.sort((a, b) => a.ts - b.ts)
 
   const donationCount = donationLines.length
   const donationIntro = donationCount === 1 ? 'a to v tomto příspěvku:' : 'a to v těchto příspěvcích:'
@@ -256,10 +301,10 @@ export function renderTaxCertificateHtml(args: {
       min-width: 0;
     }
 
-    /* (1) Title moved DOWN below the address block */
+    /* Title moved DOWN below the address block */
     .titleBlock {
       text-align: right;
-      padding-top: 18mm; /* <-- key change: pushes title below header address */
+      padding-top: 18mm;
       min-width: 0;
     }
     .title1 {
@@ -319,25 +364,21 @@ export function renderTaxCertificateHtml(args: {
       margin-top: 10mm;
     }
 
-    /* (2) Signature bottom-right, smaller (70%) */
+    /* (1) Signature should be ~5 lines below the last text line */
     .signature {
-      position: absolute;
-      right: 14mm;
-      bottom: 14mm;
-      width: 70mm; /* container */
+      margin-top: 5.6em; /* ~5 lines spacing */
       text-align: right;
+      width: 100%;
     }
     .sigImg {
       width: ${sigImgWidthMm}mm; /* 70% size */
       height: auto;
-      display: ${signatureUrl ? 'block' : 'none'};
-      margin-left: auto;
+      display: ${signatureUrl ? 'inline-block' : 'none'};
     }
     .sigFallback {
-      display: ${signatureUrl ? 'none' : 'block'};
+      display: ${signatureUrl ? 'none' : 'inline-block'};
       font-size: 11pt;
       font-weight: 700;
-      margin-top: 10mm;
       line-height: 1.3;
     }
 
@@ -391,7 +432,7 @@ export function renderTaxCertificateHtml(args: {
                </div>`
             : donationCount === 1
               ? `<div class="donationsOne">
-                   <div class="donLine">dne ${escapeHtml(donationLines[0].date)} částkou ${escapeHtml(
+                   <div class="donLine">${escapeHtml(donationLines[0].date)}: ${escapeHtml(
                    donationLines[0].amount,
                  )} Kč.</div>
                  </div>`
@@ -399,7 +440,7 @@ export function renderTaxCertificateHtml(args: {
                    ${donationLines
                      .map((d, idx) => {
                        const isLast = idx === donationLines.length - 1
-                       return `<div class="donLine">dne ${escapeHtml(d.date)} částkou ${escapeHtml(d.amount)} Kč${
+                       return `<div class="donLine">${escapeHtml(d.date)}: ${escapeHtml(d.amount)} Kč${
                          isLast ? '.' : ','
                        }</div>`
                      })
@@ -415,15 +456,15 @@ export function renderTaxCertificateHtml(args: {
           <br/><br/>
           Datum vystavení: <strong>${issueDateStr}</strong>
         </div>
-      </div>
 
-      <div class="signature">
-        ${signatureUrl ? `<img class="sigImg" src="${signatureUrl}" alt="Podpis" />` : ''}
-        ${
-          signatureUrl
-            ? ''
-            : `<div class="sigFallback">Bc. Michaela Zemánková<br/><span style="font-weight:400;">ředitelka o. p. s.</span></div>`
-        }
+        <div class="signature">
+          ${signatureUrl ? `<img class="sigImg" src="${signatureUrl}" alt="Podpis" />` : ''}
+          ${
+            signatureUrl
+              ? ''
+              : `<div class="sigFallback">Bc. Michaela Zemánková<br/><span style="font-weight:400;">ředitelka o. p. s.</span></div>`
+          }
+        </div>
       </div>
     </div>
   </div>
