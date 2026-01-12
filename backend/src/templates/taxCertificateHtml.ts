@@ -10,8 +10,9 @@ import type { TaxRecipient } from '../services/taxQuery'
  * FIXES:
  * - Prevent ugly word splitting (Infolink-a / E-m-ail / obecně→o becně …)
  * - Donation list shows ALL payments in the given year (incl. single payments)
- * - Payments printed in ONE LINE: "dd.mm.yyyy: 100 Kč; dd.mm.yyyy: 200 Kč; ..."
+ * - Payments printed in ONE LINE: "d.m.yyyy: 100 Kč; d.m.yyyy: 200 Kč; ..."
  * - Intro line uses NAME + (tax) ADDRESS, never email
+ * - Dates WITHOUT leading zeros (1.1.2025 instead of 01.01.2025)
  *
  * IMPORTANT (email reliability):
  * - Do NOT append ?v=... to EMAIL_LOGO_URL / SIGNATURE_IMG_URL (can be signed URLs)
@@ -63,11 +64,12 @@ export function renderTaxCertificateHtml(args: {
     (doBase ? withVersionForSpaceAsset(`${doBase}/assets/michaela_podpis.png`) : '') ||
     ''
 
+  // ✅ CZ date without leading zeros: 1.1.2025 (not 01.01.2025)
   const fmtDateCz = (d: Date | string) => {
     const dt = typeof d === 'string' ? new Date(d) : d
     if (Number.isNaN(dt.getTime())) return String(d)
-    const dd = String(dt.getDate()).padStart(2, '0')
-    const mm = String(dt.getMonth() + 1).padStart(2, '0')
+    const dd = String(dt.getDate()) // <-- no padStart
+    const mm = String(dt.getMonth() + 1) // <-- no padStart
     const yyyy = String(dt.getFullYear())
     return `${dd}.${mm}.${yyyy}`
   }
@@ -107,7 +109,9 @@ export function renderTaxCertificateHtml(args: {
   const userCity = String((recipient as any).city ?? '').trim()
 
   const taxIsCompany = Boolean(tp?.isCompany) || Boolean((recipient as any).isCompany)
-  const taxCompanyName = String(tp?.companyName ?? (recipient as any).companyName ?? (recipient as any).name ?? '').trim()
+  const taxCompanyName = String(
+    tp?.companyName ?? (recipient as any).companyName ?? (recipient as any).name ?? ''
+  ).trim()
 
   const taxFirstName = String(tp?.firstName ?? '').trim()
   const taxLastName = String(tp?.lastName ?? '').trim()
@@ -417,14 +421,13 @@ export function renderTaxCertificateHtml(args: {
       </div>
 
       <p class="intro">
-        Kdybyste si svěřenci mohli podepisovat dokumenty, připojil by sem teď otisk tlapky.
+        Kdyby naši psí svěřenci mohli podepisovat dokumenty, připojili by sem teď otisk tlapky.
         Ale tohle je potřeba udělat správně, oficiálně.
       </p>
 
       <div class="mainText">
         <div>
-          Tímto potvrzujeme, že <strong>${escapeHtml(displayName)}</strong>
-          ${addressFull ? `, ${addrLabel} <strong>${escapeHtml(addressFull)}</strong>,` : ','}
+          Tímto potvrzujeme, že <strong>${escapeHtml(displayName)}</strong>${addressFull ? `, ${addrLabel} <strong>${escapeHtml(addressFull)}</strong>,` : ','}
           v roce ${year} podpořil / podpořila činnost obecně prospěšné společnosti Dogpoint, o. p. s.,
           celkovou částkou <strong>${fmtCzk(totalCzk)} Kč</strong>, ${donationIntro}
         </div>
