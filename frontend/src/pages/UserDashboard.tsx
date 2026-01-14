@@ -26,6 +26,28 @@ export default function UserDashboard() {
   const [err, setErr] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(true)
 
+  const loadAdoptions = React.useCallback(async () => {
+    setLoading(true)
+    setErr(null)
+
+    try {
+      const list = await myAdoptedAnimals()
+      setItems(list || [])
+    } catch (e: any) {
+      const msg = (e?.message || '').toString()
+
+      // 👉 If backend returns 404 / "Not Found", treat it as "no adoptions yet"
+      if (msg.toLowerCase().includes('not found') || msg.includes('404')) {
+        setItems([])
+        setErr(null)
+      } else {
+        setErr(msg || 'Nepodařilo se načíst adopce')
+      }
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
   /* ------------------------------------------------------------------
    * 1) Handle Stripe return: ?paid=1&sid=cs_...
    * ------------------------------------------------------------------ */
@@ -59,6 +81,9 @@ export default function UserDashboard() {
           // ✅ Save token and refresh user info via AuthContext
           setAuthToken(token)
           await refreshMe()
+
+          // ✅ IMPORTANT: immediately refresh the adoption list
+          await loadAdoptions()
         }
       } catch (e) {
         console.warn('[UserDashboard] Stripe confirm handler error', e)
@@ -80,41 +105,15 @@ export default function UserDashboard() {
     return () => {
       cancelled = true
     }
-  }, [location.search, refreshMe])
+  }, [location.search, refreshMe, loadAdoptions])
 
   /* ------------------------------------------------------------------
    * 2) Load "Moje adopce" whenever we have/refresh a user
    * ------------------------------------------------------------------ */
   React.useEffect(() => {
-    let alive = true
-    setLoading(true)
-    setErr(null)
-
-    myAdoptedAnimals()
-      .then((list) => {
-        if (!alive) return
-        setItems(list || [])
-      })
-      .catch((e: any) => {
-        if (!alive) return
-        const msg = (e?.message || '').toString()
-
-        // 👉 If backend returns 404 / "Not Found", treat it as "no adoptions yet"
-        if (msg.toLowerCase().includes('not found') || msg.includes('404')) {
-          setItems([])
-          setErr(null)
-        } else {
-          setErr(msg || 'Nepodařilo se načíst adopce')
-        }
-      })
-      .finally(() => {
-        if (alive) setLoading(false)
-      })
-
-    return () => {
-      alive = false
-    }
-  }, [user])
+    // When user changes (login/logout), reload list
+    void loadAdoptions()
+  }, [user, loadAdoptions])
 
   const onSeen = async (animalId: string) => {
     try {
