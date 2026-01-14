@@ -103,20 +103,16 @@ model AdoptionRequest {
 model TaxProfile {
   id String @id @default(cuid())
 
-  // 1:1 with User (optional on User side)
   userId String @unique
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  // If tax subject is a company
   isCompany   Boolean @default(false)
   companyName String?
   taxId       String?
 
-  // If tax subject is a different physical person (or fallback address)
   firstName String?
   lastName  String?
 
-  // Address (always here, because tax subject may differ from User)
   street   String?
   streetNo String?
   zip      String?
@@ -181,29 +177,44 @@ model PostMedia {
 }
 
 model Subscription {
-  id             String             @id @default(cuid())
-  userId         String
-  animalId       String
-  monthlyAmount  Int
-  currency       String             @default("CZK")
+  id            String @id @default(cuid())
+  userId        String
+  animalId      String
+  monthlyAmount Int
+  currency      String @default("CZK")
+
   provider       PaymentProvider
   providerRef    String?
-  variableSymbol String?            @unique
+  variableSymbol String?         @unique
   message        String?
-  status         SubscriptionStatus @default(PENDING)
-  startedAt      DateTime           @default(now())
-  canceledAt     DateTime?
-  note           String?
-  createdAt      DateTime           @default(now())
-  updatedAt      DateTime           @updatedAt
-  payments       Payment[]
-  animal         Animal             @relation(fields: [animalId], references: [id], onDelete: Cascade)
-  user           User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  status SubscriptionStatus @default(PENDING)
+
+  // ✅ TIMELINE FOR BANK ACCESS
+  pendingSince    DateTime  @default(now()) // created PENDING (BANK)
+  tempAccessUntil DateTime? // free access until (now + 30 days)
+  graceUntil      DateTime? // after reminder: (reminder + 7 days)
+  reminderSentAt  DateTime?
+  reminderCount   Int       @default(0)
+
+  startedAt  DateTime  @default(now())
+  canceledAt DateTime?
+  note       String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  payments Payment[]
+  animal   Animal    @relation(fields: [animalId], references: [id], onDelete: Cascade)
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, animalId, status])
   @@index([userId])
   @@index([animalId])
   @@index([status])
+  // ✅ indices for fast checks
+  @@index([pendingSince])
+  @@index([tempAccessUntil])
+  @@index([graceUntil])
 }
 
 model Payment {
@@ -219,6 +230,8 @@ model Payment {
   createdAt      DateTime        @default(now())
   subscription   Subscription    @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
 
+  // ✅ prevent duplicate imports (Stripe/Fio)
+  @@unique([provider, providerRef])
   @@index([subscriptionId])
   @@index([status])
 }
@@ -267,12 +280,20 @@ model Pledge {
   status     PaymentStatus   @default(PENDING)
   providerId String?
   note       String?
-  createdAt  DateTime        @default(now())
-  updatedAt  DateTime        @updatedAt
-  payments   PledgePayment[]
+
+  // ✅ Link pledge to logged user/subscription (important for BANK)
+  userId         String?
+  subscriptionId String?
+  variableSymbol String? // optional convenience (BANK)
+
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+  payments  PledgePayment[]
 
   @@index([email, animalId])
   @@index([status, method])
+  @@index([subscriptionId])
+  @@index([userId])
 }
 
 model PledgePayment {
