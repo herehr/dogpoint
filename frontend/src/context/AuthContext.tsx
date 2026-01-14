@@ -1,24 +1,44 @@
 // frontend/src/context/AuthContext.tsx
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react'
-import { clearToken, getToken } from '../services/api'
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react'
+import { clearToken, getToken, me } from '../services/api'
 
-type Role = 'ADMIN' | 'MODERATOR' | 'USER' | null
+export type Role = 'ADMIN' | 'MODERATOR' | 'USER' | null
+
+export type AuthUser = {
+  id: string
+  email: string
+  role: Role
+}
 
 type AuthCtx = {
   token: string | null
   role: Role
-  login: (token: string, role: Role) => void
+  user: AuthUser | null
+  login: (token: string, role: Role) => Promise<void>
   logout: () => void
+  refreshMe: () => Promise<void>
 }
 
 const Ctx = createContext<AuthCtx>({
   token: null,
   role: null,
-  login: () => {},
+  user: null,
+  login: async () => {},
   logout: () => {},
+  refreshMe: async () => {},
 })
 
 const ROLE_KEY = 'role'
+
+/* ------------------------------------------------------------------ */
+/* Helpers                                                            */
+/* ------------------------------------------------------------------ */
 
 function safeGetRole(): Role {
   try {
@@ -43,46 +63,101 @@ function safeSetRole(role: Role) {
   } catch {}
 }
 
+/* ------------------------------------------------------------------ */
+/* Provider                                                           */
+/* ------------------------------------------------------------------ */
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  // ✅ token is owned by services/api.ts storage logic
+  // Token is owned by services/api.ts storage logic
   const [token, setToken] = useState<string | null>(() => getToken())
   const [role, setRole] = useState<Role>(() => safeGetRole())
+  const [user, setUser] = useState<AuthUser | null>(null)
 
-  // ✅ keep state updated if storage changes (multi-tab etc.)
+  /* -------------------------------------------------------------- */
+  /* Load current user from backend                                 */
+  /* -------------------------------------------------------------- */
+  const refreshMe = async () => {
+    const t = getToken()
+    if (!t) {
+      setUser(null)
+      setRole(null)
+      return
+    }
+
+    try {
+      const u = await me()
+      setUser({
+        id: u.id,
+        email: u.email,
+        role: u.role,
+      })
+      setRole(u.role)
+      safeSetRole(u.role)
+    } catch (e) {
+      console.warn('[AuthContext] me() failed → logout', e)
+      logout()
+    }
+  }
+
+  /* -------------------------------------------------------------- */
+  /* Initial load + multi-tab sync                                   */
+  /* -------------------------------------------------------------- */
   useEffect(() => {
+    refreshMe()
+
     const onStorage = () => {
       setToken(getToken())
       setRole(safeGetRole())
+      refreshMe()
     }
+
     window.addEventListener('storage', onStorage)
     return () => window.removeEventListener('storage', onStorage)
   }, [])
 
-  const login = (jwt: string, r: Role) => {
-    // Token is stored by whichever login flow you call (setToken / setAdminToken / setModeratorToken).
-    // Here we only update UI state.
-    setToken(jwt || null)
-    setRole(r || null)
-    safeSetRole(r || null)
+  /* -------------------------------------------------------------- */
+  /* Login / Logout                                                   */
+  /* -------------------------------------------------------------- */
+  const login = async (jwt: string, r: Role) => {
+    setToken(jwt)
+    setRole(r)
+    safeSetRole(r)
+    await refreshMe()
   }
 
   const logout = () => {
     setToken(null)
     setRole(null)
+    setUser(null)
     safeSetRole(null)
 
-    // ✅ clears accessToken + adminToken + moderatorToken + legacy keys (local+session)
+    // Clears accessToken + adminToken + moderatorToken + legacy keys
     clearToken()
 
-    // app-specific cached access
+    // App-specific cache
     try {
       localStorage.removeItem('dogpoint.access')
     } catch {}
   }
 
-  const value = useMemo(() => ({ token, role, login, logout }), [token, role])
+  const value = useMemo(
+    () => ({
+      token,
+      role,
+      user,
+      login,
+      logout,
+      refreshMe,
+    }),
+    [token, role, user],
+  )
+
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
+
+/* ------------------------------------------------------------------ */
+/* Hook                                                               */
+/* ------------------------------------------------------------------ */
 
 export function useAuth() {
   return useContext(Ctx)

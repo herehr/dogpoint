@@ -1,5 +1,5 @@
 // backend/src/routes/stripe.ts
-import express, { Router, Request, Response } from 'express'
+import express, { Router, type Request, type Response } from 'express'
 import Stripe from 'stripe'
 import jwt, { Secret } from 'jsonwebtoken'
 import bcrypt from 'bcrypt'
@@ -25,6 +25,12 @@ const stripe = stripeSecret ? new Stripe(stripeSecret) : null
 /* ------------------------------------------------------------------ */
 /* Helpers                                                            */
 /* ------------------------------------------------------------------ */
+type JwtPayloadLite = {
+  sub?: string
+  role?: string
+  email?: string
+}
+
 function signToken(user: { id: string; role: string; email: string }) {
   const rawSecret = process.env.JWT_SECRET
   if (!rawSecret) throw new Error('Server misconfigured: JWT_SECRET missing')
@@ -43,6 +49,42 @@ function frontendBase(): string {
 function normalizeEmail(x?: string | null): string | undefined {
   const s = (x ?? '').trim().toLowerCase()
   return s ? s : undefined
+}
+
+/**
+ * Optional auth: if Authorization Bearer is present, parse it.
+ * (We do NOT require auth here, but we can use it for email prefill.)
+ */
+function getOptionalJwt(req: Request): JwtPayloadLite | null {
+  try {
+    const rawSecret = process.env.JWT_SECRET
+    if (!rawSecret) return null
+
+    const h = String(req.headers.authorization || '')
+    if (!h.toLowerCase().startsWith('bearer ')) return null
+
+    const token = h.slice('bearer '.length).trim()
+    if (!token) return null
+
+    const decoded = jwt.verify(token, rawSecret as Secret) as JwtPayloadLite
+    return decoded || null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * ✅ Stripe Customer helper
+ * Using customers.list({ email }) is fine here (simple and reliable).
+ */
+async function getOrCreateCustomerId(email: string): Promise<string> {
+  if (!stripe) throw new Error('Stripe not configured')
+
+  const existing = await stripe.customers.list({ email, limit: 1 })
+  if (existing.data.length > 0) return existing.data[0].id
+
+  const created = await stripe.customers.create({ email })
+  return created.id
 }
 
 /**
@@ -116,151 +158,140 @@ async function activatePendingSubscriptionsFromPaidPayments(opts: { userId: stri
  * ========================================================================= */
 export const rawRouter = Router()
 
-rawRouter.post(
-  '/webhook',
-  express.raw({ type: 'application/json' }),
-  async (req: Request, res: Response) => {
+rawRouter.post('/webhook', express.raw({ type: 'application/json' }), async (req: Request, res: Response) => {
+  try {
+    const sig = req.headers['stripe-signature'] as string | undefined
+    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
+
+    if (!stripe) {
+      return res.status(500).send('Stripe not configured')
+    }
+    if (!webhookSecret) {
+      return res.status(500).send('Missing STRIPE_WEBHOOK_SECRET')
+    }
+    if (!sig) {
+      return res.status(400).send('Missing Stripe-Signature')
+    }
+
+    let event: Stripe.Event
     try {
-      const sig = req.headers['stripe-signature'] as string | undefined
-      const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
+      event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret)
+    } catch (err: any) {
+      console.error('[stripe webhook] signature verification failed:', err?.message)
+      return res.status(400).send(`Webhook Error: ${err?.message}`)
+    }
 
-      let event: Stripe.Event
+    // best-effort: persist raw event if you have such a table
+    try {
+      // @ts-ignore optional table
+      await prisma.webhookEvent?.create?.({
+        data: {
+          provider: 'STRIPE',
+          rawPayload: event as any,
+          processed: false,
+        },
+      })
+    } catch {
+      /* ignore */
+    }
 
-      // If we don't have a webhook secret, signature, or stripe client → dev/preview fallback
-      const isProd = process.env.NODE_ENV === 'production'
+    if (event.type === 'checkout.session.completed') {
+      const session = event.data.object as Stripe.Checkout.Session
+      const meta = (session.metadata || {}) as Record<string, string | undefined>
 
-if (!stripe) {
-  return res.status(500).send('Stripe not configured')
-}
+      const pledgeId = meta.pledgeId as string | undefined
+      const animalId = meta.animalId as string | undefined
 
-if (!webhookSecret) {
-  return res.status(500).send('Missing STRIPE_WEBHOOK_SECRET')
-}
+      const stripeEmail =
+        normalizeEmail((session as any).customer_details?.email) ||
+        normalizeEmail(session.customer_email) ||
+        normalizeEmail(((session.customer as any)?.email as string | undefined))
 
-if (!sig) {
-  // This is what your curl test should return
-  return res.status(400).send('Missing Stripe-Signature')
-}
+      const paymentStatus = session.payment_status as string | undefined
+      const isPaid = paymentStatus === 'paid'
 
-try {
-  event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret)
-} catch (err: any) {
-  console.error('[stripe webhook] signature verification failed:', err?.message)
-  return res.status(400).send(`Webhook Error: ${err?.message}`)
-}
-
-      // best-effort: persist raw event if you have such a table
-      try {
-        // @ts-ignore optional table
-        await prisma.webhookEvent?.create?.({
-          data: {
-            provider: 'STRIPE',
-            rawPayload: event as any,
-            processed: false,
-          },
+      // Update pledge → PAID or PENDING (+ patch email if placeholder)
+      if (pledgeId) {
+        try {
+          await prisma.pledge.update({
+            where: { id: pledgeId },
+            data: {
+              status: isPaid ? ('PAID' as any) : ('PENDING' as any),
+              providerId: session.id,
+              ...(stripeEmail ? { email: stripeEmail } : {}),
+            },
+          })
+        } catch {
+          /* ignore */
+        }
+      } else {
+        const p = await prisma.pledge.findFirst({
+          where: { providerId: session.id },
         })
-      } catch {
-        /* ignore */
-      }
-
-      if (event.type === 'checkout.session.completed') {
-        const session = event.data.object as Stripe.Checkout.Session
-        const meta = (session.metadata || {}) as Record<string, string | undefined>
-
-        const pledgeId = meta.pledgeId as string | undefined
-        const animalId = meta.animalId as string | undefined
-
-        const stripeEmail =
-          normalizeEmail((session as any).customer_details?.email) ||
-          normalizeEmail(session.customer_email) ||
-          normalizeEmail(((session.customer as any)?.email as string | undefined))
-
-        const paymentStatus = session.payment_status as string | undefined
-        const isPaid = paymentStatus === 'paid'
-
-        // Update pledge → PAID or PENDING (+ patch email if placeholder)
-        if (pledgeId) {
+        if (p) {
           try {
             await prisma.pledge.update({
-              where: { id: pledgeId },
+              where: { id: p.id },
               data: {
                 status: isPaid ? ('PAID' as any) : ('PENDING' as any),
-                providerId: session.id,
                 ...(stripeEmail ? { email: stripeEmail } : {}),
               },
             })
           } catch {
             /* ignore */
           }
-        } else {
+        }
+      }
+
+      // Ensure user + link pledges
+      const emailToUse =
+        stripeEmail ||
+        (await (async () => {
           const p = await prisma.pledge.findFirst({
             where: { providerId: session.id },
           })
-          if (p) {
-            try {
-              await prisma.pledge.update({
-                where: { id: p.id },
-                data: {
-                  status: isPaid ? ('PAID' as any) : ('PENDING' as any),
-                  ...(stripeEmail ? { email: stripeEmail } : {}),
-                },
-              })
-            } catch {
-              /* ignore */
-            }
-          }
-        }
+          return p?.email
+        })())
 
-        // Ensure user + link pledges
-        const emailToUse =
-          stripeEmail ||
-          (await (async () => {
-            const p = await prisma.pledge.findFirst({
-              where: { providerId: session.id },
-            })
-            return p?.email
-          })())
-
-        if (emailToUse) {
-          let user = await prisma.user.findUnique({
-            where: { email: emailToUse },
-          })
-          if (!user) {
-            user = await prisma.user.create({
-              data: { email: emailToUse, role: 'USER' },
-            })
-          }
-
-          await linkPaidOrRecentPledgesToUser(user.id, user.email)
-
-          // ✅ If payment(s) are PAID but subscription is still PENDING → activate + notify adoption started
-          if (isPaid) {
-            await activatePendingSubscriptionsFromPaidPayments({
-              userId: user.id,
-              animalId,
-            })
-          }
-        }
-      }
-
-      // mark processed if you keep a log table
-      try {
-        // @ts-ignore optional table
-        await prisma.webhookEvent?.updateMany?.({
-          data: { processed: true },
-          where: { processed: false },
+      if (emailToUse) {
+        let user = await prisma.user.findUnique({
+          where: { email: emailToUse },
         })
-      } catch {
-        /* ignore */
-      }
+        if (!user) {
+          user = await prisma.user.create({
+            data: { email: emailToUse, role: 'USER' },
+          })
+        }
 
-      res.json({ received: true })
-    } catch (e) {
-      console.error('[stripe webhook] handler error:', e)
-      res.status(500).send('Webhook handler error')
+        await linkPaidOrRecentPledgesToUser(user.id, user.email)
+
+        // ✅ If payment(s) are PAID but subscription is still PENDING → activate + notify adoption started
+        if (isPaid) {
+          await activatePendingSubscriptionsFromPaidPayments({
+            userId: user.id,
+            animalId,
+          })
+        }
+      }
     }
-  },
-)
+
+    // mark processed if you keep a log table
+    try {
+      // @ts-ignore optional table
+      await prisma.webhookEvent?.updateMany?.({
+        data: { processed: true },
+        where: { processed: false },
+      })
+    } catch {
+      /* ignore */
+    }
+
+    res.json({ received: true })
+  } catch (e) {
+    console.error('[stripe webhook] handler error:', e)
+    res.status(500).send('Webhook handler error')
+  }
+})
 
 /* =========================================================================
  * JSON router (normal JSON endpoints; mount AFTER express.json())
@@ -280,7 +311,8 @@ jsonRouter.get('/ping', (_req: Request, res: Response) => {
 /**
  * POST /api/stripe/checkout-session
  * body: { animalId: string, amountCZK: number, email?: string, name?: string, password?: string }
- * Uses a placeholder email if none provided; Stripe email overwrites it after payment.
+ * ✅ If Authorization Bearer token is present, we prefer req.user.email from JWT
+ * ✅ Creates/reuses Stripe customer so email is pre-filled in Checkout
  */
 jsonRouter.post('/checkout-session', async (req: Request, res: Response) => {
   try {
@@ -307,13 +339,18 @@ jsonRouter.post('/checkout-session', async (req: Request, res: Response) => {
       return
     }
 
-    const safeEmail = normalizeEmail(email) ?? 'pending+unknown@local'
+    // ✅ Prefer email from JWT if present (logged-in user)
+    const jwtUser = getOptionalJwt(req)
+    const jwtEmail = normalizeEmail(jwtUser?.email)
+    const bodyEmail = normalizeEmail(email)
+
+    const resolvedEmail = jwtEmail || bodyEmail
+    const safeEmail = resolvedEmail ?? 'pending+unknown@local'
 
     // -------------------------------------------------------------
-    // Create / update user right here (with password)
-    // Uses Prisma field "passwordHash" (your actual schema)
+    // Create / update user right here (with password) - only if real email
     // -------------------------------------------------------------
-    if (safeEmail && safeEmail !== 'pending+unknown@local') {
+    if (safeEmail !== 'pending+unknown@local') {
       const pwd = typeof password === 'string' && password.length >= 6 ? password : undefined
 
       if (pwd) {
@@ -358,19 +395,32 @@ jsonRouter.post('/checkout-session', async (req: Request, res: Response) => {
     const successUrl = `${FRONTEND_BASE}/zvire/${encodeURIComponent(animalId)}?paid=1&sid={CHECKOUT_SESSION_ID}`
     const cancelUrl = `${FRONTEND_BASE}/zvire/${encodeURIComponent(animalId)}?canceled=1`
 
+    // ✅ Key change: reuse Stripe customer -> email prefilled
+    let customerId: string | undefined
+    if (resolvedEmail) {
+      customerId = await getOrCreateCustomerId(resolvedEmail)
+    }
+
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       payment_method_types: ['card'],
       locale: 'cs',
       success_url: successUrl,
       cancel_url: cancelUrl,
-      customer_email: normalizeEmail(email),
+
+      // ✅ Use customer when possible (prefill email / Link)
+      ...(customerId ? { customer: customerId } : { customer_email: resolvedEmail }),
+
+      // optional quality-of-life
+      customer_update: { name: 'auto' },
+
       metadata: {
         animalId,
         pledgeId: pledge.id,
         interval: 'MONTHLY',
         type: 'DONATION',
       },
+
       line_items: [
         {
           price_data: {

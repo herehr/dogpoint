@@ -15,17 +15,11 @@ import {
   Button,
 } from '@mui/material'
 import { Link as RouterLink, useLocation } from 'react-router-dom'
-import {
-  myAdoptedAnimals,
-  markAnimalSeen,
-  MyAdoptedItem,
-  setAuthToken,
-  me,
-} from '../services/api'
+import { myAdoptedAnimals, markAnimalSeen, type MyAdoptedItem, setAuthToken, apiUrl } from '../services/api'
 import { useAuth } from '../context/AuthContext'
 
 export default function UserDashboard() {
-  const { user } = useAuth()
+  const { user, refreshMe } = useAuth()
   const location = useLocation()
 
   const [items, setItems] = React.useState<MyAdoptedItem[] | null>(null)
@@ -46,17 +40,11 @@ export default function UserDashboard() {
 
         if (!sid || paid !== '1') return
 
-        // Call backend confirm endpoint
-        const base = import.meta.env.VITE_API_BASE_URL || ''
-        const resp = await fetch(
-          `${base.replace(/\/+$/, '')}/api/stripe/confirm?sid=${encodeURIComponent(
-            sid
-          )}`,
-          {
-            method: 'GET',
-            credentials: 'include',
-          }
-        )
+        // ✅ Call backend confirm endpoint (use apiUrl to avoid wrong base)
+        const resp = await fetch(`${apiUrl('/api/stripe/confirm')}?sid=${encodeURIComponent(sid)}`, {
+          method: 'GET',
+          credentials: 'include',
+        })
 
         if (!resp.ok) {
           console.warn('[UserDashboard] stripe/confirm failed', resp.status)
@@ -68,13 +56,9 @@ export default function UserDashboard() {
 
         const token = data?.token as string | undefined
         if (data?.ok && token) {
-          // Save token and refresh user info
+          // ✅ Save token and refresh user info via AuthContext
           setAuthToken(token)
-          try {
-            await me()
-          } catch (e) {
-            console.warn('[UserDashboard] me() after confirm failed', e)
-          }
+          await refreshMe()
         }
       } catch (e) {
         console.warn('[UserDashboard] Stripe confirm handler error', e)
@@ -84,9 +68,7 @@ export default function UserDashboard() {
           const p = new URLSearchParams(location.search)
           p.delete('paid')
           p.delete('sid')
-          const clean = `${window.location.pathname}${
-            p.toString() ? `?${p}` : ''
-          }`
+          const clean = `${window.location.pathname}${p.toString() ? `?${p}` : ''}`
           window.history.replaceState({}, '', clean)
         } catch {
           // ignore
@@ -98,7 +80,7 @@ export default function UserDashboard() {
     return () => {
       cancelled = true
     }
-  }, [location.search])
+  }, [location.search, refreshMe])
 
   /* ------------------------------------------------------------------
    * 2) Load "Moje adopce" whenever we have/refresh a user
@@ -132,7 +114,7 @@ export default function UserDashboard() {
     return () => {
       alive = false
     }
-  }, [user]) // re-load when user changes (e.g. after Stripe confirm + me())
+  }, [user])
 
   const onSeen = async (animalId: string) => {
     try {
@@ -144,12 +126,7 @@ export default function UserDashboard() {
 
   return (
     <Container sx={{ py: 4 }}>
-      <Stack
-        direction="row"
-        alignItems="baseline"
-        justifyContent="space-between"
-        sx={{ mb: 2 }}
-      >
+      <Stack direction="row" alignItems="baseline" justifyContent="space-between" sx={{ mb: 2 }}>
         <Typography variant="h4" sx={{ fontWeight: 900 }}>
           Moje adopce
         </Typography>
@@ -174,19 +151,13 @@ export default function UserDashboard() {
       )}
 
       {!loading && items && items.length === 0 && !err && (
-        <Alert severity="info">
-          Zatím tu nic není. Po úspěšné platbě se vaše adopce objeví zde.
-        </Alert>
+        <Alert severity="info">Zatím tu nic není. Po úspěšné platbě se vaše adopce objeví zde.</Alert>
       )}
 
       {!loading && items && items.length > 0 && (
         <Grid container spacing={2}>
           {items.map((it) => {
-            const title =
-              (it as any).title ||
-              (it as any).jmeno ||
-              (it as any).name ||
-              'Zvíře'
+            const title = (it as any).title || (it as any).jmeno || (it as any).name || 'Zvíře'
             const main = (it as any).main
             const since = (it as any).since
             const status = (it as any).status
@@ -195,25 +166,10 @@ export default function UserDashboard() {
             return (
               <Grid item xs={12} sm={6} md={4} key={animalId}>
                 <Card>
-                  <CardActionArea
-                    component={RouterLink}
-                    to={`/zvire/${animalId}`}
-                    onClick={() => onSeen(animalId)}
-                  >
-                    {main && (
-                      <CardMedia
-                        component="img"
-                        height="160"
-                        image={main}
-                        alt={title}
-                      />
-                    )}
+                  <CardActionArea component={RouterLink} to={`/zvire/${animalId}`} onClick={() => onSeen(animalId)}>
+                    {main && <CardMedia component="img" height="160" image={main} alt={title} />}
                     <CardContent>
-                      <Stack
-                        direction="row"
-                        justifyContent="space-between"
-                        alignItems="center"
-                      >
+                      <Stack direction="row" justifyContent="space-between" alignItems="center">
                         <Typography variant="h6" sx={{ fontWeight: 800 }}>
                           {title}
                         </Typography>
@@ -221,11 +177,7 @@ export default function UserDashboard() {
                       </Stack>
 
                       {since && (
-                        <Typography
-                          variant="body2"
-                          color="text.secondary"
-                          sx={{ mt: 0.5 }}
-                        >
+                        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
                           od{' '}
                           {new Date(since).toLocaleDateString('cs-CZ', {
                             day: '2-digit',
@@ -236,12 +188,8 @@ export default function UserDashboard() {
                       )}
 
                       <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
-                        <Button
-                        size="small"
-                         component={RouterLink}
-                         to={`/zvire/${animalId}`}
-                         >
-                         Zobrazit detail
+                        <Button size="small" component={RouterLink} to={`/zvire/${animalId}`}>
+                          Zobrazit detail
                         </Button>
                       </Stack>
                     </CardContent>
