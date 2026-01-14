@@ -26,24 +26,7 @@ import { useAccess } from '../context/AccessContext'
 import { useAuth } from '../context/AuthContext'
 import RichTextEditor from './RichTextEditor'
 import SafeHTML from './SafeHTML'
-import { apiUrl } from '../services/api'
-
-// ─────────────────────────────────────────────────────────────
-// Auth helpers (one consistent header for all roles)
-// ─────────────────────────────────────────────────────────────
-function readToken(): string | null {
-  if (typeof window === 'undefined') return null
-  return (
-    sessionStorage.getItem('accessToken') ||
-    sessionStorage.getItem('adminToken') ||
-    sessionStorage.getItem('moderatorToken') ||
-    null
-  )
-}
-function authHeader(): Record<string, string> {
-  const t = readToken()
-  return t ? { Authorization: `Bearer ${t}` } : {}
-}
+import { apiUrl, authHeader, getToken } from '../services/api'
 
 // ─────────────────────────────────────────────────────────────
 // Types
@@ -99,7 +82,6 @@ async function readJson<T>(res: Response): Promise<T> {
   try {
     return JSON.parse(text) as T
   } catch {
-    // if backend returned empty string but ok
     return (undefined as unknown) as T
   }
 }
@@ -181,7 +163,7 @@ export default function PostsSection({ animalId }: { animalId: string }) {
     const arr = Array.from(files).filter((f) => f && f.size > 0)
     if (arr.length === 0) return
 
-    const t = readToken()
+    const t = getToken()
     if (!t) {
       setErr('Chybí přihlášení. Přihlaste se prosím znovu.')
       return
@@ -250,7 +232,7 @@ export default function PostsSection({ animalId }: { animalId: string }) {
     if (!canWrite) return
     if (!title.trim() && !body.trim() && media.length === 0) return
 
-    const t = readToken()
+    const t = getToken()
     if (!t) {
       setErr('Chybí přihlášení. Přihlaste se prosím znovu.')
       return
@@ -298,7 +280,7 @@ export default function PostsSection({ animalId }: { animalId: string }) {
     const ok = window.confirm('Opravdu chcete tento příspěvek smazat?')
     if (!ok) return
 
-    const t = readToken()
+    const t = getToken()
     if (!t) {
       setErr('Chybí přihlášení. Přihlaste se prosím znovu.')
       return
@@ -338,7 +320,7 @@ export default function PostsSection({ animalId }: { animalId: string }) {
   async function saveEdit() {
     if (!canEdit || !editId) return
 
-    const t = readToken()
+    const t = getToken()
     if (!t) {
       setErr('Chybí přihlášení (admin). Přihlaste se prosím znovu.')
       return
@@ -388,7 +370,7 @@ export default function PostsSection({ animalId }: { animalId: string }) {
     const ok = window.confirm('Opravdu chcete smazat toto médium?')
     if (!ok) return
 
-    const t = readToken()
+    const t = getToken()
     if (!t) {
       setErr('Chybí přihlášení (admin). Přihlaste se prosím znovu.')
       return

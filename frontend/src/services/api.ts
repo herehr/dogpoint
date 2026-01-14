@@ -12,7 +12,7 @@ export function apiUrl(path = ''): string {
 }
 
 /* =========================================================
-   Token helpers
+   Token helpers (persistent login)
 ========================================================= */
 
 const tokenKey = 'accessToken'
@@ -20,58 +20,91 @@ const tokenKey = 'accessToken'
 /**
  * ✅ IMPORTANT:
  * We keep accessToken as the “generic” token AND also store role-specific keys.
- * Admin pages must send adminToken, moderator pages can send moderatorToken.
+ * We now store tokens in localStorage for persistent login, with sessionStorage fallback.
  */
+
+function safeGet(key: string): string | null {
+  try {
+    const v = localStorage.getItem(key)
+    if (v) return v
+  } catch {}
+  try {
+    return sessionStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+function safeSet(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value)
+  } catch {}
+  try {
+    sessionStorage.setItem(key, value) // backward compat
+  } catch {}
+}
+
+function safeRemove(key: string) {
+  try {
+    localStorage.removeItem(key)
+  } catch {}
+  try {
+    sessionStorage.removeItem(key)
+  } catch {}
+}
 
 /** generic (kept for compatibility) */
 export function setToken(token: string) {
   try {
-    sessionStorage.setItem(tokenKey, token)
+    safeSet(tokenKey, token)
   } catch {}
 }
 
-/** ✅ NEW: store ADMIN token (and keep accessToken in sync) */
+/** ✅ store ADMIN token (and keep accessToken in sync) */
 export function setAdminToken(token: string) {
   try {
-    sessionStorage.setItem('adminToken', token)
-    sessionStorage.setItem(tokenKey, token) // keep generic in sync
+    safeSet('adminToken', token)
+    safeSet(tokenKey, token) // keep generic in sync
     // avoid sending wrong role token later
-    sessionStorage.removeItem('moderatorToken')
+    safeRemove('moderatorToken')
   } catch {}
 }
 
-/** ✅ NEW: store MODERATOR token (and keep accessToken in sync) */
+/** ✅ store MODERATOR token (and keep accessToken in sync) */
 export function setModeratorToken(token: string) {
   try {
-    sessionStorage.setItem('moderatorToken', token)
-    sessionStorage.setItem(tokenKey, token) // keep generic in sync
+    safeSet('moderatorToken', token)
+    safeSet(tokenKey, token) // keep generic in sync
     // avoid sending wrong role token later
-    sessionStorage.removeItem('adminToken')
+    safeRemove('adminToken')
   } catch {}
 }
 
 /**
  * ✅ FIX:
  * Prefer adminToken BEFORE accessToken.
- * Reason: if you previously logged in as moderator, accessToken might still contain
- * a moderator JWT, but admin pages must send the admin JWT (stored as adminToken).
  */
 export function getToken(): string | null {
   try {
     // ✅ admin first
-    const admin = sessionStorage.getItem('adminToken')
+    const admin = safeGet('adminToken')
     if (admin) return admin
 
     // then generic
-    const t = sessionStorage.getItem(tokenKey)
+    const t = safeGet(tokenKey)
     if (t) return t
 
     // fallbacks (older keys)
     return (
-      sessionStorage.getItem('moderatorToken') ||
-      sessionStorage.getItem('token') ||
-      localStorage.getItem('dp:token') ||
-      localStorage.getItem('token')
+      safeGet('moderatorToken') ||
+      safeGet('token') ||
+      (() => {
+        try {
+          return localStorage.getItem('dp:token') || localStorage.getItem('token')
+        } catch {
+          return null
+        }
+      })()
     )
   } catch {
     return null
@@ -81,12 +114,14 @@ export function getToken(): string | null {
 export function clearToken() {
   try {
     // ✅ remove ALL possible keys
-    sessionStorage.removeItem(tokenKey) // accessToken
-    sessionStorage.removeItem('adminToken')
-    sessionStorage.removeItem('moderatorToken')
-    sessionStorage.removeItem('token')
-    localStorage.removeItem('dp:token')
-    localStorage.removeItem('token')
+    safeRemove(tokenKey) // accessToken
+    safeRemove('adminToken')
+    safeRemove('moderatorToken')
+    safeRemove('token')
+    try {
+      localStorage.removeItem('dp:token')
+      localStorage.removeItem('token')
+    } catch {}
   } catch {}
 }
 
@@ -526,6 +561,8 @@ export async function fetchMyNotifications(): Promise<MyNotificationItem[]> {
 const api = {
   apiUrl,
   setToken,
+  setAdminToken,
+  setModeratorToken,
   getToken,
   clearToken,
   authHeader,
