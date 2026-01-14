@@ -15,12 +15,17 @@ ffmpeg.setFfmpegPath(ffmpegInstaller.path)
 const router = Router()
 
 /** Accept only images/videos */
-const fileFilter = (_req: Request, file: Express.Multer.File, cb: any) => {
+const fileFilter = (
+  _req: Request,
+  file: Express.Multer.File,
+  cb: (error: Error | null, acceptFile: boolean) => void,
+) => {
   const ext = (file.originalname.split('.').pop() || '').toLowerCase()
   const ok =
     file.mimetype?.startsWith('image/') ||
     file.mimetype?.startsWith('video/') ||
     ['jpg', 'jpeg', 'png', 'gif', 'webp', 'mp4', 'mov', 'm4v', 'webm'].includes(ext)
+
   cb(ok ? null : new Error('Unsupported file type'), ok)
 }
 
@@ -52,10 +57,10 @@ const VIDEO_AUDIO_BITRATE = '128k'
 function publicBaseUrl(): string {
   // Prefer explicit public base (CDN / Space public base) if you have it
   // Example: https://dogpoint.fra1.digitaloceanspaces.com
-  const base =
+  return (
     (process.env.DO_SPACE_PUBLIC_BASE || process.env.DO_SPACE_ENDPOINT || 'https://fra1.digitaloceanspaces.com')
       .replace(/\/+$/, '')
-  return base
+  )
 }
 
 router.post('/', upload.single('file'), async (req: Request, res: Response): Promise<void> => {
@@ -123,20 +128,20 @@ router.post('/', upload.single('file'), async (req: Request, res: Response): Pro
 
         const scale = `scale='if(gt(ih,${MAX_VIDEO_HEIGHT}),-2,iw)':'if(gt(ih,${MAX_VIDEO_HEIGHT}),${MAX_VIDEO_HEIGHT},ih)'`
 
-        // 🎬 TRANSCODE (Promise wrapper here is OK because fluent-ffmpeg uses end/error callbacks)
+        // 🎬 TRANSCODE
         await new Promise<void>((resolve, reject) => {
           ffmpeg(tmpIn)
             .outputOptions([
               '-movflags +faststart',
               `-vf ${scale}`,
-              '-pix_fmt yuv420p', // ⭐ critical for compatibility
+              '-pix_fmt yuv420p',
               '-c:v libx264',
               `-preset ${VIDEO_PRESET}`,
               `-crf ${VIDEO_CRF}`,
               '-c:a aac',
               `-b:a ${VIDEO_AUDIO_BITRATE}`,
             ])
-            .on('error', (err) => reject(err))
+            .on('error', (err: Error) => reject(err)) // ✅ typed
             .on('end', () => resolve())
             .save(tmpOut)
         })
@@ -145,12 +150,13 @@ router.post('/', upload.single('file'), async (req: Request, res: Response): Pro
         await new Promise<void>((resolve, reject) => {
           const folder = path.dirname(tmpPoster)
           const filename = path.basename(tmpPoster)
+
           ffmpeg(tmpIn)
-            .on('error', (err) => reject(err))
+            .on('error', (err: Error) => reject(err)) // ✅ typed
             .on('end', () => resolve())
             .screenshots({
               timestamps: ['1'],
-              filename, // ensures output goes to tmpPoster path
+              filename,
               folder,
             })
         })
@@ -200,9 +206,10 @@ router.post('/', upload.single('file'), async (req: Request, res: Response): Pro
     }
 
     res.status(400).json({ error: 'unsupported file' })
-  } catch (e: any) {
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
     console.error('upload error', e)
-    res.status(500).json({ error: 'upload failed', detail: e?.message || String(e) })
+    res.status(500).json({ error: 'upload failed', detail: msg })
   }
 })
 

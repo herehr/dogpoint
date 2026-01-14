@@ -263,7 +263,7 @@ export default function AnimalDetail() {
   const navigate = useNavigate()
 
   const { hasAccess, grantAccess, resetAccess } = useAccess()
-  const { role, user, login } = useAuth()
+  const { role, login } = useAuth()
   const isStaff = role === 'ADMIN' || role === 'MODERATOR'
 
   const [animal, setAnimal] = useState<LocalAnimal | null>(null)
@@ -379,18 +379,17 @@ export default function AnimalDetail() {
   }, [id, isUnlocked, loadPosts])
 
   const prefillEmail = useMemo(() => {
-    try {
-      if (user?.email) return user.email
-      const stash = localStorage.getItem('dp:pendingUser')
-      if (stash) {
-        const parsed = JSON.parse(stash)
-        if (parsed?.email) return String(parsed.email)
-      }
-      const fallback = localStorage.getItem('dp:pendingEmail')
-      if (fallback) return String(fallback)
-    } catch {}
-    return ''
-  }, [user?.email])
+  try {
+    const stash = localStorage.getItem('dp:pendingUser')
+    if (stash) {
+      const parsed = JSON.parse(stash)
+      if (parsed?.email) return String(parsed.email)
+    }
+    const fallback = localStorage.getItem('dp:pendingEmail')
+    if (fallback) return String(fallback)
+  } catch {}
+  return ''
+}, [])
 
   // after payment return handler (keep your finalized logic)
   useEffect(() => {
@@ -707,15 +706,14 @@ export default function AnimalDetail() {
       </Box>
 
       <AfterPaymentPasswordDialog
-        open={showAfterPay}
-        onClose={() => setShowAfterPay(false)}
-        animalId={id}
-        defaultEmail={afterPayEmail || prefillEmail}
-        onLoggedIn={() => {
-          if (id) grantAccess(id)
-          navigate('/user', { replace: true })
-        }}
-      />
+  open={showAfterPay}
+  onClose={() => setShowAfterPay(false)}
+  defaultEmail={afterPayEmail || prefillEmail}
+  onLoggedIn={() => {
+    if (id) grantAccess(id)
+    navigate('/user', { replace: true })
+  }}
+/>
     </Container>
   )
 }

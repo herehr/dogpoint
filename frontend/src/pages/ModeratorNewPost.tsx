@@ -21,6 +21,7 @@ import { useNavigate } from 'react-router-dom'
 import RichTextEditor from '../components/RichTextEditor'
 import { fetchAnimals, type Animal, uploadMedia } from '../api'
 import { apiUrl, authHeader } from '../services/api'
+import { getToken } from '../services/api'
 
 // If upload returns { key }, we must build a public URL.
 // Prefer env if you have it; fallback to your known Space CDN.
@@ -183,11 +184,16 @@ export default function ModeratorNewPost() {
     setError(null)
     setOk(null)
 
-    const headers = { 'Content-Type': 'application/json', ...authHeader() }
-    if (!headers.Authorization) {
-      setError('Nejste přihlášen jako moderátor / admin.')
-      return
-    }
+    const token = getToken()
+if (!token) {
+  setError('Nejste přihlášen jako moderátor / admin.')
+  return
+}
+
+const headers = {
+  'Content-Type': 'application/json',
+  Authorization: `Bearer ${token}`,
+}
 
     if (!animalId) {
       setError('Vyberte prosím zvíře.')

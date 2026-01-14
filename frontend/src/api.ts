@@ -353,7 +353,7 @@ export async function uploadMediaMany(files: File[]) {
 
 export async function listModerators() {
   return getJSON<Moderator[]>('/api/admin/moderators', {
-    headers: { ...authHeader() } as HeadersInit,
+    headers: authHeader()
   })
 }
 
