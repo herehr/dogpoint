@@ -17,12 +17,6 @@ export function apiUrl(path = ''): string {
 
 const tokenKey = 'accessToken'
 
-/**
- * ✅ IMPORTANT:
- * We keep accessToken as the “generic” token AND also store role-specific keys.
- * We now store tokens in localStorage for persistent login, with sessionStorage fallback.
- */
-
 function safeGet(key: string): string | null {
   try {
     const v = localStorage.getItem(key)
@@ -40,7 +34,7 @@ function safeSet(key: string, value: string) {
     localStorage.setItem(key, value)
   } catch {}
   try {
-    sessionStorage.setItem(key, value) // backward compat
+    sessionStorage.setItem(key, value)
   } catch {}
 }
 
@@ -64,8 +58,7 @@ export function setToken(token: string) {
 export function setAdminToken(token: string) {
   try {
     safeSet('adminToken', token)
-    safeSet(tokenKey, token) // keep generic in sync
-    // avoid sending wrong role token later
+    safeSet(tokenKey, token)
     safeRemove('moderatorToken')
   } catch {}
 }
@@ -74,8 +67,7 @@ export function setAdminToken(token: string) {
 export function setModeratorToken(token: string) {
   try {
     safeSet('moderatorToken', token)
-    safeSet(tokenKey, token) // keep generic in sync
-    // avoid sending wrong role token later
+    safeSet(tokenKey, token)
     safeRemove('adminToken')
   } catch {}
 }
@@ -86,15 +78,12 @@ export function setModeratorToken(token: string) {
  */
 export function getToken(): string | null {
   try {
-    // ✅ admin first
     const admin = safeGet('adminToken')
     if (admin) return admin
 
-    // then generic
     const t = safeGet(tokenKey)
     if (t) return t
 
-    // fallbacks (older keys)
     return (
       safeGet('moderatorToken') ||
       safeGet('token') ||
@@ -113,8 +102,7 @@ export function getToken(): string | null {
 
 export function clearToken() {
   try {
-    // ✅ remove ALL possible keys
-    safeRemove(tokenKey) // accessToken
+    safeRemove(tokenKey)
     safeRemove('adminToken')
     safeRemove('moderatorToken')
     safeRemove('token')
@@ -174,7 +162,7 @@ type FetchOpts = {
   headers?: Record<string, string>
   signal?: AbortSignal
   timeoutMs?: number
-  autoLogoutOn401?: boolean // kept for compatibility; no longer clears token automatically
+  autoLogoutOn401?: boolean
 }
 
 function buildHeaders(body: any, headers?: Record<string, string>): HeadersInit {
@@ -229,8 +217,7 @@ async function doFetch<T>(path: string, opts: FetchOpts = {}): Promise<T> {
         }
       } catch {}
 
-      const msg =
-        (serverMsg || `HTTP ${res.status}`) + (serverDetail ? ` – ${serverDetail}` : '')
+      const msg = (serverMsg || `HTTP ${res.status}`) + (serverDetail ? ` – ${serverDetail}` : '')
       throw new Error(msg)
     }
 
@@ -401,26 +388,108 @@ export type MyAdoptedItem = {
   status?: 'ACTIVE' | 'PENDING' | 'CANCELED'
 }
 
-export async function myAdoptedAnimals(): Promise<MyAdoptedItem[]> {
-  try {
-    const raw = await getJSON<MyAdoptedItem[]>('/api/adoption/my')
-    return (raw || []).filter((it) => it.status !== 'CANCELED')
-  } catch (e: any) {
-    const msg = (e?.message || '').toString()
-    if (/404/.test(msg)) {
-      const m = await me()
-      const ids =
-        (m.subscriptions || [])
-          .filter((s: any) => s.status === 'ACTIVE' || s.status === 'PENDING')
-          .map((s: any) => s.animalId) || []
+/**
+ * Normalize subscription/adoption objects coming from backend.
+ * We accept many shapes because backend may evolve.
+ */
+function normalizeToMyAdoptedItem(x: any): MyAdoptedItem | null {
+  if (!x) return null
 
-      return ids.map((id: string) => ({
-        animalId: id,
-        status: 'ACTIVE' as const,
-      }))
-    }
-    throw e
+  const animalId =
+    x.animalId ||
+    x.animal?.id ||
+    x.subscription?.animalId ||
+    x.subscription?.animal?.id
+
+  if (!animalId) return null
+
+  const status = (x.status || x.subscription?.status || 'ACTIVE') as MyAdoptedItem['status']
+
+  const animal = x.animal || x.subscription?.animal || {}
+  const title = x.title || animal.title || animal.jmeno || animal.name
+  const main = x.main || animal.main
+  const since = x.since || x.startedAt || x.subscription?.startedAt
+
+  return {
+    animalId: String(animalId),
+    status,
+    title,
+    jmeno: x.jmeno || animal.jmeno,
+    name: x.name || animal.name,
+    main,
+    since: since ? String(since) : undefined,
   }
+}
+
+/**
+ * ✅ REPAIRED:
+ * - Do not trust only /api/adoption/my (it may filter ACTIVE/active=true too hard).
+ * - Merge with /api/auth/me subscriptions.
+ * - Dedupe by animalId and keep best status.
+ */
+export async function myAdoptedAnimals(): Promise<MyAdoptedItem[]> {
+  const byAnimal = new Map<string, MyAdoptedItem>()
+
+  const rank = (s?: MyAdoptedItem['status']) => {
+    if (s === 'ACTIVE') return 3
+    if (s === 'PENDING') return 2
+    if (s === 'CANCELED') return 1
+    return 0
+  }
+
+  const put = (it: MyAdoptedItem | null) => {
+    if (!it?.animalId) return
+    const prev = byAnimal.get(it.animalId)
+    if (!prev) {
+      byAnimal.set(it.animalId, it)
+      return
+    }
+    // keep the "best" status + prefer richer data
+    const best = rank(it.status) > rank(prev.status) ? it : prev
+    byAnimal.set(it.animalId, {
+      ...best,
+      // merge missing fields from the other
+      title: best.title || (best === it ? prev.title : it.title),
+      main: best.main || (best === it ? prev.main : it.main),
+      since: best.since || (best === it ? prev.since : it.since),
+      jmeno: best.jmeno || (best === it ? prev.jmeno : it.jmeno),
+      name: best.name || (best === it ? prev.name : it.name),
+    })
+  }
+
+  // 1) Try adoption endpoint (may be filtered hard)
+  try {
+    const raw = await getJSON<any[]>('/api/adoption/my')
+    for (const x of raw || []) put(normalizeToMyAdoptedItem(x))
+  } catch (e: any) {
+    // ignore; we’ll still use /me below
+    const msg = String(e?.message || '')
+    // If it is something other than 404, still continue with /me (don’t throw yet)
+    if (!/404/.test(msg)) {
+      // no-op
+    }
+  }
+
+  // 2) Always merge with /me subscriptions (usually less filtered)
+  try {
+    const m = await me()
+    const subs = (m.subscriptions || []) as any[]
+    for (const s of subs) {
+      // only keep relevant statuses
+      const st = (s.status || 'ACTIVE') as string
+      if (st === 'CANCELED') continue
+      if (!(st === 'ACTIVE' || st === 'PENDING')) continue
+      put(normalizeToMyAdoptedItem(s))
+    }
+  } catch {
+    // ignore; if both fail, we’ll return []
+  }
+
+  // 3) Final list: remove canceled, sort by status (ACTIVE first)
+  const out = Array.from(byAnimal.values()).filter((it) => it.status !== 'CANCELED')
+
+  out.sort((a, b) => rank(b.status) - rank(a.status))
+  return out
 }
 
 export async function cancelAdoption(animalId: string): Promise<{ ok: true }> {
@@ -463,7 +532,6 @@ export async function markAnimalSeen(animalId: string): Promise<{ ok: true }> {
    Uploads
 ========================================================= */
 
-// ✅ IMPORTANT: return {url,key,type} directly (NOT wrapped in {data:...})
 export async function uploadMedia(
   file: File
 ): Promise<{ url: string; key?: string; type?: 'image' | 'video' }> {
