@@ -73,7 +73,7 @@ export async function notifyUsersAboutNewPost(postId: string, opts: NotifyOption
     const rows = recipients.map((u) => ({
       userId: u.id,
       type: 'POST_PUBLISHED',
-      title: 'Nový příspěvek u vašeho adoptovaného zvířete',
+      title: 'Tvůj pejsek má pro tebe novinu',
       message: post.title || 'Byl publikován nový příspěvek.',
       postId: post.id,
       animalId,
@@ -97,7 +97,7 @@ export async function notifyUsersAboutNewPost(postId: string, opts: NotifyOption
             data: {
               userId: u.id,
               type: 'POST_PUBLISHED',
-              title: 'Nový příspěvek u vašeho adoptovaného zvířete',
+              title: 'Tvůj pejsek má pro tebe novinu',
               message: post.title || 'Byl publikován nový příspěvek.',
               postId: post.id,
               animalId,
@@ -114,31 +114,35 @@ export async function notifyUsersAboutNewPost(postId: string, opts: NotifyOption
   let emailed = 0
   if (sendEmail) {
     const animalName = String((post.animal as any)?.jmeno || post.animal?.name || 'Zvíře')
-    const subject = `Dogpoint – nový příspěvek: ${animalName}`
+    const subject = `Tvůj pejsek má pro tebe novinu`
     const url = `${appBase()}/zvirata/${encodeURIComponent(animalId)}#posts`
 
+    // Client requested wording:
+    // "Ahoj patrone! (jméno psa) se s tebou chce podělit, co nového zažil. Klikni a zjisti to.
+    //  Pac a pusu posílá tým z Dogpointu"
     const introHtml = `
-      Dobrý den,<br />
-      byl publikován nový příspěvek u vašeho adoptovaného zvířete: <strong>${escapeInline(animalName)}</strong>.<br />
-      <br />
-      <strong>${escapeInline(post.title || '')}</strong>
+      Ahoj patrone!<br/>
+      <strong>${escapeInline(animalName)}</strong> se s tebou chce podělit, co nového zažil. Klikni a zjisti to.
     `.trim()
 
     const { html, text } = renderDogpointEmailLayout({
-      title: 'Nový příspěvek',
+      title: 'Tvůj pejsek má pro tebe novinu',
       introHtml,
-      buttonText: 'Zobrazit příspěvek',
+      buttonText: 'Klikni a zjisti to',
       buttonUrl: url,
       plainTextFallbackUrl: url,
-      footerNoteHtml:
-        '<strong>Bezpečnostní upozornění:</strong> Dogpoint po vás nikdy nebude chtít heslo e-mailem ani telefonicky.',
+      footerNoteHtml: `
+        Pac a pusu posílá<br/>
+        <strong>tým z Dogpointu</strong><br/><br/>
+        <strong>Bezpečnostní upozornění:</strong> Dogpoint po vás nikdy nebude chtít heslo e-mailem ani telefonicky.
+      `.trim(),
     })
 
     for (const u of recipients) {
       try {
         await opts.sendEmailFn!({ to: u.email, subject, html, text })
         emailed += 1
-      } catch (e) {
+      } catch {
         console.warn('[notifyUsersAboutNewPost] email failed', { to: u.email })
       }
     }

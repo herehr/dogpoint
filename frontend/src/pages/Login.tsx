@@ -14,11 +14,10 @@ import {
 } from '@mui/material'
 import Visibility from '@mui/icons-material/Visibility'
 import VisibilityOff from '@mui/icons-material/VisibilityOff'
-import { login as apiLogin } from '../api'
-import { useAuth } from '../context/AuthContext'
 
-const API_BASE_URL =
-  (import.meta as any)?.env?.VITE_API_BASE_URL || ''
+import { apiUrl, setAdminToken, setModeratorToken, setToken } from '../services/api'
+import { login as apiLogin } from '../services/api'
+import { useAuth } from '../context/AuthContext'
 
 export default function Login() {
   const navigate = useNavigate()
@@ -41,13 +40,17 @@ export default function Login() {
     setSubmitting(true)
 
     try {
-      const { token, role } = await apiLogin(
-        email.trim().toLowerCase(),
-        password,
-      )
+      const res = await apiLogin(email.trim().toLowerCase(), password)
+      const token = res?.token
+      const role = (res?.role || null) as any
 
-      // save to context (+ sessionStorage)
-      login(token, (role as any) || null)
+      // ✅ store token persistently (localStorage-first)
+      if (role === 'ADMIN') setAdminToken(token)
+      else if (role === 'MODERATOR') setModeratorToken(token)
+      else setToken(token)
+
+      // ✅ update AuthContext UI state
+      login(token, role)
 
       // redirect back if protected route sent us here
       const from = location?.state?.from?.pathname as string | undefined
@@ -56,10 +59,10 @@ export default function Login() {
       const target = from
         ? from
         : role === 'ADMIN'
-        ? '/admin'
-        : role === 'MODERATOR'
-        ? '/moderator'
-        : '/user'
+          ? '/admin'
+          : role === 'MODERATOR'
+            ? '/moderator'
+            : '/user'
 
       navigate(target, { replace: true })
     } catch (e: any) {
@@ -89,25 +92,20 @@ export default function Login() {
     try {
       setSendingReset(true)
 
-      const res = await fetch(`${API_BASE_URL}/api/auth/forgot-password`, {
+      const res = await fetch(apiUrl('/api/auth/forgot-password'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email.trim().toLowerCase() }),
       })
 
-      // Pro bezpečnost vždy zobrazíme stejnou zprávu,
-      // i kdyby e-mail v systému nebyl.
+      // Security: always show same result message
       if (!res.ok) {
         await res.json().catch(() => null)
       }
 
-      setInfo(
-        'Pokud u nás existuje účet s tímto e-mailem, poslali jsme na něj odkaz pro obnovu hesla.',
-      )
+      setInfo('Pokud u nás existuje účet s tímto e-mailem, poslali jsme na něj odkaz pro obnovu hesla.')
     } catch {
-      setErr(
-        'Odeslání odkazu pro obnovu hesla selhalo. Zkuste to prosím znovu později.',
-      )
+      setErr('Odeslání odkazu pro obnovu hesla selhalo. Zkuste to prosím znovu později.')
     } finally {
       setSendingReset(false)
     }
@@ -165,21 +163,12 @@ export default function Login() {
                 </InputAdornment>
               ),
             }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter')
-                onSubmit(e as unknown as React.FormEvent)
-            }}
           />
 
-          <Button
-            type="submit"
-            variant="contained"
-            disabled={submitting || !email || !password}
-          >
+          <Button type="submit" variant="contained" disabled={submitting || !email || !password}>
             {submitting ? 'Přihlašuji…' : 'Přihlásit'}
           </Button>
 
-          {/* Forgot password action */}
           <Button
             type="button"
             variant="text"

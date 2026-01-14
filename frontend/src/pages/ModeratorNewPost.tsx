@@ -18,11 +18,10 @@ import PhotoCameraIcon from '@mui/icons-material/PhotoCamera'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import { useNavigate } from 'react-router-dom'
 
-import { useAuth } from '../context/AuthContext'
 import RichTextEditor from '../components/RichTextEditor'
 import { fetchAnimals, type Animal, uploadMedia } from '../api'
-
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '')
+import { apiUrl, authHeader } from '../services/api'
+import { getToken } from '../services/api'
 
 // If upload returns { key }, we must build a public URL.
 // Prefer env if you have it; fallback to your known Space CDN.
@@ -70,7 +69,6 @@ function buildPublicUrlFromKey(key: string): string {
 
 export default function ModeratorNewPost() {
   const navigate = useNavigate()
-  const { token } = useAuth()
 
   const [animals, setAnimals] = useState<Animal[]>([])
   const [animalId, setAnimalId] = useState<string>('')
@@ -137,6 +135,7 @@ export default function ModeratorNewPost() {
           const t = (guessTypeFromUrl(publicUrl) || (f.type.startsWith('video/') ? 'video' : 'image')) as
             | 'image'
             | 'video'
+
           results.push({
             url: `${publicUrl}${publicUrl.includes('?') ? '&' : '?'}v=${bust}`,
             type: t,
@@ -145,10 +144,7 @@ export default function ModeratorNewPost() {
       }
 
       if (results.length) {
-        setMedia((cur) => [
-          ...cur,
-          ...results.map((r) => ({ url: r.url, type: r.type, typ: r.type })),
-        ])
+        setMedia((cur) => [...cur, ...results.map((r) => ({ url: r.url, type: r.type, typ: r.type }))])
       }
     } catch (e: any) {
       console.error('[ModeratorNewPost] upload error', e)
@@ -188,10 +184,17 @@ export default function ModeratorNewPost() {
     setError(null)
     setOk(null)
 
-    if (!token) {
-      setError('Nejste přihlášen jako moderátor / admin.')
-      return
-    }
+    const token = getToken()
+if (!token) {
+  setError('Nejste přihlášen jako moderátor / admin.')
+  return
+}
+
+const headers = {
+  'Content-Type': 'application/json',
+  Authorization: `Bearer ${token}`,
+}
+
     if (!animalId) {
       setError('Vyberte prosím zvíře.')
       return
@@ -215,12 +218,9 @@ export default function ModeratorNewPost() {
           : undefined,
       }
 
-      const res = await fetch(`${API_BASE_URL}/api/posts`, {
+      const res = await fetch(apiUrl('/api/posts'), {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+        headers,
         body: JSON.stringify(payload),
       })
 
@@ -293,13 +293,7 @@ export default function ModeratorNewPost() {
           {/* Emoji bar */}
           <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
             {EMOJIS.map((emo) => (
-              <Button
-                key={emo}
-                size="small"
-                variant="text"
-                onClick={() => addEmoji(emo)}
-                sx={{ minWidth: 36 }}
-              >
+              <Button key={emo} size="small" variant="text" onClick={() => addEmoji(emo)} sx={{ minWidth: 36 }}>
                 {emo}
               </Button>
             ))}

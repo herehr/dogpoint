@@ -103,24 +103,29 @@ router.post('/run', requireAuth, async (req: any, res: Response) => {
         const pdf = await htmlToPdfBuffer(html)
 
         await sendEmailSafe({
-          to: r.email,
-          subject: `Potvrzení o daru za rok ${yearNum} – Dogpoint`,
-          text:
-            `Dobrý den,\n\n` +
-            `v příloze zasíláme potvrzení o daru za rok ${yearNum}.\n\n` +
-            `Děkujeme,\nDogpoint`,
-          html:
-            `<p>Dobrý den,</p>` +
-            `<p>v příloze zasíláme <strong>potvrzení o daru za rok ${yearNum}</strong>.</p>` +
-            `<p>Děkujeme,<br/>Dogpoint</p>`,
-          attachments: [
-            {
-              filename: `potvrzeni-o-daru-${yearNum}.pdf`,
-              content: pdf,
-              contentType: 'application/pdf',
-            },
-          ],
-        })
+  to: r.email,
+  subject: `Potvrzení o daru za rok ${yearNum} – Dogpoint`,
+  text:
+    `Dobrý den,\n\n` +
+    `v příloze Vám zasíláme potvrzení o daru k adopci na dálku za rok ${yearNum}.\n` +
+    `Ostatní potvrzení o darech budou zaslána poštou.\n\n` +
+    `Děkujeme Vám za Vaši podporu.\n\n` +
+    `S pozdravem\n` +
+    `Tým DOGPOINT\n`,
+  html:
+    `<p>Dobrý den,</p>` +
+    `<p>v příloze Vám zasíláme potvrzení o daru <strong>k adopci na dálku za rok ${yearNum}</strong>.</p>` +
+    `<p>Ostatní potvrzení o darech budou zaslána poštou.</p>` +
+    `<p>Děkujeme Vám za Vaši podporu.</p>` +
+    `<p>S pozdravem<br/><strong>Tým DOGPOINT</strong></p>`,
+  attachments: [
+    {
+      filename: `potvrzeni-o-daru-${yearNum}.pdf`,
+      content: pdf,
+      contentType: 'application/pdf',
+    },
+  ],
+})
 
         results.push({ email: r.email, ok: true })
       } catch (e: any) {

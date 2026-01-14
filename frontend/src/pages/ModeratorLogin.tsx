@@ -1,10 +1,10 @@
+// frontend/src/pages/ModeratorLogin.tsx
 import React, { useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import {
-  Container, Paper, Typography, TextField, Button, Stack, Alert
-} from '@mui/material'
+import { Container, Paper, Typography, TextField, Button, Stack, Alert } from '@mui/material'
 import LockIcon from '@mui/icons-material/Lock'
-import { loginModerator } from '../api'
+
+import { login as apiLogin, setModeratorToken } from '../services/api'
 import { useAuth } from '../context/AuthContext'
 
 type FromState = { from?: { pathname?: string } } | null
@@ -24,9 +24,21 @@ export default function ModeratorLogin() {
     e.preventDefault()
     setErr(null)
     setSubmitting(true)
+
     try {
-      const data = await loginModerator(email, password)
-      auth.login(data.token, data.role as any, email)  // update context
+      const res = await apiLogin(email.trim().toLowerCase(), password)
+
+      if (res?.role !== 'MODERATOR' && res?.role !== 'ADMIN') {
+        setErr('Tento účet nemá roli MODERATOR.')
+        return
+      }
+
+      // ✅ persistent moderator token
+      // (if ADMIN logs in here, you still may allow it—change if you want strict moderator only)
+      if (res.role === 'MODERATOR') setModeratorToken(res.token)
+
+      auth.login(res.token, res.role as any)
+
       const to = state?.from?.pathname || '/moderator'
       navigate(to, { replace: true })
     } catch (e: any) {
@@ -69,12 +81,7 @@ export default function ModeratorLogin() {
                 fullWidth
                 required
               />
-              <Button
-                type="submit"
-                variant="contained"
-                size="large"
-                disabled={submitting}
-              >
+              <Button type="submit" variant="contained" size="large" disabled={submitting}>
                 {submitting ? 'Přihlašuji…' : 'Přihlásit se'}
               </Button>
             </Stack>

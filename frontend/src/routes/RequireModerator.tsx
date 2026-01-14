@@ -1,10 +1,11 @@
 // frontend/src/routes/RequireModerator.tsx
 import React from 'react'
-import { Navigate, useLocation } from 'react-router-dom'
+import { Navigate } from 'react-router-dom'
+import { getToken } from '../services/api'
 
-export default function RequireModerator({ children }: { children: React.ReactNode }) {
-  const token = typeof window !== 'undefined' ? sessionStorage.getItem('accessToken') : null
-  const loc = useLocation()
-  if (!token) return <Navigate to="/moderator/login" replace state={{ from: loc }} />
-  return <>{children}</>
+export default function RequireModerator({ children }: { children: JSX.Element }) {
+  const token = typeof window !== 'undefined' ? getToken() : null
+
+  if (!token) return <Navigate to="/moderator/login" replace />
+  return children
 }

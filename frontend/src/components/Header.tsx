@@ -8,9 +8,13 @@ import {
   Button,
   Typography,
   IconButton,
+  Menu,
+  MenuItem,
+  Divider,
 } from '@mui/material'
 import NotificationsNoneIcon from '@mui/icons-material/NotificationsNone'
 import NotificationsIcon from '@mui/icons-material/Notifications'
+import AccountCircleIcon from '@mui/icons-material/AccountCircle'
 import { useAuth } from '../context/AuthContext'
 import { fetchMyNotifications } from '../services/api'
 
@@ -34,19 +38,19 @@ export default function Header({
 
   const [hasNewNotifications, setHasNewNotifications] = useState(false)
 
-  // Destination for account button (admin/mod only)
-  const dashboardHref =
-    isAdmin ? '/admin'
-      : isMod ? '/moderator'
-        : '/login'
+  // ✅ Mobile account menu
+  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
+  const menuOpen = Boolean(anchorEl)
+  const openMenu = (e: React.MouseEvent<HTMLElement>) => setAnchorEl(e.currentTarget)
+  const closeMenu = () => setAnchorEl(null)
 
-  const accountLabel =
-    !token ? 'Přihlášení'
-      : isAdmin ? 'Admin'
-        : isMod ? 'Moderátor'
-          : ''
+  // Destination for account button (admin/mod only)
+  const dashboardHref = isAdmin ? '/admin' : isMod ? '/moderator' : '/login'
+
+  const accountLabel = !token ? 'Přihlášení' : isAdmin ? 'Admin' : isMod ? 'Moderátor' : ''
 
   const handleLogout = () => {
+    closeMenu()
     logout()
     navigate('/') // return to homepage after logout
   }
@@ -67,9 +71,7 @@ export default function Header({
 
         const lastSeenRaw = localStorage.getItem(LAST_SEEN_KEY)
         const lastSeen = lastSeenRaw ? new Date(lastSeenRaw) : null
-        const newestTs = items[0]?.publishedAt
-          ? new Date(items[0].publishedAt)
-          : null
+        const newestTs = items[0]?.publishedAt ? new Date(items[0].publishedAt) : null
 
         if (newestTs && (!lastSeen || newestTs > lastSeen)) {
           setHasNewNotifications(true)
@@ -105,12 +107,7 @@ export default function Header({
           zIndex: 2,
         }}
       >
-        <Stack
-          direction="row"
-          alignItems="center"
-          justifyContent="space-between"
-          gap={2}
-        >
+        <Stack direction="row" alignItems="center" justifyContent="space-between" gap={2}>
           {/* Logo + subtitle */}
           <Button
             component={RouterLink}
@@ -152,106 +149,179 @@ export default function Header({
 
           {/* Account area */}
           {!token ? (
-            <Button
-              component={RouterLink}
-              to="/login"
-              variant="outlined"
-              sx={pillBtn}
-            >
+            <Button component={RouterLink} to="/login" variant="outlined" sx={pillBtn}>
               PŘIHLÁŠENÍ
             </Button>
           ) : (
-            <Stack direction="row" spacing={1} alignItems="center">
-              {/* user email */}
-              {user?.email && (
-                <Typography
-                  variant="body2"
-                  sx={{
-                    maxWidth: { xs: 120, sm: 200 },
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                    fontWeight: 700,
-                  }}
-                  title={user.email}
-                >
-                  {user.email}
-                </Typography>
-              )}
-
-              {/* USER: Moje adopce button */}
-              {isUser && (
-                <Button
-                  component={RouterLink}
-                  to="/user"
-                  variant="outlined"
-                  sx={pillBtn}
-                >
-                  Moje&nbsp;adopce
-                </Button>
-              )}
-
-              {/* ADMIN / MOD: dashboard button */}
-              {(isAdmin || isMod) && (
-                <Button
-                  component={RouterLink}
-                  to={dashboardHref}
-                  variant="outlined"
-                  sx={pillBtn}
-                >
-                  {accountLabel}
-                </Button>
-              )}
-
-              {/* Notifications bell */}
-              <IconButton
-                component={RouterLink}
-                to="/notifikace"
-                sx={{
-                  position: 'relative',
-                  borderRadius: '50%',
-                  border: '1px solid rgba(0,0,0,0.35)',
-                  width: 36,
-                  height: 36,
-                  '&:hover': {
-                    backgroundColor: 'rgba(255,255,255,0.35)',
-                  },
-                }}
-                aria-label="Notifikace"
-                onClick={() => {
-                  // stop blinking when user opens notifications
-                  setHasNewNotifications(false)
-                }}
+            <>
+              {/* ✅ Mobile actions: account menu + bell */}
+              <Stack
+                direction="row"
+                spacing={1}
+                alignItems="center"
+                sx={{ display: { xs: 'flex', md: 'none' } }}
               >
-                {hasNewNotifications ? (
-                  <NotificationsIcon
-                    className="notification-icon blink"
-                  />
-                ) : (
-                  <NotificationsNoneIcon />
-                )}
+                {/* Notifications bell (mobile) */}
+                <IconButton
+                  component={RouterLink}
+                  to="/notifikace"
+                  sx={{
+                    position: 'relative',
+                    borderRadius: '50%',
+                    border: '1px solid rgba(0,0,0,0.35)',
+                    width: 36,
+                    height: 36,
+                    '&:hover': { backgroundColor: 'rgba(255,255,255,0.35)' },
+                  }}
+                  aria-label="Notifikace"
+                  onClick={() => setHasNewNotifications(false)}
+                >
+                  {hasNewNotifications ? <NotificationsIcon className="notification-icon blink" /> : <NotificationsNoneIcon />}
+                  {hasNewNotifications && (
+                    <Box
+                      sx={{
+                        position: 'absolute',
+                        top: 5,
+                        right: 5,
+                        width: 8,
+                        height: 8,
+                        borderRadius: '50%',
+                        backgroundColor: '#ff1744',
+                        animation: 'notifPulse 1.2s ease-in-out infinite',
+                      }}
+                    />
+                  )}
+                </IconButton>
 
-                {hasNewNotifications && (
-                  <Box
+                {/* Account menu (mobile) */}
+                <IconButton
+                  onClick={openMenu}
+                  sx={{
+                    borderRadius: '50%',
+                    border: '1px solid rgba(0,0,0,0.35)',
+                    width: 36,
+                    height: 36,
+                    '&:hover': { backgroundColor: 'rgba(255,255,255,0.35)' },
+                  }}
+                  aria-label="Účet"
+                >
+                  <AccountCircleIcon />
+                </IconButton>
+
+                <Menu
+                  anchorEl={anchorEl}
+                  open={menuOpen}
+                  onClose={closeMenu}
+                  keepMounted
+                  anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                  transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+                >
+                  {user?.email && <MenuItem disabled>{user.email}</MenuItem>}
+                  {user?.email && <Divider />}
+
+                  {isUser && (
+                    <MenuItem
+                      onClick={() => {
+                        closeMenu()
+                        navigate('/user')
+                      }}
+                    >
+                      Moje adopce
+                    </MenuItem>
+                  )}
+
+                  {(isAdmin || isMod) && (
+                    <MenuItem
+                      onClick={() => {
+                        closeMenu()
+                        navigate(dashboardHref)
+                      }}
+                    >
+                      {accountLabel || 'Dashboard'}
+                    </MenuItem>
+                  )}
+
+                  <Divider />
+                  <MenuItem onClick={handleLogout}>Odhlásit</MenuItem>
+                </Menu>
+              </Stack>
+
+              {/* ✅ Desktop actions (unchanged) */}
+              <Stack
+                direction="row"
+                spacing={1}
+                alignItems="center"
+                sx={{ display: { xs: 'none', md: 'flex' } }}
+              >
+                {/* user email */}
+                {user?.email && (
+                  <Typography
+                    variant="body2"
                     sx={{
-                      position: 'absolute',
-                      top: 5,
-                      right: 5,
-                      width: 8,
-                      height: 8,
-                      borderRadius: '50%',
-                      backgroundColor: '#ff1744',
-                      animation: 'notifPulse 1.2s ease-in-out infinite',
+                      maxWidth: { xs: 120, sm: 200 },
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      fontWeight: 700,
                     }}
-                  />
+                    title={user.email}
+                  >
+                    {user.email}
+                  </Typography>
                 )}
-              </IconButton>
 
-              {/* Logout */}
-              <Button onClick={handleLogout} variant="text" sx={textBtn}>
-                Odhlásit
-              </Button>
-            </Stack>
+                {/* USER: Moje adopce button */}
+                {isUser && (
+                  <Button component={RouterLink} to="/user" variant="outlined" sx={pillBtn}>
+                    Moje&nbsp;adopce
+                  </Button>
+                )}
+
+                {/* ADMIN / MOD: dashboard button */}
+                {(isAdmin || isMod) && (
+                  <Button component={RouterLink} to={dashboardHref} variant="outlined" sx={pillBtn}>
+                    {accountLabel}
+                  </Button>
+                )}
+
+                {/* Notifications bell (desktop) */}
+                <IconButton
+                  component={RouterLink}
+                  to="/notifikace"
+                  sx={{
+                    position: 'relative',
+                    borderRadius: '50%',
+                    border: '1px solid rgba(0,0,0,0.35)',
+                    width: 36,
+                    height: 36,
+                    '&:hover': { backgroundColor: 'rgba(255,255,255,0.35)' },
+                  }}
+                  aria-label="Notifikace"
+                  onClick={() => setHasNewNotifications(false)}
+                >
+                  {hasNewNotifications ? <NotificationsIcon className="notification-icon blink" /> : <NotificationsNoneIcon />}
+                  {hasNewNotifications && (
+                    <Box
+                      sx={{
+                        position: 'absolute',
+                        top: 5,
+                        right: 5,
+                        width: 8,
+                        height: 8,
+                        borderRadius: '50%',
+                        backgroundColor: '#ff1744',
+                        animation: 'notifPulse 1.2s ease-in-out infinite',
+                      }}
+                    />
+                  )}
+                </IconButton>
+
+                {/* Logout (desktop) */}
+                <Button onClick={handleLogout} variant="text" sx={textBtn}>
+                  Odhlásit
+                </Button>
+              </Stack>
+            </>
           )}
         </Stack>
       </Container>

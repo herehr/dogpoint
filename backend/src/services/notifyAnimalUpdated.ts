@@ -32,8 +32,7 @@ export async function notifyAnimalUpdated(animalId: string, opts: Opts = {}) {
     where: { id: animalId },
   })) as any
 
-  const animalName =
-    animal?.jmeno || animal?.name || animal?.title || animal?.nazev || 'zvíře'
+  const animalName = animal?.jmeno || animal?.name || animal?.title || animal?.nazev || 'zvíře'
 
   // recipients = users with ACTIVE subscriptions to this animal
   const subs = (await (prisma as any).subscription.findMany({
@@ -44,8 +43,12 @@ export async function notifyAnimalUpdated(animalId: string, opts: Opts = {}) {
     },
   })) as Array<{ userId: string; user?: { email?: string | null } }>
 
-  const title = 'Novinka u vašeho zvířete 🐾'
-  const message = `Byly upraveny informace u "${animalName}".`
+  // Client requested wording:
+  // Subject: "Upravili jsme profil tvého pejska"
+  // Body: "Ahoj patrone! Profil tvého pejska jménem (jméno psa) prošel úpravou. Klikni a podívej se, co se u něj změnilo.
+  //        Pac a pusu posílá tým z Dogpointu"
+  const title = 'Upravili jsme profil tvého pejska'
+  const message = `Profil tvého pejska jménem "${animalName}" prošel úpravou.`
 
   if (!subs?.length) {
     console.log('[notifyAnimalUpdated] no recipients', { animalId })
@@ -59,8 +62,8 @@ export async function notifyAnimalUpdated(animalId: string, opts: Opts = {}) {
         data: {
           userId: s.userId,
           type: 'ANIMAL_UPDATED',
-          title,
-          message,
+          title: 'Upravili jsme profil tvého pejska',
+          message: `Profil tvého pejska jménem "${animalName}" prošel úpravou.`,
           animalId,
           postId: null,
         },
@@ -74,21 +77,25 @@ export async function notifyAnimalUpdated(animalId: string, opts: Opts = {}) {
   let emailed = 0
   if (sendEmail) {
     const url = `${appBase()}/zvirata/${encodeURIComponent(animalId)}`
-    const subject = `Dogpoint – novinka u vašeho zvířete: ${animalName}`
+    const subject = `Upravili jsme profil tvého pejska`
 
     const introHtml = `
-      Dobrý den,<br />
-      byly upraveny informace u zvířete <strong>${escapeInline(animalName)}</strong>.
+      Ahoj patrone!<br/>
+      Profil tvého pejska jménem <strong>${escapeInline(animalName)}</strong> prošel úpravou.
+      Klikni a podívej se, co se u něj změnilo.
     `.trim()
 
     const { html, text } = renderDogpointEmailLayout({
-      title,
+      title: 'Upravili jsme profil tvého pejska',
       introHtml,
-      buttonText: 'Zobrazit detail',
+      buttonText: 'Klikni a podívej se',
       buttonUrl: url,
       plainTextFallbackUrl: url,
-      footerNoteHtml:
-        '<strong>Bezpečnostní upozornění:</strong> Dogpoint po vás nikdy nebude chtít heslo e-mailem ani telefonicky.',
+      footerNoteHtml: `
+        Pac a pusu posílá<br/>
+        <strong>tým z Dogpointu</strong><br/><br/>
+        <strong>Bezpečnostní upozornění:</strong> Dogpoint po vás nikdy nebude chtít heslo e-mailem ani telefonicky.
+      `.trim(),
     })
 
     for (const s of subs) {

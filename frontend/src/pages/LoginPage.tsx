@@ -3,7 +3,8 @@ import React, { useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Container, Paper, Typography, TextField, Button, Stack, Alert } from '@mui/material'
 import LockIcon from '@mui/icons-material/Lock'
-import { loginAdmin } from '../api' // unified /api/auth/login
+import { login as apiLogin } from '../api'
+import { setAdminToken, setModeratorToken, setToken } from '../services/api'
 
 type FromState = { from?: { pathname?: string } } | null
 
@@ -21,14 +22,20 @@ export default function LoginPage() {
     e.preventDefault()
     setErr(null)
     setSubmitting(true)
+
     try {
-      const data = await loginAdmin(email, password) // role comes back from server
-      const role = (data.role || '').toUpperCase()
+      const data = await apiLogin(email.trim().toLowerCase(), password)
+      const role = String(data.role || '').toUpperCase()
+
+      // ✅ Store token by role (prevents "wrong token" problems)
+      if (data?.token) {
+        if (role === 'ADMIN') setAdminToken(data.token)
+        else if (role === 'MODERATOR') setModeratorToken(data.token)
+        else setToken(data.token)
+      }
+
       // If coming from a protected page, go back there; otherwise route by role:
-      const fallback =
-        role === 'ADMIN' ? '/admin' :
-        role === 'MODERATOR' ? '/moderator' :
-        '/'
+      const fallback = role === 'ADMIN' ? '/admin' : role === 'MODERATOR' ? '/moderator' : '/'
       const to = state?.from?.pathname || fallback
       navigate(to, { replace: true })
     } catch (e: any) {

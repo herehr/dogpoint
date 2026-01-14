@@ -2,10 +2,14 @@
 import React, { useState } from 'react'
 import { Container, Paper, Stack, Typography, TextField, Button, Alert } from '@mui/material'
 import { useNavigate } from 'react-router-dom'
-import { loginAdmin as login, setPasswordFirstTime } from '../api'
+
+import { login as apiLogin, setAdminToken, setPasswordFirstTime as apiSetPasswordFirstTime } from '../services/api'
+import { useAuth } from '../context/AuthContext'
 
 export default function AdminLogin() {
   const nav = useNavigate()
+  const auth = useAuth()
+
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -17,9 +21,21 @@ export default function AdminLogin() {
     e.preventDefault()
     setErr(null)
     setSaving(true)
+
     try {
-      await login(email.trim(), password) // stores accessToken/adminToken in api.ts
-      nav('/admin', { replace: true })    // ✅ go to admin area
+      const res = await apiLogin(email.trim().toLowerCase(), password)
+      const role = res?.role
+
+      if (role !== 'ADMIN') {
+        setErr('Tento účet nemá roli ADMIN.')
+        return
+      }
+
+      // ✅ persistent admin token
+      setAdminToken(res.token)
+      auth.login(res.token, 'ADMIN')
+
+      nav('/admin', { replace: true })
     } catch (e: any) {
       const msg = String(e?.message || '')
       if (msg.includes('PASSWORD_NOT_SET') || msg.includes('409')) {
@@ -37,16 +53,25 @@ export default function AdminLogin() {
     e.preventDefault()
     setErr(null)
     setSaving(true)
+
     try {
       if (!newPassword || newPassword.length < 6) {
         setErr('Heslo musí mít alespoň 6 znaků.')
-        setSaving(false)
         return
       }
 
-      await setPasswordFirstTime(email.trim(), newPassword) // api.ts stores token (accessToken/adminToken)
-      nav('/admin', { replace: true })
-    } catch (e: any) {
+      const res = await apiSetPasswordFirstTime(email.trim().toLowerCase(), newPassword)
+
+      // services/api.ts stores accessToken; we ensure adminToken too if role is ADMIN
+      if (res?.role === 'ADMIN') {
+        setAdminToken(res.token)
+        auth.login(res.token, 'ADMIN')
+        nav('/admin', { replace: true })
+        return
+      }
+
+      setErr('Tento účet není ADMIN.')
+    } catch {
       setErr('Nastavení hesla selhalo.')
     } finally {
       setSaving(false)
@@ -57,7 +82,7 @@ export default function AdminLogin() {
     <Container maxWidth="sm" sx={{ py: 6 }}>
       <Paper variant="outlined" sx={{ p: 3, borderRadius: 3 }}>
         <Typography variant="h5" sx={{ fontWeight: 900, mb: 2 }}>
-          Přihlášení
+          Přihlášení administrátora
         </Typography>
 
         {err && (

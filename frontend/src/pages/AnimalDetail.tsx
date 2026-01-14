@@ -24,6 +24,7 @@ import { useAuth } from '../context/AuthContext'
 import SafeHTML from '../components/SafeHTML'
 import AfterPaymentPasswordDialog from '../components/AfterPaymentPasswordDialog'
 import { confirmStripeSession, cancelAdoption } from '../services/api'
+import { apiUrl } from '../services/api'
 
 type Media = {
   url: string
@@ -58,9 +59,6 @@ interface AnimalPost {
   active?: boolean
   media?: { id: string; url: string; typ?: string }[]
 }
-
-// IMPORTANT: VITE_API_BASE_URL should be like "https://...ondigitalocean.app"
-const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/+$/, '') || ''
 
 /* ─────────────────────────────────────────────── */
 /* Helpers                                          */
@@ -106,7 +104,10 @@ function formatAge(a: LocalAnimal): string {
   if (bd && !Number.isNaN(bd.getTime())) {
     const now = new Date()
     let years = now.getFullYear() - bd.getFullYear()
-    if (now.getMonth() < bd.getMonth() || (now.getMonth() === bd.getMonth() && now.getDate() < bd.getDate())) {
+    if (
+      now.getMonth() < bd.getMonth() ||
+      (now.getMonth() === bd.getMonth() && now.getDate() < bd.getDate())
+    ) {
       years -= 1
     }
     return `${Math.max(0, years)} r`
@@ -169,7 +170,6 @@ function MediaView(props: {
           playsInline
           controls={false}
           preload="auto"
-          // poster intentionally NOT used here -> no preview frame
           style={{
             width: '100%',
             height,
@@ -204,7 +204,6 @@ function MediaView(props: {
           <source src={url} type={guessVideoMime(url)} />
         </video>
 
-        {/* subtle play hint */}
         <Box
           sx={{
             position: 'absolute',
@@ -264,24 +263,20 @@ export default function AnimalDetail() {
   const navigate = useNavigate()
 
   const { hasAccess, grantAccess, resetAccess } = useAccess()
-  const { role, user, login } = useAuth()
+  const { role, login } = useAuth()
   const isStaff = role === 'ADMIN' || role === 'MODERATOR'
 
   const [animal, setAnimal] = useState<LocalAnimal | null>(null)
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
 
-  // lock state (user canceled etc.)
   const [forceLocked, setForceLocked] = useState(false)
 
-  // after-payment dialog
   const [showAfterPay, setShowAfterPay] = useState(false)
   const [afterPayEmail, setAfterPayEmail] = useState('')
 
-  // amount selector
   const [amount, setAmount] = useState<number>(200)
 
-  // notifications / polling
   const [posts, setPosts] = useState<AnimalPost[]>([])
   const [hasNewPosts, setHasNewPosts] = useState(false)
   const lastPostCountRef = useRef<number>(0)
@@ -321,9 +316,9 @@ export default function AnimalDetail() {
     }
   }, [id])
 
+  // ✅ FIX: use apiUrl() instead of manual API_BASE
   const loadPosts = useCallback(async (animalId: string) => {
-    const url = `${API_BASE}/api/posts/public?animalId=${encodeURIComponent(animalId)}`
-    const res = await fetch(url)
+    const res = await fetch(apiUrl(`/api/posts/public?animalId=${encodeURIComponent(animalId)}`))
     if (!res.ok) throw new Error(`Posts fetch failed: ${res.status}`)
     const data: AnimalPost[] = await res.json()
     return data || []
@@ -384,18 +379,17 @@ export default function AnimalDetail() {
   }, [id, isUnlocked, loadPosts])
 
   const prefillEmail = useMemo(() => {
-    try {
-      if (user?.email) return user.email
-      const stash = localStorage.getItem('dp:pendingUser')
-      if (stash) {
-        const parsed = JSON.parse(stash)
-        if (parsed?.email) return String(parsed.email)
-      }
-      const fallback = localStorage.getItem('dp:pendingEmail')
-      if (fallback) return String(fallback)
-    } catch {}
-    return ''
-  }, [user?.email])
+  try {
+    const stash = localStorage.getItem('dp:pendingUser')
+    if (stash) {
+      const parsed = JSON.parse(stash)
+      if (parsed?.email) return String(parsed.email)
+    }
+    const fallback = localStorage.getItem('dp:pendingEmail')
+    if (fallback) return String(fallback)
+  } catch {}
+  return ''
+}, [])
 
   // after payment return handler (keep your finalized logic)
   useEffect(() => {
@@ -518,20 +512,16 @@ export default function AnimalDetail() {
     ...rawGallery,
   ])
 
-  // MAIN: prefer animal.main, else first video, else first item
   const firstVideo = merged.find((m) => m?.url && isVideoMedia(m))
   const mainUrl = animal.main || firstVideo?.url || merged[0]?.url || '/no-image.jpg'
   const mainPoster = findPosterForUrl(merged, mainUrl)
 
-  // extras should not duplicate mainUrl (strip cache compare)
   const extras = merged.filter((m) => stripCache(m.url) !== stripCache(mainUrl))
 
-  // apply stable cache-bust per lock state
   const mainSrc = withLockBust(mainUrl, isUnlocked)
 
   return (
     <Container sx={{ py: 4 }}>
-      {/* Header */}
       <Stack spacing={1.25}>
         <Stack direction="row" spacing={1} alignItems="center">
           <Typography variant="h4" sx={{ fontWeight: 900, flexGrow: 1 }}>
@@ -585,7 +575,6 @@ export default function AnimalDetail() {
         </Stack>
       </Stack>
 
-      {/* Main media + description */}
       <Box sx={{ mt: 3 }}>
         <Grid container spacing={2}>
           <Grid item xs={12} md={6}>
@@ -659,7 +648,6 @@ export default function AnimalDetail() {
         </Grid>
       </Box>
 
-      {/* Gallery */}
       {extras.length > 0 && (
         <Box sx={{ mt: 4 }}>
           <Typography variant="h6" sx={{ fontWeight: 800, mb: 1 }}>
@@ -701,7 +689,6 @@ export default function AnimalDetail() {
         </Box>
       )}
 
-      {/* Posts */}
       <Box id="posts" sx={{ mt: 4 }}>
         <Typography variant="h6" sx={{ fontWeight: 800, mb: 1 }}>
           Příspěvky
@@ -719,15 +706,14 @@ export default function AnimalDetail() {
       </Box>
 
       <AfterPaymentPasswordDialog
-        open={showAfterPay}
-        onClose={() => setShowAfterPay(false)}
-        animalId={id}
-        defaultEmail={afterPayEmail || prefillEmail}
-        onLoggedIn={() => {
-          if (id) grantAccess(id)
-          navigate('/user', { replace: true })
-        }}
-      />
+  open={showAfterPay}
+  onClose={() => setShowAfterPay(false)}
+  defaultEmail={afterPayEmail || prefillEmail}
+  onLoggedIn={() => {
+    if (id) grantAccess(id)
+    navigate('/user', { replace: true })
+  }}
+/>
     </Container>
   )
 }

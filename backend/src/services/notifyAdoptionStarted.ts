@@ -15,9 +15,15 @@ export async function notifyAdoptionStarted(
   const user = await prisma.user.findUnique({ where: { id: userId } })
   const animal = await prisma.animal.findUnique({ where: { id: animalId } })
 
-  const animalName = (animal as any)?.jmeno || (animal as any)?.name || 'zvíře'
-  const title = 'Děkujeme za adopci! ❤️'
-  const message = `Vaše adopce pro "${animalName}" byla úspěšně spuštěna.`
+  const animalName =
+    (animal as any)?.jmeno ||
+    (animal as any)?.name ||
+    (animal as any)?.title ||
+    'zvíře'
+
+  // CLIENT REQUESTED TEXT
+  const title = 'Děkujeme ti za adopci na dálku ❤️'
+  const message = `${animalName} ti moc děkuje za podporu a těší se na společné novinky.`
 
   // ✅ Idempotent: don’t create duplicates
   const existing = await prisma.notification.findFirst({
@@ -41,16 +47,40 @@ export async function notifyAdoptionStarted(
     })
   }
 
+  // Optional welcome e-mail
   if (opts.sendEmail && user?.email) {
     const send = opts.sendEmailFn ?? defaultSendEmail
-    const subject = 'Dogpoint – adopce byla spuštěna'
+
+    const subject = 'Děkujeme ti za adopci na dálku ❤️'
+
     const html = `
-      <div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.4">
-        <h2 style="margin:0 0 12px 0">${title}</h2>
-        <p style="margin:0 0 8px 0">${message}</p>
-        <p style="margin:0">Děkujeme,<br/>Dogpoint</p>
+      <div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#111">
+        <p style="margin:0 0 12px 0;">
+          Vítej v klubu, náš nový patrone.
+        </p>
+
+        <p style="margin:0 0 12px 0;">
+          <strong>${animalName}</strong> ti moc děkuje za podporu
+          a těší se, až s tebou bude sdílet novinky
+          ze svého útulkového života.
+        </p>
+
+        <p style="margin:0 0 12px 0;">
+          Vždy, když se u něj něco semele,
+          přijde ti upozornění na mail.
+        </p>
+
+        <p style="margin:0 0 12px 0;">
+          Jsme šťastní, že jsi s námi.<br/>
+          Posíláme pac a pusu.
+        </p>
+
+        <p style="margin:0;">
+          Tým z Dogpointu
+        </p>
       </div>
     `
+
     await send(user.email, subject, html)
   }
 }
