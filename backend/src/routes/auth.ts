@@ -2,9 +2,9 @@
 import { Router, type Request, type Response } from 'express'
 import bcrypt from 'bcryptjs'
 import jwt, { type Secret, type SignOptions } from 'jsonwebtoken'
-import { sendEmailSafe } from '../services/email'
 import { prisma } from '../prisma'
 import { Role } from '@prisma/client'
+import { sendEmailSafe } from '../services/email'
 import { linkPaidOrRecentPledgesToUser } from '../controllers/authExtra'
 
 const router = Router()
@@ -17,14 +17,29 @@ function signToken(user: { id: string; role: Role | string; email: string }) {
   const rawSecret = process.env.JWT_SECRET
   if (!rawSecret) throw new Error('Server misconfigured: JWT_SECRET missing')
   const options: SignOptions = { expiresIn: '7d' }
-  return jwt.sign({ sub: user.id, role: user.role, email: user.email }, rawSecret as Secret, options)
+  return jwt.sign(
+    { sub: user.id, role: user.role, email: user.email },
+    rawSecret as Secret,
+    options,
+  )
 }
 
 /* =========================================================
-   Password reset config
+   Config
    ========================================================= */
 
 const APP_BASE_URL = process.env.APP_BASE_URL || 'https://patron.dog-point.cz'
+
+/* =========================================================
+   Helper: do NOT break auth if pledge-linking fails
+   ========================================================= */
+
+function safeLinkPledges(userId: string, email: string, label: string) {
+  // Never block login/register due to backfill/linking. Log and continue.
+  linkPaidOrRecentPledgesToUser(userId, email).catch((e: any) => {
+    console.error(`[auth/${label}] linkPaidOrRecentPledgesToUser failed:`, e?.message || e)
+  })
+}
 
 /* =========================================================
    GET /api/auth/me
@@ -37,7 +52,10 @@ router.get('/me', async (req: Request, res: Response) => {
     const m = hdr.match(/^Bearer\s+(.+)$/i)
     if (!m) return res.status(401).json({ error: 'Unauthorized' })
 
-    const payload = jwt.verify(m[1], process.env.JWT_SECRET as Secret) as any
+    const secret = process.env.JWT_SECRET as Secret | undefined
+    if (!secret) return res.status(500).json({ error: 'Server misconfigured' })
+
+    const payload = jwt.verify(m[1], secret) as any
 
     const user = await prisma.user.findUnique({
       where: { id: String(payload.sub) },
@@ -67,8 +85,14 @@ router.get('/me', async (req: Request, res: Response) => {
 
 router.post('/login', async (req: Request, res: Response) => {
   try {
-    const { email, password } = (req.body || {}) as { email?: string; password?: string }
-    if (!email || !password) return res.status(400).json({ error: 'Missing email or password' })
+    const { email, password } = (req.body || {}) as {
+      email?: string
+      password?: string
+    }
+
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Missing email or password' })
+    }
 
     const user = await prisma.user.findUnique({ where: { email } })
     if (!user) return res.status(401).json({ error: 'Invalid credentials' })
@@ -77,11 +101,13 @@ router.post('/login', async (req: Request, res: Response) => {
     const ok = await bcrypt.compare(password, user.passwordHash)
     if (!ok) return res.status(401).json({ error: 'Invalid credentials' })
 
-    await linkPaidOrRecentPledgesToUser(user.id, user.email)
+    // ✅ do not block auth if this fails
+    safeLinkPledges(user.id, user.email, 'login')
 
     const token = signToken({ id: user.id, role: user.role, email: user.email })
     res.json({ token, role: user.role })
-  } catch {
+  } catch (e: any) {
+    console.error('POST /api/auth/login error:', e?.message || e)
     res.status(500).json({ error: 'Internal error' })
   }
 })
@@ -93,7 +119,11 @@ router.post('/login', async (req: Request, res: Response) => {
 
 router.post('/set-password-first-time', async (req: Request, res: Response) => {
   try {
-    const { email, password } = (req.body || {}) as { email?: string; password?: string }
+    const { email, password } = (req.body || {}) as {
+      email?: string
+      password?: string
+    }
+
     if (!email || !password) return res.status(400).json({ error: 'Missing email or password' })
     if (password.length < 6) return res.status(400).json({ error: 'Password too short' })
 
@@ -102,13 +132,18 @@ router.post('/set-password-first-time', async (req: Request, res: Response) => {
     if (user.passwordHash) return res.status(409).json({ error: 'PASSWORD_ALREADY_SET' })
 
     const passwordHash = await bcrypt.hash(password, 10)
-    const updated = await prisma.user.update({ where: { id: user.id }, data: { passwordHash } })
+    const updated = await prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash },
+    })
 
-    await linkPaidOrRecentPledgesToUser(updated.id, updated.email)
+    // ✅ do not block auth if this fails
+    safeLinkPledges(updated.id, updated.email, 'set-password-first-time')
 
     const token = signToken({ id: updated.id, role: updated.role, email: updated.email })
     res.json({ ok: true, token, role: updated.role })
-  } catch {
+  } catch (e: any) {
+    console.error('POST /api/auth/set-password-first-time error:', e?.message || e)
     res.status(500).json({ error: 'Internal error' })
   }
 })
@@ -120,7 +155,11 @@ router.post('/set-password-first-time', async (req: Request, res: Response) => {
 
 router.post('/register-after-payment', async (req: Request, res: Response) => {
   try {
-    const { email, password } = (req.body || {}) as { email?: string; password?: string }
+    const { email, password } = (req.body || {}) as {
+      email?: string
+      password?: string
+    }
+
     if (!email || !password) return res.status(400).json({ error: 'Missing email or password' })
     if (password.length < 6) return res.status(400).json({ error: 'Password too short' })
 
@@ -133,11 +172,13 @@ router.post('/register-after-payment', async (req: Request, res: Response) => {
       user = await prisma.user.update({ where: { id: user.id }, data: { passwordHash } })
     }
 
-    await linkPaidOrRecentPledgesToUser(user.id, user.email)
+    // ✅ do not block auth if this fails
+    safeLinkPledges(user.id, user.email, 'register-after-payment')
 
     const token = signToken({ id: user.id, role: user.role, email: user.email })
     res.json({ ok: true, token, role: user.role })
-  } catch {
+  } catch (e: any) {
+    console.error('POST /api/auth/register-after-payment error:', e?.message || e)
     res.status(500).json({ error: 'Internal error' })
   }
 })
@@ -149,7 +190,11 @@ router.post('/register-after-payment', async (req: Request, res: Response) => {
 
 router.post('/claim-paid', async (req: Request, res: Response) => {
   try {
-    const { email, sessionId } = (req.body || {}) as { email?: string; sessionId?: string }
+    const { email, sessionId } = (req.body || {}) as {
+      email?: string
+      sessionId?: string
+    }
+
     if (!email) return res.status(400).json({ error: 'Missing email' })
 
     if (sessionId) {
@@ -159,11 +204,13 @@ router.post('/claim-paid', async (req: Request, res: Response) => {
     let user = await prisma.user.findUnique({ where: { email } })
     if (!user) user = await prisma.user.create({ data: { email, role: Role.USER } })
 
-    await linkPaidOrRecentPledgesToUser(user.id, user.email)
+    // ✅ do not block auth if this fails
+    safeLinkPledges(user.id, user.email, 'claim-paid')
 
     const token = signToken({ id: user.id, role: user.role, email: user.email })
     res.json({ ok: true, token, role: user.role })
-  } catch {
+  } catch (e: any) {
+    console.error('POST /api/auth/claim-paid error:', e?.message || e)
     res.status(500).json({ error: 'Internal error' })
   }
 })
@@ -171,6 +218,7 @@ router.post('/claim-paid', async (req: Request, res: Response) => {
 /* =========================================================
    POST /api/auth/debug-backfill-adoptions
    body: { email }
+   (kept strict – intended to fail loudly for debugging)
    ========================================================= */
 
 router.post('/debug-backfill-adoptions', async (req: Request, res: Response) => {
@@ -186,7 +234,7 @@ router.post('/debug-backfill-adoptions', async (req: Request, res: Response) => 
     })
 
     res.json({ ok: true, processed: result.processed })
-  } catch (e) {
+  } catch (e: any) {
     console.error('[debug-backfill-adoptions] error:', e)
     res.status(500).json({ error: 'Internal error' })
   }
@@ -195,7 +243,7 @@ router.post('/debug-backfill-adoptions', async (req: Request, res: Response) => 
 /* =========================================================
    POST /api/auth/forgot-password
    body: { email }
-   Always responds 200 generic
+   Always responds 200 generic (never leaks existence)
    ========================================================= */
 
 router.post('/forgot-password', async (req: Request, res: Response): Promise<void> => {
@@ -225,10 +273,13 @@ router.post('/forgot-password', async (req: Request, res: Response): Promise<voi
       return
     }
 
-    const token = jwt.sign({ id: user.id, role: user.role, type: 'password-reset' }, secret, { expiresIn: '1h' })
+    const token = jwt.sign(
+      { id: user.id, role: user.role, type: 'password-reset' },
+      secret,
+      { expiresIn: '1h' },
+    )
 
     const link = `${APP_BASE_URL}/obnovit-heslo?token=${encodeURIComponent(token)}`
-
     const subject = 'Dogpoint – obnova hesla k vašemu účtu'
 
     const textBody = `Dobrý den,
@@ -371,7 +422,6 @@ tým DOG-POINT
   </body>
 </html>`
 
-    // ✅ use shared mailer (never throw)
     await sendEmailSafe({
       to: user.email,
       subject,
