@@ -38,21 +38,19 @@ export default function Header({
 
   const [hasNewNotifications, setHasNewNotifications] = useState(false)
 
-  // ✅ Mobile account menu
+  // Mobile account menu
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
   const menuOpen = Boolean(anchorEl)
   const openMenu = (e: React.MouseEvent<HTMLElement>) => setAnchorEl(e.currentTarget)
   const closeMenu = () => setAnchorEl(null)
 
-  // Destination for account button (admin/mod only)
   const dashboardHref = isAdmin ? '/admin' : isMod ? '/moderator' : '/login'
-
   const accountLabel = !token ? 'Přihlášení' : isAdmin ? 'Admin' : isMod ? 'Moderátor' : ''
 
   const handleLogout = () => {
     closeMenu()
     logout()
-    navigate('/') // return to homepage after logout
+    navigate('/')
   }
 
   // Check if there are new notifications for USER
@@ -73,11 +71,8 @@ export default function Header({
         const lastSeen = lastSeenRaw ? new Date(lastSeenRaw) : null
         const newestTs = items[0]?.publishedAt ? new Date(items[0].publishedAt) : null
 
-        if (newestTs && (!lastSeen || newestTs > lastSeen)) {
-          setHasNewNotifications(true)
-        } else {
-          setHasNewNotifications(false)
-        }
+        if (newestTs && (!lastSeen || newestTs > lastSeen)) setHasNewNotifications(true)
+        else setHasNewNotifications(false)
       } catch (e) {
         console.warn('[Header] notifications check failed', e)
       }
@@ -88,60 +83,39 @@ export default function Header({
     }
   }, [token, role])
 
-  return (
-    <Box
-      component="header"
-      sx={{
-        position: 'relative',
-        backgroundColor: '#26E6EA',
-        color: '#000',
-        overflow: 'hidden',
-      }}
+  const Bell = ({ variant }: { variant: 'mobile' | 'desktop' }) => (
+    <IconButton
+      component={RouterLink}
+      to="/notifikace"
+      sx={iconCircleBtn}
+      aria-label="Notifikace"
+      onClick={() => setHasNewNotifications(false)}
     >
-      <Container
-        maxWidth="lg"
-        sx={{
-          pt: { xs: 1, md: 1.5 },
-          pb: { xs: 6, md: 8 },
-          position: 'relative',
-          zIndex: 2,
-        }}
-      >
+      {hasNewNotifications ? (
+        <NotificationsIcon className="notification-icon blink" />
+      ) : (
+        <NotificationsNoneIcon />
+      )}
+
+      {hasNewNotifications && <Box sx={notifDot} />}
+    </IconButton>
+  )
+
+  return (
+    <Box component="header" sx={headerWrap}>
+      <Container maxWidth="lg" sx={headerInner}>
         <Stack direction="row" alignItems="center" justifyContent="space-between" gap={2}>
           {/* Logo + subtitle */}
           <Button
             component={RouterLink}
             to="/"
             color="inherit"
-            sx={{
-              px: 0,
-              minWidth: 'auto',
-              '&:hover': { bgcolor: 'transparent' },
-            }}
+            sx={logoBtn}
             aria-label="Domů"
           >
             <Stack direction="column" spacing={0} alignItems="flex-start">
-              <Box
-                component="img"
-                src={logoSrc}
-                alt="DOGPOINT"
-                sx={{
-                  height: { xs: 24, sm: 32, md: 40 },
-                  display: 'block',
-                  objectFit: 'contain',
-                }}
-              />
-              <Box
-                component="span"
-                sx={{
-                  mt: 0.5,
-                  fontSize: 13,
-                  fontWeight: 700,
-                  color: '#fff',
-                  lineHeight: 1.1,
-                  whiteSpace: 'nowrap',
-                }}
-              >
+              <Box component="img" src={logoSrc} alt="DOGPOINT" sx={logoImg} />
+              <Box component="span" sx={subtitleSx}>
                 {subtitle}
               </Box>
             </Stack>
@@ -154,57 +128,16 @@ export default function Header({
             </Button>
           ) : (
             <>
-              {/* ✅ Mobile actions: account menu + bell */}
+              {/* Mobile actions */}
               <Stack
                 direction="row"
                 spacing={1}
                 alignItems="center"
                 sx={{ display: { xs: 'flex', md: 'none' } }}
               >
-                {/* Notifications bell (mobile) */}
-                <IconButton
-                  component={RouterLink}
-                  to="/notifikace"
-                  sx={{
-                    position: 'relative',
-                    borderRadius: '50%',
-                    border: '1px solid rgba(0,0,0,0.35)',
-                    width: 36,
-                    height: 36,
-                    '&:hover': { backgroundColor: 'rgba(255,255,255,0.35)' },
-                  }}
-                  aria-label="Notifikace"
-                  onClick={() => setHasNewNotifications(false)}
-                >
-                  {hasNewNotifications ? <NotificationsIcon className="notification-icon blink" /> : <NotificationsNoneIcon />}
-                  {hasNewNotifications && (
-                    <Box
-                      sx={{
-                        position: 'absolute',
-                        top: 5,
-                        right: 5,
-                        width: 8,
-                        height: 8,
-                        borderRadius: '50%',
-                        backgroundColor: '#ff1744',
-                        animation: 'notifPulse 1.2s ease-in-out infinite',
-                      }}
-                    />
-                  )}
-                </IconButton>
+                <Bell variant="mobile" />
 
-                {/* Account menu (mobile) */}
-                <IconButton
-                  onClick={openMenu}
-                  sx={{
-                    borderRadius: '50%',
-                    border: '1px solid rgba(0,0,0,0.35)',
-                    width: 36,
-                    height: 36,
-                    '&:hover': { backgroundColor: 'rgba(255,255,255,0.35)' },
-                  }}
-                  aria-label="Účet"
-                >
+                <IconButton onClick={openMenu} sx={iconCircleBtn} aria-label="Účet">
                   <AccountCircleIcon />
                 </IconButton>
 
@@ -246,77 +179,33 @@ export default function Header({
                 </Menu>
               </Stack>
 
-              {/* ✅ Desktop actions (unchanged) */}
+              {/* Desktop actions */}
               <Stack
                 direction="row"
                 spacing={1}
                 alignItems="center"
                 sx={{ display: { xs: 'none', md: 'flex' } }}
               >
-                {/* user email */}
                 {user?.email && (
-                  <Typography
-                    variant="body2"
-                    sx={{
-                      maxWidth: { xs: 120, sm: 200 },
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                      fontWeight: 700,
-                    }}
-                    title={user.email}
-                  >
+                  <Typography variant="body2" sx={emailSx} title={user.email}>
                     {user.email}
                   </Typography>
                 )}
 
-                {/* USER: Moje adopce button */}
                 {isUser && (
                   <Button component={RouterLink} to="/user" variant="outlined" sx={pillBtn}>
                     Moje&nbsp;adopce
                   </Button>
                 )}
 
-                {/* ADMIN / MOD: dashboard button */}
                 {(isAdmin || isMod) && (
                   <Button component={RouterLink} to={dashboardHref} variant="outlined" sx={pillBtn}>
                     {accountLabel}
                   </Button>
                 )}
 
-                {/* Notifications bell (desktop) */}
-                <IconButton
-                  component={RouterLink}
-                  to="/notifikace"
-                  sx={{
-                    position: 'relative',
-                    borderRadius: '50%',
-                    border: '1px solid rgba(0,0,0,0.35)',
-                    width: 36,
-                    height: 36,
-                    '&:hover': { backgroundColor: 'rgba(255,255,255,0.35)' },
-                  }}
-                  aria-label="Notifikace"
-                  onClick={() => setHasNewNotifications(false)}
-                >
-                  {hasNewNotifications ? <NotificationsIcon className="notification-icon blink" /> : <NotificationsNoneIcon />}
-                  {hasNewNotifications && (
-                    <Box
-                      sx={{
-                        position: 'absolute',
-                        top: 5,
-                        right: 5,
-                        width: 8,
-                        height: 8,
-                        borderRadius: '50%',
-                        backgroundColor: '#ff1744',
-                        animation: 'notifPulse 1.2s ease-in-out infinite',
-                      }}
-                    />
-                  )}
-                </IconButton>
+                <Bell variant="desktop" />
 
-                {/* Logout (desktop) */}
                 <Button onClick={handleLogout} variant="text" sx={textBtn}>
                   Odhlásit
                 </Button>
@@ -327,23 +216,14 @@ export default function Header({
       </Container>
 
       {/* Decorative wave */}
-      <Box
-        sx={{
-          position: 'absolute',
-          left: 0,
-          right: 0,
-          bottom: -1,
-          lineHeight: 0,
-          zIndex: 1,
-          pointerEvents: 'none',
-        }}
-      >
-        <svg
+      <Box sx={waveWrap}>
+        <Box
+          component="svg"
           viewBox="0 0 1440 120"
           preserveAspectRatio="none"
-          style={{ width: '100%', height: '110px', display: 'block' }}
           aria-hidden="true"
           focusable="false"
+          sx={waveSvg}
         >
           <path
             d="M0,66 C260,116 520,30 780,40 C1040,50 1300,94 1440,82 L1440,120 L0,120 Z"
@@ -355,11 +235,92 @@ export default function Header({
             stroke="#ffffff"
             strokeWidth="10"
           />
-        </svg>
+        </Box>
       </Box>
     </Box>
   )
 }
+
+/* ===================== styles ===================== */
+
+const headerWrap = {
+  position: 'relative',
+  backgroundColor: '#26E6EA',
+  color: '#000',
+  overflow: 'hidden',
+} as const
+
+const headerInner = {
+  pt: { xs: 1, md: 1.5 },
+  pb: { xs: 6, md: 8 },
+  position: 'relative',
+  zIndex: 2,
+} as const
+
+const logoBtn = {
+  px: 0,
+  minWidth: 'auto',
+  '&:hover': { bgcolor: 'transparent' },
+} as const
+
+const logoImg = {
+  height: { xs: 24, sm: 32, md: 40 },
+  display: 'block',
+  objectFit: 'contain',
+} as const
+
+const subtitleSx = {
+  mt: 0.5,
+  fontSize: 13,
+  fontWeight: 700,
+  color: '#fff',
+  lineHeight: 1.1,
+  whiteSpace: 'nowrap',
+} as const
+
+const emailSx = {
+  maxWidth: { xs: 120, sm: 200 },
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+  fontWeight: 700,
+} as const
+
+const iconCircleBtn = {
+  position: 'relative',
+  borderRadius: '50%',
+  border: '1px solid rgba(0,0,0,0.35)',
+  width: 36,
+  height: 36,
+  '&:hover': { backgroundColor: 'rgba(255,255,255,0.35)' },
+} as const
+
+const notifDot = {
+  position: 'absolute',
+  top: 5,
+  right: 5,
+  width: 8,
+  height: 8,
+  borderRadius: '50%',
+  backgroundColor: '#ff1744',
+  animation: 'notifPulse 1.2s ease-in-out infinite',
+} as const
+
+const waveWrap = {
+  position: 'absolute',
+  left: 0,
+  right: 0,
+  bottom: -1,
+  lineHeight: 0,
+  zIndex: 1,
+  pointerEvents: 'none',
+} as const
+
+const waveSvg = {
+  width: '100%',
+  height: '110px',
+  display: 'block',
+} as const
 
 const textBtn = {
   color: '#000',
