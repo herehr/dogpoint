@@ -11,7 +11,7 @@ ALTER TABLE "public"."Notification" DROP CONSTRAINT "Notification_userId_fkey";
 DROP INDEX "public"."Notification_userId_idx";
 
 -- DropIndex
-DROP INDEX "public"."Payment_subscriptionId_providerRef_key";
+DROP INDEX IF EXISTS "public"."Payment_subscriptionId_providerRef_key";
 
 -- AlterTable
 ALTER TABLE "public"."Pledge" ADD COLUMN     "subscriptionId" TEXT,
