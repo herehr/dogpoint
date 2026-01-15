@@ -1,14 +1,13 @@
 -- DropIndex
-DROP INDEX "public"."Payment_subscriptionId_providerRef_key";
+DROP INDEX IF EXISTS "Payment_subscriptionId_providerRef_key";
+
+DROP INDEX IF EXISTS "public"."Post_animalId_idx";
 
 -- DropIndex
-DROP INDEX "public"."Post_animalId_idx";
+DROP INDEX IF EXISTS "public"."Post_authorId_idx";
 
 -- DropIndex
-DROP INDEX "public"."Post_authorId_idx";
-
--- DropIndex
-DROP INDEX "public"."Post_publishedAt_idx";
+DROP INDEX IF EXISTS "public"."Post_publishedAt_idx";
 
 -- AlterTable
 ALTER TABLE "public"."Post" ADD COLUMN     "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;
