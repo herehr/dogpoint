@@ -1,6 +1,7 @@
 -- DropIndex
 DROP INDEX IF EXISTS "Payment_subscriptionId_providerRef_key";
 
+-- DropIndex
 DROP INDEX IF EXISTS "public"."Post_animalId_idx";
 
 -- DropIndex
@@ -9,21 +10,86 @@ DROP INDEX IF EXISTS "public"."Post_authorId_idx";
 -- DropIndex
 DROP INDEX IF EXISTS "public"."Post_publishedAt_idx";
 
--- AlterTable
-ALTER TABLE "public"."Post" ADD COLUMN     "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;
 
--- AlterTable
-ALTER TABLE "public"."User" ADD COLUMN     "city" TEXT,
-ADD COLUMN     "firstName" TEXT,
-ADD COLUMN     "lastName" TEXT,
-ADD COLUMN     "street" TEXT,
-ADD COLUMN     "streetNo" TEXT,
-ADD COLUMN     "taxRequestCount" INTEGER NOT NULL DEFAULT 0,
-ADD COLUMN     "taxRequestSentAt" TIMESTAMP(3),
-ADD COLUMN     "zip" TEXT;
+-- AlterTable: Post.updatedAt (guarded)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'Post'
+      AND column_name = 'updatedAt'
+  ) THEN
+    ALTER TABLE "public"."Post"
+      ADD COLUMN "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+  END IF;
+END $$;
 
--- CreateTable
-CREATE TABLE "public"."TaxProfile" (
+
+-- AlterTable: User fields (guarded one-by-one)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='User' AND column_name='city'
+  ) THEN
+    ALTER TABLE "public"."User" ADD COLUMN "city" TEXT;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='User' AND column_name='firstName'
+  ) THEN
+    ALTER TABLE "public"."User" ADD COLUMN "firstName" TEXT;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='User' AND column_name='lastName'
+  ) THEN
+    ALTER TABLE "public"."User" ADD COLUMN "lastName" TEXT;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='User' AND column_name='street'
+  ) THEN
+    ALTER TABLE "public"."User" ADD COLUMN "street" TEXT;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='User' AND column_name='streetNo'
+  ) THEN
+    ALTER TABLE "public"."User" ADD COLUMN "streetNo" TEXT;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='User' AND column_name='taxRequestCount'
+  ) THEN
+    ALTER TABLE "public"."User" ADD COLUMN "taxRequestCount" INTEGER NOT NULL DEFAULT 0;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='User' AND column_name='taxRequestSentAt'
+  ) THEN
+    ALTER TABLE "public"."User" ADD COLUMN "taxRequestSentAt" TIMESTAMP(3);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='User' AND column_name='zip'
+  ) THEN
+    ALTER TABLE "public"."User" ADD COLUMN "zip" TEXT;
+  END IF;
+END $$;
+
+
+-- CreateTable (idempotent)
+CREATE TABLE IF NOT EXISTS "public"."TaxProfile" (
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "isCompany" BOOLEAN NOT NULL DEFAULT false,
@@ -37,12 +103,10 @@ CREATE TABLE "public"."TaxProfile" (
     "city" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
-
     CONSTRAINT "TaxProfile_pkey" PRIMARY KEY ("id")
 );
 
--- CreateTable
-CREATE TABLE "public"."TaxRequestToken" (
+CREATE TABLE IF NOT EXISTS "public"."TaxRequestToken" (
     "id" TEXT NOT NULL,
     "token" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
@@ -50,12 +114,10 @@ CREATE TABLE "public"."TaxRequestToken" (
     "expiresAt" TIMESTAMP(3) NOT NULL,
     "sentAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
     CONSTRAINT "TaxRequestToken_pkey" PRIMARY KEY ("id")
 );
 
--- CreateTable
-CREATE TABLE "public"."Notification" (
+CREATE TABLE IF NOT EXISTS "public"."Notification" (
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "type" TEXT NOT NULL,
@@ -65,54 +127,74 @@ CREATE TABLE "public"."Notification" (
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "animalId" TEXT,
     "postId" TEXT,
-
     CONSTRAINT "Notification_pkey" PRIMARY KEY ("id")
 );
 
--- CreateIndex
-CREATE UNIQUE INDEX "TaxProfile_userId_key" ON "public"."TaxProfile"("userId");
 
--- CreateIndex
-CREATE INDEX "TaxProfile_userId_idx" ON "public"."TaxProfile"("userId");
+-- CreateIndex (idempotent)
+CREATE UNIQUE INDEX IF NOT EXISTS "TaxProfile_userId_key" ON "public"."TaxProfile"("userId");
+CREATE INDEX IF NOT EXISTS "TaxProfile_userId_idx" ON "public"."TaxProfile"("userId");
+CREATE INDEX IF NOT EXISTS "TaxProfile_isCompany_idx" ON "public"."TaxProfile"("isCompany");
+CREATE INDEX IF NOT EXISTS "TaxProfile_taxId_idx" ON "public"."TaxProfile"("taxId");
 
--- CreateIndex
-CREATE INDEX "TaxProfile_isCompany_idx" ON "public"."TaxProfile"("isCompany");
+CREATE UNIQUE INDEX IF NOT EXISTS "TaxRequestToken_token_key" ON "public"."TaxRequestToken"("token");
+CREATE INDEX IF NOT EXISTS "TaxRequestToken_userId_idx" ON "public"."TaxRequestToken"("userId");
+CREATE INDEX IF NOT EXISTS "TaxRequestToken_expiresAt_idx" ON "public"."TaxRequestToken"("expiresAt");
 
--- CreateIndex
-CREATE INDEX "TaxProfile_taxId_idx" ON "public"."TaxProfile"("taxId");
+CREATE INDEX IF NOT EXISTS "Notification_userId_readAt_idx" ON "public"."Notification"("userId", "readAt");
+CREATE INDEX IF NOT EXISTS "Notification_userId_createdAt_idx" ON "public"."Notification"("userId", "createdAt");
+CREATE UNIQUE INDEX IF NOT EXISTS "Notification_userId_postId_key" ON "public"."Notification"("userId", "postId");
 
--- CreateIndex
-CREATE UNIQUE INDEX "TaxRequestToken_token_key" ON "public"."TaxRequestToken"("token");
+CREATE INDEX IF NOT EXISTS "User_email_idx" ON "public"."User"("email");
 
--- CreateIndex
-CREATE INDEX "TaxRequestToken_userId_idx" ON "public"."TaxRequestToken"("userId");
 
--- CreateIndex
-CREATE INDEX "TaxRequestToken_expiresAt_idx" ON "public"."TaxRequestToken"("expiresAt");
+-- AddForeignKey (idempotent via pg_constraint)
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'TaxProfile_userId_fkey') THEN
+    ALTER TABLE "public"."TaxProfile"
+      ADD CONSTRAINT "TaxProfile_userId_fkey"
+      FOREIGN KEY ("userId") REFERENCES "public"."User"("id")
+      ON DELETE CASCADE ON UPDATE CASCADE;
+  END IF;
+END $$;
 
--- CreateIndex
-CREATE INDEX "Notification_userId_readAt_idx" ON "public"."Notification"("userId", "readAt");
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'TaxRequestToken_userId_fkey') THEN
+    ALTER TABLE "public"."TaxRequestToken"
+      ADD CONSTRAINT "TaxRequestToken_userId_fkey"
+      FOREIGN KEY ("userId") REFERENCES "public"."User"("id")
+      ON DELETE CASCADE ON UPDATE CASCADE;
+  END IF;
+END $$;
 
--- CreateIndex
-CREATE INDEX "Notification_userId_createdAt_idx" ON "public"."Notification"("userId", "createdAt");
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'Notification_animalId_fkey') THEN
+    ALTER TABLE "public"."Notification"
+      ADD CONSTRAINT "Notification_animalId_fkey"
+      FOREIGN KEY ("animalId") REFERENCES "public"."Animal"("id")
+      ON DELETE SET NULL ON UPDATE CASCADE;
+  END IF;
+END $$;
 
--- CreateIndex
-CREATE UNIQUE INDEX "Notification_userId_postId_key" ON "public"."Notification"("userId", "postId");
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'Notification_postId_fkey') THEN
+    ALTER TABLE "public"."Notification"
+      ADD CONSTRAINT "Notification_postId_fkey"
+      FOREIGN KEY ("postId") REFERENCES "public"."Post"("id")
+      ON DELETE SET NULL ON UPDATE CASCADE;
+  END IF;
+END $$;
 
--- CreateIndex
-CREATE INDEX "User_email_idx" ON "public"."User"("email");
-
--- AddForeignKey
-ALTER TABLE "public"."TaxProfile" ADD CONSTRAINT "TaxProfile_userId_fkey" FOREIGN KEY ("userId") REFERENCES "public"."User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "public"."TaxRequestToken" ADD CONSTRAINT "TaxRequestToken_userId_fkey" FOREIGN KEY ("userId") REFERENCES "public"."User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "public"."Notification" ADD CONSTRAINT "Notification_animalId_fkey" FOREIGN KEY ("animalId") REFERENCES "public"."Animal"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "public"."Notification" ADD CONSTRAINT "Notification_postId_fkey" FOREIGN KEY ("postId") REFERENCES "public"."Post"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "public"."Notification" ADD CONSTRAINT "Notification_userId_fkey" FOREIGN KEY ("userId") REFERENCES "public"."User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'Notification_userId_fkey') THEN
+    ALTER TABLE "public"."Notification"
+      ADD CONSTRAINT "Notification_userId_fkey"
+      FOREIGN KEY ("userId") REFERENCES "public"."User"("id")
+      ON DELETE RESTRICT ON UPDATE CASCADE;
+  END IF;
+END $$;
