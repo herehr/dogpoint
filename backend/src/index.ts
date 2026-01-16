@@ -39,20 +39,17 @@ const allowedOrigins: string[] =
     .filter(Boolean)
 
 const corsOptions: Parameters<typeof cors>[0] = {
-  origin(
-    origin: string | undefined,
-    callback: (err: Error | null, allow?: boolean) => void,
-  ): void {
+  origin(origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void): void {
     // No origin (e.g. curl, health checks) -> allow
     if (!origin) return callback(null, true)
 
-    // If nothing configured, allow all (dev fallback)
+    // If nothing configured, allow all (dev fallback) OR allow-listed origins
     if (allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
       return callback(null, true)
     }
 
     console.warn('[CORS] blocked origin:', origin)
-    // Do NOT throw – this avoids 500 in preflight
+    // Do NOT throw – avoids 500 in preflight; browser just won’t get CORS headers.
     return callback(null, false)
   },
   credentials: true,
@@ -95,27 +92,29 @@ app.use('/api/animals', animalRoutes)
 app.use('/api/stripe', stripeJsonRouter)
 
 app.use('/api/adoption', adoptionRouter)
+app.use('/api/adoption', adoptionBankRoutes)
+
 app.use('/api/upload', uploadRoutes)
 app.use('/api/posts', postsRoutes)
+
 app.use('/api/admin/stats', adminStatsRoutes)
 app.use('/api/admin/dashboard', adminDashboardRoutes)
 app.use('/api/admin', adminModeratorsRoutes)
+
 app.use('/api/subscriptions', subscriptionRoutes)
 app.use('/api/payments', paymentRouter)
 
-// NOTE: both mount under /api/notifications in your current codebase.
-// Keep as-is to avoid breaking, but in the future rename one to /api/notifications-test.
 app.use('/api/notifications', notificationRoutes)
+app.use('/api/notifications-test', notificationTestRoutes) // ✅ avoid double-mount
+
 app.use('/api/moderation', moderationRoutes)
 
 app.use('/api/email', emailTestRoutes)
-app.use('/api/notifications', notificationTestRoutes)
 
 app.use('/api/tax', taxRoutes)
 app.use('/api/tax-certificates', taxCertificatesRoutes)
 
 app.use('/api/fio', fioRoutes)
-app.use('/api/adoption', adoptionBankRoutes)
 
 // GP webpay (feature flag)
 const gpEnabled =
@@ -195,7 +194,7 @@ const HOST = '0.0.0.0'
 const server = app.listen(PORT, HOST, () => {
   console.log(`Server listening on http://${HOST}:${PORT}`)
 
-  // Start daily Fio sync (advisory lock inside prevents multi-instance duplication)
+  // Start FIO sync scheduler (advisory lock inside prevents multi-instance duplication)
   try {
     startFioCron()
   } catch (e: any) {

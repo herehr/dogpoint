@@ -2,7 +2,7 @@
 import express, { Router, type Request, type Response } from 'express'
 import Stripe from 'stripe'
 import jwt, { Secret } from 'jsonwebtoken'
-import bcrypt from 'bcrypt'
+import bcrypt from 'bcryptjs'
 import { prisma } from '../prisma'
 import { linkPaidOrRecentPledgesToUser } from '../controllers/authExtra'
 
@@ -26,10 +26,14 @@ type JwtPayloadLite = {
   email?: string
 }
 
-function signToken(user: { id: string; role: string; email: string }) {
+function mustJwtSecret(): string {
   const rawSecret = process.env.JWT_SECRET
   if (!rawSecret) throw new Error('Server misconfigured: JWT_SECRET missing')
-  return jwt.sign({ sub: user.id, role: user.role, email: user.email }, rawSecret as Secret, { expiresIn: '7d' })
+  return rawSecret
+}
+
+function signToken(user: { id: string; role: string; email: string }) {
+  return jwt.sign({ sub: user.id, role: user.role, email: user.email }, mustJwtSecret() as Secret, { expiresIn: '7d' })
 }
 
 function frontendBase(): string {
@@ -69,60 +73,96 @@ async function getOrCreateCustomerId(email: string): Promise<string> {
 }
 
 /**
- * ✅ THIS IS THE MISSING PIECE:
- * When Stripe is PAID, ensure we have a DB subscription that your dashboard can read.
+ * ✅ When Stripe is paid, ensure a DB Subscription exists + is ACTIVE.
+ * IMPORTANT: your Prisma model requires monthlyAmount + provider.
  */
 async function ensureDbSubscriptionActive(opts: {
   userId: string
   animalId: string
+  monthlyAmountCZK: number
   startedAt?: Date
+  providerRef?: string | null
 }) {
   const { userId, animalId } = opts
   const startedAt = opts.startedAt ?? new Date()
 
-  // Find existing subscription for this user+animal (any status)
+  const monthlyAmount = Math.round(Number(opts.monthlyAmountCZK))
+  if (!Number.isFinite(monthlyAmount) || monthlyAmount <= 0) {
+    throw new Error('[ensureDbSubscriptionActive] monthlyAmountCZK invalid/missing')
+  }
+
+  // Find existing subscription for this user+animal (latest)
   const existing = await prisma.subscription.findFirst({
     where: { userId, animalId } as any,
     orderBy: { createdAt: 'desc' } as any,
   })
 
-  if (!existing) {
-    // Create ACTIVE subscription
-    await prisma.subscription.create({
-      data: {
-        userId,
-        animalId,
-        status: 'ACTIVE' as any,
-        startedAt,
-      } as any,
-    })
-
-    // Send adoption started notification once
+  // Helper: send notification once (best-effort)
+  async function notifyOnce() {
     try {
       await notifyAdoptionStarted(userId, animalId, { sendEmail: true, sendEmailFn: sendEmail })
     } catch (e) {
       console.warn('[notifyAdoptionStarted] failed', e)
     }
+  }
 
+  if (!existing) {
+    await prisma.subscription.create({
+      data: {
+        userId,
+        animalId,
+        monthlyAmount,
+        currency: 'CZK',
+        provider: 'STRIPE' as any,
+        providerRef: opts.providerRef ?? null,
+        status: 'ACTIVE' as any,
+        startedAt,
+      } as any,
+    })
+
+    await notifyOnce()
     return
   }
 
-  // If exists but not ACTIVE, activate it
+  // If exists but canceled, do NOT revive automatically
+  if (String((existing as any).status || '').toUpperCase() === 'CANCELED') {
+    return
+  }
+
+  // If not ACTIVE, activate it (and set monthlyAmount/provider if missing)
   if (String((existing as any).status || '').toUpperCase() !== 'ACTIVE') {
     await prisma.subscription.update({
       where: { id: (existing as any).id },
       data: {
         status: 'ACTIVE' as any,
         startedAt: (existing as any).startedAt ?? startedAt,
+        monthlyAmount: (existing as any).monthlyAmount ?? monthlyAmount,
+        currency: (existing as any).currency ?? 'CZK',
+        provider: (existing as any).provider ?? ('STRIPE' as any),
+        providerRef: (existing as any).providerRef ?? (opts.providerRef ?? null),
       } as any,
     })
 
-    // Send adoption started notification once (on activation)
-    try {
-      await notifyAdoptionStarted(userId, animalId, { sendEmail: true, sendEmailFn: sendEmail })
-    } catch (e) {
-      console.warn('[notifyAdoptionStarted] failed', e)
-    }
+    await notifyOnce()
+    return
+  }
+
+  // Already ACTIVE: just ensure monthlyAmount/providerRef are set (no notification)
+  const needsPatch =
+    !(existing as any).monthlyAmount ||
+    !(existing as any).provider ||
+    ((existing as any).providerRef == null && opts.providerRef)
+
+  if (needsPatch) {
+    await prisma.subscription.update({
+      where: { id: (existing as any).id },
+      data: {
+        monthlyAmount: (existing as any).monthlyAmount ?? monthlyAmount,
+        currency: (existing as any).currency ?? 'CZK',
+        provider: (existing as any).provider ?? ('STRIPE' as any),
+        providerRef: (existing as any).providerRef ?? (opts.providerRef ?? null),
+      } as any,
+    })
   }
 }
 
@@ -154,6 +194,7 @@ rawRouter.post('/webhook', express.raw({ type: 'application/json' }), async (req
 
       const pledgeId = meta.pledgeId
       const animalId = meta.animalId
+      const amountCZK = Number(meta.amountCZK || 0) // ✅ comes from checkout-session
 
       const stripeEmail =
         normalizeEmail((session as any).customer_details?.email) ||
@@ -178,20 +219,20 @@ rawRouter.post('/webhook', express.raw({ type: 'application/json' }), async (req
         }
       }
 
-      // ensure user
-      const emailToUse = stripeEmail
-      if (emailToUse && animalId && isPaid) {
-        const clean = normalizeEmail(emailToUse)!
+      // ensure user + DB subscription
+      if (stripeEmail && animalId && isPaid) {
+        const clean = normalizeEmail(stripeEmail)!
         let user = await prisma.user.findUnique({ where: { email: clean } })
         if (!user) user = await prisma.user.create({ data: { email: clean, role: 'USER' } as any })
 
         await linkPaidOrRecentPledgesToUser(user.id, user.email)
 
-        // ✅ create/activate DB subscription
         await ensureDbSubscriptionActive({
           userId: user.id,
           animalId,
+          monthlyAmountCZK: amountCZK || 0, // must be present in metadata
           startedAt: new Date(),
+          providerRef: session.id,
         })
       }
     }
@@ -219,13 +260,13 @@ jsonRouter.get('/ping', (_req: Request, res: Response) => {
 
 /**
  * POST /api/stripe/checkout-session
+ * body: { animalId, amountCZK, email, name, password }
+ *
+ * ✅ also writes amountCZK into Stripe metadata so webhook/confirm can create DB subscription
  */
 jsonRouter.post('/checkout-session', async (req: Request, res: Response) => {
   try {
-    if (!stripe) {
-      res.status(500).json({ error: 'Stripe is not configured on server' })
-      return
-    }
+    if (!stripe) return res.status(500).json({ error: 'Stripe is not configured on server' })
 
     const { animalId, amountCZK, email, name, password } = (req.body || {}) as {
       animalId?: string
@@ -236,8 +277,12 @@ jsonRouter.post('/checkout-session', async (req: Request, res: Response) => {
     }
 
     if (!animalId || typeof animalId !== 'string') return res.status(400).json({ error: 'Missing or invalid animalId' })
-    if (!amountCZK || typeof amountCZK !== 'number' || amountCZK <= 0)
-      return res.status(400).json({ error: 'Missing or invalid amountCZK' })
+
+    const amt = Math.round(Number(amountCZK || 0))
+    if (!Number.isFinite(amt) || amt <= 0) return res.status(400).json({ error: 'Missing or invalid amountCZK' })
+
+    // ✅ minimum 50 CZK / month
+    if (amt < 50) return res.status(400).json({ error: 'Minimum is 50 CZK / měsíc' })
 
     // ✅ prefer JWT email if logged in
     const jwtUser = getOptionalJwt(req)
@@ -261,12 +306,13 @@ jsonRouter.post('/checkout-session', async (req: Request, res: Response) => {
       }
     }
 
+    // create pledge (pending)
     const pledge = await prisma.pledge.create({
       data: {
         animalId,
         email: safeEmail,
         name: name ?? null,
-        amount: amountCZK,
+        amount: amt,
         interval: 'MONTHLY' as any,
         method: 'CARD' as any,
         status: 'PENDING' as any,
@@ -292,6 +338,7 @@ jsonRouter.post('/checkout-session', async (req: Request, res: Response) => {
       metadata: {
         animalId,
         pledgeId: pledge.id,
+        amountCZK: String(amt), // ✅ critical for DB subscription creation
         interval: 'MONTHLY',
         type: 'DONATION',
       },
@@ -303,7 +350,7 @@ jsonRouter.post('/checkout-session', async (req: Request, res: Response) => {
               name: name ? `Měsíční dar: ${name}` : 'Měsíční dar na péči o psa',
               description: `Pravidelný měsíční příspěvek pro zvíře (${animalId})`,
             },
-            unit_amount: Math.round(amountCZK * 100),
+            unit_amount: Math.round(amt * 100),
             recurring: { interval: 'month' },
           },
           quantity: 1,
@@ -322,7 +369,7 @@ jsonRouter.post('/checkout-session', async (req: Request, res: Response) => {
 
 /**
  * GET /api/stripe/confirm?sid=cs_...
- * ✅ also ensures DB subscription is ACTIVE so dashboard updates immediately
+ * ✅ confirms payment + ensures DB subscription ACTIVE immediately
  */
 jsonRouter.get('/confirm', async (req: Request, res: Response) => {
   try {
@@ -331,9 +378,7 @@ jsonRouter.get('/confirm', async (req: Request, res: Response) => {
     const sid = String(req.query.sid || '')
     if (!sid) return res.status(400).json({ error: 'Missing sid' })
 
-    const session = await stripe.checkout.sessions.retrieve(sid, {
-      expand: ['customer', 'subscription'],
-    })
+    const session = await stripe.checkout.sessions.retrieve(sid, { expand: ['customer', 'subscription'] })
 
     const isPaid = (session.payment_status as string | undefined) === 'paid'
 
@@ -345,6 +390,7 @@ jsonRouter.get('/confirm', async (req: Request, res: Response) => {
     const meta = (session.metadata || {}) as Record<string, string | undefined>
     const pledgeId = meta.pledgeId
     const animalId = meta.animalId
+    const amountCZK = Number(meta.amountCZK || 0)
 
     // update pledge
     if (pledgeId) {
@@ -372,9 +418,14 @@ jsonRouter.get('/confirm', async (req: Request, res: Response) => {
 
       await linkPaidOrRecentPledgesToUser(user.id, user.email)
 
-      // ✅ ensure subscription exists/active (THIS is what your dashboard needs)
       if (isPaid && animalId) {
-        await ensureDbSubscriptionActive({ userId: user.id, animalId, startedAt: new Date() })
+        await ensureDbSubscriptionActive({
+          userId: user.id,
+          animalId,
+          monthlyAmountCZK: amountCZK || 0,
+          startedAt: new Date(),
+          providerRef: session.id,
+        })
       }
 
       token = signToken({ id: user.id, role: user.role, email: user.email })

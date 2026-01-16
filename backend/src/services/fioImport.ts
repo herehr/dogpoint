@@ -1,10 +1,12 @@
 // backend/src/services/fioImport.ts
 import { prisma } from '../prisma'
-import { fioFetchLast, fioSetLastId, normalizeFioTx, type NormalizedFioTx } from './fioClient'
+import { fioFetchPeriod, normalizeFioTx, type NormalizedFioTx } from './fioClient'
 import { PaymentProvider, PaymentStatus, SubscriptionStatus } from '@prisma/client'
 
 export type FioImportResult = {
   ok: true
+  from: string
+  to: string
   fetched: number
   normalized: number
   createdPayments: number
@@ -12,32 +14,12 @@ export type FioImportResult = {
   skippedNoVS: number
   skippedNoMatch: number
   skippedDuplicate: number
-  skippedInvalidAmount: number
-  lastDownloadId: string | null
 }
 
-/**
- * Imports transactions from Fio "last" endpoint.
- *
- * ✅ Idempotent:
- *   Payment has @@unique([provider, providerRef])
- *   providerRef = "fio:<movementId>"
- *
- * ✅ Matching:
- *   Subscription.provider = FIO AND Subscription.variableSymbol == tx.variableSymbol
- *
- * ✅ Cursor:
- *   We store info.idLastDownload into FioCursor.lastId
- *   and call fioSetLastId(idLastDownload) AFTER successful import
- */
-export async function importFioTransactions(): Promise<FioImportResult> {
-  const statement = await fioFetchLast()
+export async function importFioTransactions(params: { fromISO: string; toISO: string }): Promise<FioImportResult> {
+  const { fromISO, toISO } = params
 
-  const info = statement?.accountStatement?.info
-  const idLastDownload =
-    info?.idLastDownload !== undefined && info?.idLastDownload !== null
-      ? String(info.idLastDownload)
-      : null
+  const statement = await fioFetchPeriod(fromISO, toISO)
 
   const rawList = statement?.accountStatement?.transactionList?.transaction ?? []
   const normalizedList: NormalizedFioTx[] = rawList
@@ -49,19 +31,11 @@ export async function importFioTransactions(): Promise<FioImportResult> {
   let skippedNoVS = 0
   let skippedNoMatch = 0
   let skippedDuplicate = 0
-  let skippedInvalidAmount = 0
 
   for (const tx of normalizedList) {
     const vs = (tx.variableSymbol || '').trim()
     if (!vs) {
       skippedNoVS++
-      continue
-    }
-
-    // Defensive: only import positive integer CZK amounts
-    const amount = Number(tx.amountCzk)
-    if (!Number.isFinite(amount) || amount <= 0) {
-      skippedInvalidAmount++
       continue
     }
 
@@ -81,15 +55,7 @@ export async function importFioTransactions(): Promise<FioImportResult> {
 
     matchedSubs++
 
-    // movementId must exist for idempotency; if missing, skip
-    const movementId = tx.movementId != null ? String(tx.movementId) : ''
-    if (!movementId) {
-      // treat as no match (cannot create providerRef safely)
-      skippedNoMatch++
-      continue
-    }
-
-    const providerRef = `fio:${movementId}`
+    const providerRef = `fio:${tx.movementId}`
 
     // create payment if not already imported
     try {
@@ -98,15 +64,14 @@ export async function importFioTransactions(): Promise<FioImportResult> {
           subscriptionId: sub.id,
           provider: PaymentProvider.FIO,
           providerRef,
-          amount: Math.round(amount),
+          amount: tx.amountCzk,
           currency: (tx.currency || 'CZK').toUpperCase(),
           status: PaymentStatus.PAID,
-          paidAt: tx.bookedAt ?? new Date(),
+          paidAt: tx.bookedAt,
         },
       })
       createdPayments++
     } catch (e: any) {
-      // unique violation => already imported
       if (e?.code === 'P2002') {
         skippedDuplicate++
       } else {
@@ -120,30 +85,21 @@ export async function importFioTransactions(): Promise<FioImportResult> {
         where: { id: sub.id },
         data: {
           status: SubscriptionStatus.ACTIVE,
-          // clear bank timeline fields on successful payment
-          tempAccessUntil: null,
-          graceUntil: null,
-          reminderSentAt: null,
-          reminderCount: 0,
-        },
+          // clear bank timeline fields on successful payment (only if fields exist in your DB)
+          // If your Prisma schema doesn't have these fields yet, add them there too.
+          tempAccessUntil: null as any,
+          graceUntil: null as any,
+          reminderSentAt: null as any,
+          reminderCount: 0 as any,
+        } as any,
       })
     }
   }
 
-  // Store cursor + inform Fio we processed up to idLastDownload
-  await prisma.fioCursor.upsert({
-    where: { id: 1 },
-    create: { id: 1, lastId: idLastDownload },
-    update: { lastId: idLastDownload },
-  })
-
-  if (idLastDownload) {
-    // Important: only set last-id after successful processing
-    await fioSetLastId(idLastDownload)
-  }
-
   return {
     ok: true,
+    from: fromISO,
+    to: toISO,
     fetched: rawList.length,
     normalized: normalizedList.length,
     createdPayments,
@@ -151,7 +107,5 @@ export async function importFioTransactions(): Promise<FioImportResult> {
     skippedNoVS,
     skippedNoMatch,
     skippedDuplicate,
-    skippedInvalidAmount,
-    lastDownloadId: idLastDownload,
   }
 }

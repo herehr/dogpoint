@@ -5,56 +5,119 @@ import { prisma } from '../prisma'
 
 const router = Router()
 
-// Stripe client – leave apiVersion omitted to use SDK default
+// Stripe client
 const STRIPE_SECRET = process.env.STRIPE_SECRET_KEY || ''
 const stripe = new Stripe(STRIPE_SECRET)
 
-const FRONTEND_BASE = (process.env.FRONTEND_BASE_URL || '').replace(/\/+$/,'') || 'http://localhost:5173'
-const BACKEND_BASE = (process.env.BACKEND_BASE_URL || '').replace(/\/+$/,'') || 'http://localhost:3000'
+// Frontend base (used for redirects)
+const FRONTEND_BASE =
+  (process.env.FRONTEND_BASE_URL || '').replace(/\/+$/, '') ||
+  'http://localhost:5173'
 
 /**
  * POST /api/payments/stripe/checkout
- * body: { animalId: string, email: string, name?: string, monthly: number }
- * Creates a Stripe Checkout Session in "subscription" mode with a dynamic monthly CZK amount.
+ *
+ * body:
+ * {
+ *   animalId: string,
+ *   email: string,
+ *   name?: string,
+ *   monthly?: number,
+ *   amountCZK?: number
+ * }
  */
 router.post('/stripe/checkout', async (req: Request, res: Response) => {
   try {
-    const { animalId, email, name, monthly } = (req.body || {}) as {
-      animalId?: string; email?: string; name?: string; monthly?: number
+    const { animalId, email, name, monthly, amountCZK } = (req.body || {}) as {
+      animalId?: string
+      email?: string
+      name?: string
+      monthly?: number
+      amountCZK?: number
     }
-    if (!STRIPE_SECRET) return res.status(500).json({ error: 'Server misconfigured (STRIPE_SECRET_KEY)' })
-    if (!animalId) return res.status(400).json({ error: 'animalId required' })
-    if (!email) return res.status(400).json({ error: 'email required' })
-    const amt = Number(monthly)
-    if (!Number.isFinite(amt) || amt < 300) return res.status(400).json({ error: 'monthly must be >= 300' })
+
+    if (!STRIPE_SECRET) {
+      return res.status(500).json({
+        error: 'Server misconfigured (STRIPE_SECRET_KEY missing)',
+      })
+    }
+
+    if (!animalId) {
+      return res.status(400).json({ error: 'animalId required' })
+    }
+
+    if (!email) {
+      return res.status(400).json({ error: 'email required' })
+    }
+
+    const amt = Number(monthly ?? amountCZK)
+
+    if (!Number.isFinite(amt) || amt <= 0) {
+      return res.status(400).json({
+        error: 'monthly/amountCZK must be a positive number',
+      })
+    }
+
+    // ✅ MINIMUM = 50 CZK
+    if (amt < 50) {
+      return res.status(400).json({
+        error: 'monthly/amountCZK must be at least 50 CZK',
+      })
+    }
 
     // Ensure animal exists
-    const animal = await prisma.animal.findUnique({ where: { id: String(animalId) }, select: { id: true, jmeno: true, name: true } })
-    if (!animal) return res.status(404).json({ error: 'Animal not found' })
+    const animal = await prisma.animal.findUnique({
+      where: { id: animalId },
+      select: { id: true, jmeno: true, name: true },
+    })
 
-    // Find or create user by email
-    let user = await prisma.user.findUnique({ where: { email } })
-    if (!user) {
-      user = await prisma.user.create({ data: { email, role: 'USER' } })
+    if (!animal) {
+      return res.status(404).json({ error: 'Animal not found' })
     }
 
-    // Create or reuse an AdoptionRequest in NEW/PENDING
-    const ar = await prisma.adoptionRequest.create({
+    // Find or create user
+    let user = await prisma.user.findUnique({
+      where: { email },
+    })
+
+    if (!user) {
+      user = await prisma.user.create({
+        data: {
+          email,
+          role: 'USER',
+        },
+      })
+    }
+
+    // Create pending AdoptionRequest
+    const adoptionRequest = await prisma.adoptionRequest.create({
       data: {
         animalId: animal.id,
         email,
         name: name || 'Adoptující',
         monthly: Math.round(amt),
-        status: 'PENDING', // will switch to APPROVED on webhook or return
+        status: 'PENDING',
       },
     })
 
-    // Create a dynamic-price subscription item (CZK monthly)
-    const productName = `Adopce – ${animal.jmeno || animal.name || 'Zvíře'}`
+    const productName = `Adopce – ${
+      animal.jmeno || animal.name || 'Zvíře'
+    }`
+
+    const successUrl =
+      `${FRONTEND_BASE}/payment-result` +
+      `?ok=1&provider=stripe&animalId=${encodeURIComponent(animal.id)}` +
+      `&session_id={CHECKOUT_SESSION_ID}`
+
+    const cancelUrl =
+      `${FRONTEND_BASE}/payment-result` +
+      `?ok=0&provider=stripe&animalId=${encodeURIComponent(animal.id)}`
+
+    // Create Stripe Checkout Session
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
-      success_url: `${FRONTEND_BASE}/zvirata/${animal.id}?paid=1&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${FRONTEND_BASE}/zvirata/${animal.id}?canceled=1`,
+      success_url: successUrl,
+      cancel_url: cancelUrl,
       customer_email: email,
       line_items: [
         {
@@ -70,20 +133,28 @@ router.post('/stripe/checkout', async (req: Request, res: Response) => {
       metadata: {
         animalId: animal.id,
         userId: user.id,
-        adoptionRequestId: ar.id,
+        adoptionRequestId: adoptionRequest.id,
       },
     })
 
-    // Persist session id for later reconciliation
+    // Store checkout session ID
     await prisma.adoptionRequest.update({
-      where: { id: ar.id },
+      where: { id: adoptionRequest.id },
       data: { stripeCheckoutSessionId: session.id },
     })
 
-    return res.json({ ok: true, url: session.url })
+    return res.json({
+      ok: true,
+      url: session.url,
+    })
   } catch (e: any) {
-    console.error('POST /api/payments/stripe/checkout error', e)
-    return res.status(500).json({ error: 'Internal error creating checkout session' })
+    console.error(
+      '[payments/stripe/checkout] error:',
+      e?.message || e
+    )
+    return res.status(500).json({
+      error: 'Internal error creating checkout session',
+    })
   }
 })
 
