@@ -1,85 +1,78 @@
 // backend/src/services/fioImport.ts
 import { prisma } from '../prisma'
-import { fioFetchLast, fioSetLastId, normalizeFioTx } from './fioClient'
+import { fioFetchLast, fioSetLastId, normalizeFioTx, type NormalizedFioTx } from './fioClient'
 import { PaymentProvider, PaymentStatus, SubscriptionStatus } from '@prisma/client'
-
-function isoDateOnly(d: Date): string {
-  // YYYY-MM-DD in UTC
-  const y = d.getUTCFullYear()
-  const m = String(d.getUTCMonth() + 1).padStart(2, '0')
-  const day = String(d.getUTCDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
-}
-
-function addDaysUTC(d: Date, days: number): Date {
-  const x = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
-  x.setUTCDate(x.getUTCDate() + days)
-  return x
-}
 
 export type FioImportResult = {
   ok: true
-  from: string
-  to: string
   fetched: number
+  normalized: number
   createdPayments: number
   matchedSubs: number
+  skippedNoVS: number
   skippedNoMatch: number
-  skippedMissingAmount: number
+  skippedDuplicate: number
+  skippedInvalidAmount: number
+  lastDownloadId: string | null
 }
 
 /**
- * Imports Fio transactions for a date window.
- * Idempotency:
- * - Payment has @@unique([provider, providerRef])
- * - providerRef uses "fio:<transactionId>"
+ * Imports transactions from Fio "last" endpoint.
  *
- * Matching:
- * - primary: Subscription.variableSymbol == tx.variableSymbol
- * - fallback: try find variable symbol inside message (optional)
+ * ✅ Idempotent:
+ *   Payment has @@unique([provider, providerRef])
+ *   providerRef = "fio:<movementId>"
+ *
+ * ✅ Matching:
+ *   Subscription.provider = FIO AND Subscription.variableSymbol == tx.variableSymbol
+ *
+ * ✅ Cursor:
+ *   We store info.idLastDownload into FioCursor.lastId
+ *   and call fioSetLastId(idLastDownload) AFTER successful import
  */
-export async function importFioTransactions(options?: { daysBack?: number }): Promise<FioImportResult> {
-  const daysBack = options?.daysBack ?? Number(process.env.FIO_IMPORT_DAYS || 7)
+export async function importFioTransactions(): Promise<FioImportResult> {
+  const statement = await fioFetchLast()
 
-  const toDate = new Date()
-  const fromDate = addDaysUTC(toDate, -daysBack)
+  const info = statement?.accountStatement?.info
+  const idLastDownload =
+    info?.idLastDownload !== undefined && info?.idLastDownload !== null
+      ? String(info.idLastDownload)
+      : null
 
-  const from = isoDateOnly(fromDate)
-  const to = isoDateOnly(toDate)
-
-  // Fetch from Fio
-  const statement = await fioFetchPeriod({ from, to })
   const rawList = statement?.accountStatement?.transactionList?.transaction ?? []
-  const txs = rawList.map(normalizeFioTx)
+  const normalizedList: NormalizedFioTx[] = rawList
+    .map((t) => normalizeFioTx(t))
+    .filter((x): x is NormalizedFioTx => x !== null)
 
   let createdPayments = 0
   let matchedSubs = 0
+  let skippedNoVS = 0
   let skippedNoMatch = 0
-  let skippedMissingAmount = 0
+  let skippedDuplicate = 0
+  let skippedInvalidAmount = 0
 
-  for (const tx of txs) {
-    const txId = tx.transactionId
-    if (!txId) continue
-
-    if (typeof tx.amount !== 'number' || Number.isNaN(tx.amount)) {
-      skippedMissingAmount++
+  for (const tx of normalizedList) {
+    const vs = (tx.variableSymbol || '').trim()
+    if (!vs) {
+      skippedNoVS++
       continue
     }
 
-    // FIO is in CZK typically; store in integer "cents" equivalent? Your schema uses Int CZK.
-    // If Fio returns 200.00 => store 200 (CZK), not 20000.
-    const amountInt = Math.round(tx.amount)
-
-    // Find subscription by variable symbol
-    let sub = null as null | { id: string; status: any }
-
-    const vs = (tx.variableSymbol || '').trim()
-    if (vs) {
-      sub = await prisma.subscription.findFirst({
-        where: { provider: PaymentProvider.FIO, variableSymbol: vs },
-        select: { id: true, status: true },
-      })
+    // Defensive: only import positive integer CZK amounts
+    const amount = Number(tx.amountCzk)
+    if (!Number.isFinite(amount) || amount <= 0) {
+      skippedInvalidAmount++
+      continue
     }
+
+    // match subscription by VS
+    const sub = await prisma.subscription.findFirst({
+      where: {
+        provider: PaymentProvider.FIO,
+        variableSymbol: vs,
+      },
+      select: { id: true, status: true },
+    })
 
     if (!sub) {
       skippedNoMatch++
@@ -88,39 +81,46 @@ export async function importFioTransactions(options?: { daysBack?: number }): Pr
 
     matchedSubs++
 
-    const providerRef = `fio:${String(txId)}`
+    // movementId must exist for idempotency; if missing, skip
+    const movementId = tx.movementId != null ? String(tx.movementId) : ''
+    if (!movementId) {
+      // treat as no match (cannot create providerRef safely)
+      skippedNoMatch++
+      continue
+    }
 
-    // Create payment if not exists (unique guard)
+    const providerRef = `fio:${movementId}`
+
+    // create payment if not already imported
     try {
       await prisma.payment.create({
         data: {
           subscriptionId: sub.id,
           provider: PaymentProvider.FIO,
           providerRef,
-          amount: amountInt,
+          amount: Math.round(amount),
           currency: (tx.currency || 'CZK').toUpperCase(),
           status: PaymentStatus.PAID,
-          paidAt: tx.date ? new Date(tx.date) : new Date(),
+          paidAt: tx.bookedAt ?? new Date(),
         },
       })
       createdPayments++
     } catch (e: any) {
-      // Unique violation = already imported
+      // unique violation => already imported
       if (e?.code === 'P2002') {
-        // ignore
+        skippedDuplicate++
       } else {
         throw e
       }
     }
 
-    // Ensure subscription active if not canceled
+    // ensure subscription ACTIVE (if not canceled)
     if (sub.status !== SubscriptionStatus.CANCELED) {
       await prisma.subscription.update({
         where: { id: sub.id },
         data: {
           status: SubscriptionStatus.ACTIVE,
-          startedAt: new Date(),
-          // optional: clear bank grace/timeline when paid
+          // clear bank timeline fields on successful payment
           tempAccessUntil: null,
           graceUntil: null,
           reminderSentAt: null,
@@ -130,22 +130,28 @@ export async function importFioTransactions(options?: { daysBack?: number }): Pr
     }
   }
 
-  // Update cursor (optional: store last tx id)
-  const lastTxId = txs.length ? String(txs[txs.length - 1]?.transactionId ?? '') : null
+  // Store cursor + inform Fio we processed up to idLastDownload
   await prisma.fioCursor.upsert({
     where: { id: 1 },
-    create: { id: 1, lastId: lastTxId || null },
-    update: { lastId: lastTxId || null },
+    create: { id: 1, lastId: idLastDownload },
+    update: { lastId: idLastDownload },
   })
+
+  if (idLastDownload) {
+    // Important: only set last-id after successful processing
+    await fioSetLastId(idLastDownload)
+  }
 
   return {
     ok: true,
-    from,
-    to,
-    fetched: txs.length,
+    fetched: rawList.length,
+    normalized: normalizedList.length,
     createdPayments,
     matchedSubs,
+    skippedNoVS,
     skippedNoMatch,
-    skippedMissingAmount,
+    skippedDuplicate,
+    skippedInvalidAmount,
+    lastDownloadId: idLastDownload,
   }
 }

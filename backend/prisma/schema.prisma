@@ -196,6 +196,14 @@ model Subscription {
   note           String?
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
+
+  // ✅ bank/FIO timeline fields
+  pendingSince    DateTime?
+  tempAccessUntil DateTime?
+  graceUntil      DateTime?
+  reminderSentAt  DateTime?
+  reminderCount   Int       @default(0)
+
   payments       Payment[]
   animal         Animal             @relation(fields: [animalId], references: [id], onDelete: Cascade)
   user           User               @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -270,6 +278,11 @@ model Pledge {
   createdAt  DateTime        @default(now())
   updatedAt  DateTime        @updatedAt
   payments   PledgePayment[]
+
+  // ✅ optional links (no relations needed for now)
+  userId         String?
+  subscriptionId String?
+  variableSymbol String?
 
   @@index([email, animalId])
   @@index([status, method])
