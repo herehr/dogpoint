@@ -22,46 +22,45 @@ import moderationRoutes from './routes/moderation'
 import notificationTestRoutes from './routes/notificationsTest'
 import taxRoutes from './routes/tax'
 import taxCertificatesRoutes from './routes/taxCertificates'
+import fioRoutes from './routes/fio'
 
+import { startFioCron } from './jobs/fioCron'
 import { prisma } from './prisma'
 
 /* ──────────────────────────────────────────────
  * CORS
  * ──────────────────────────────────────────── */
 
-// Support both env names, use whichever is set
 const allowedOrigins: string[] =
   (process.env.CORS_ORIGIN || process.env.CORS_ALLOWED_ORIGINS || '')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean)
 
-// Use the same type Express uses for cors() options
 const corsOptions: Parameters<typeof cors>[0] = {
   origin(
     origin: string | undefined,
     callback: (err: Error | null, allow?: boolean) => void,
   ): void {
     // No origin (e.g. curl, health checks) -> allow
-    if (!origin) {
-      callback(null, true)
-      return
-    }
+    if (!origin) return callback(null, true)
 
     // If nothing configured, allow all (dev fallback)
     if (allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
-      callback(null, true)
-      return
+      return callback(null, true)
     }
 
     console.warn('[CORS] blocked origin:', origin)
     // Do NOT throw – this avoids 500 in preflight
-    callback(null, false)
+    return callback(null, false)
   },
   credentials: true,
 }
 
-// ----- App -----
+/* ──────────────────────────────────────────────
+ * App
+ * ──────────────────────────────────────────── */
+
 const app = express()
 app.set('trust proxy', 1)
 
@@ -72,7 +71,6 @@ app.options('*', cors(corsOptions))
 /* ──────────────────────────────────────────────
  * Stripe
  * IMPORTANT: raw webhook MUST be mounted BEFORE express.json()
- * This mounts POST /api/stripe/webhook with express.raw() inside rawRouter.
  * ──────────────────────────────────────────── */
 app.use('/api/stripe', stripeRawRouter)
 
@@ -85,7 +83,10 @@ app.use((req, _res, next) => {
   next()
 })
 
-// ----- Routes -----
+/* ──────────────────────────────────────────────
+ * Routes
+ * ──────────────────────────────────────────── */
+
 app.use('/api/auth', authRoutes)
 app.use('/api/animals', animalRoutes)
 
@@ -100,13 +101,19 @@ app.use('/api/admin/dashboard', adminDashboardRoutes)
 app.use('/api/admin', adminModeratorsRoutes)
 app.use('/api/subscriptions', subscriptionRoutes)
 app.use('/api/payments', paymentRouter)
+
+// NOTE: both mount under /api/notifications in your current codebase.
+// Keep as-is to avoid breaking, but in the future rename one to /api/notifications-test.
 app.use('/api/notifications', notificationRoutes)
 app.use('/api/moderation', moderationRoutes)
 
 app.use('/api/email', emailTestRoutes)
 app.use('/api/notifications', notificationTestRoutes)
+
 app.use('/api/tax', taxRoutes)
 app.use('/api/tax-certificates', taxCertificatesRoutes)
+
+app.use('/api/fio', fioRoutes)
 
 // GP webpay (feature flag)
 const gpEnabled =
@@ -122,7 +129,10 @@ if (gpEnabled) {
   console.log('⚠️ GP webpay disabled (missing env)')
 }
 
-// ----- Base -----
+/* ──────────────────────────────────────────────
+ * Base
+ * ──────────────────────────────────────────── */
+
 app.get('/', (_req: Request, res: Response) => {
   res.json({ ok: true, component: 'backend', root: '/' })
 })
@@ -131,7 +141,10 @@ app.get('/api/proto', (_req: Request, res: Response) => {
   res.json({ ok: true, component: 'backend', route: '/api/proto' })
 })
 
-// ----- Health -----
+/* ──────────────────────────────────────────────
+ * Health
+ * ──────────────────────────────────────────── */
+
 app.get('/health', (_req: Request, res: Response) => {
   res.status(200).json({ status: 'ok', server: true })
 })
@@ -150,12 +163,14 @@ app.get('/health/stripe', (_req, res) => {
   res.json({ stripe: hasStripe })
 })
 
-// ----- 404 -----
+/* ──────────────────────────────────────────────
+ * 404 + Error handler
+ * ──────────────────────────────────────────── */
+
 app.use((req: Request, res: Response) => {
   res.status(404).json({ error: 'Not Found', path: req.originalUrl })
 })
 
-// ----- Error handler -----
 app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
   console.error('[ERR]', {
     route: req.originalUrl,
@@ -168,12 +183,22 @@ app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
   res.status(500).json({ error: 'Internal server error' })
 })
 
-// ----- Server -----
+/* ──────────────────────────────────────────────
+ * Server
+ * ──────────────────────────────────────────── */
+
 const PORT = Number(process.env.PORT) || 3000
 const HOST = '0.0.0.0'
 
 const server = app.listen(PORT, HOST, () => {
   console.log(`Server listening on http://${HOST}:${PORT}`)
+
+  // Start daily Fio sync (advisory lock inside prevents multi-instance duplication)
+  try {
+    startFioCron()
+  } catch (e: any) {
+    console.error('[FIO] cron start failed:', e?.message)
+  }
 })
 
 // Graceful shutdown
