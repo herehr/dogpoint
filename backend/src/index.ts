@@ -23,6 +23,7 @@ import notificationTestRoutes from './routes/notificationsTest'
 import taxRoutes from './routes/tax'
 import taxCertificatesRoutes from './routes/taxCertificates'
 import fioRoutes from './routes/fio'
+import adoptionBankRoutes from './routes/adoptionBank'
 
 import { startFioCron } from './jobs/fioCron'
 import { prisma } from './prisma'
@@ -114,6 +115,7 @@ app.use('/api/tax', taxRoutes)
 app.use('/api/tax-certificates', taxCertificatesRoutes)
 
 app.use('/api/fio', fioRoutes)
+app.use('/api/adoption', adoptionBankRoutes)
 
 // GP webpay (feature flag)
 const gpEnabled =

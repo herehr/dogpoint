@@ -1,58 +1,51 @@
 // backend/src/routes/adoption.ts
 import { Router, Request, Response } from 'express'
 import { prisma } from '../prisma'
-import { checkAuth } from '../middleware/checkAuth' // adjust path if needed
+import { checkAuth } from '../middleware/checkAuth'
+import { SubscriptionStatus } from '@prisma/client'
 
 const router = Router()
 
+function getUserId(req: Request): string | null {
+  const u = (req as any).user
+  return (u?.sub || u?.id || null) as string | null
+}
+
 /**
  * GET /api/adoption/my
- * Return all adopted animals for the logged-in user.
- *
- * Uses Subscription table:
- * Subscription { id, userId, animalId, status, startedAt, ... }
+ * Returns adoptions for logged-in user.
+ * Includes ACTIVE and PENDING (so BANK pending shows too).
  */
 router.get('/my', checkAuth, async (req: Request, res: Response) => {
   try {
-    const authUser = (req as any).user
-    const userId = authUser?.sub || authUser?.id
+    const userId = getUserId(req)
+    if (!userId) return res.status(401).json({ error: 'Not authenticated' })
 
-    if (!userId) {
-      return res.status(401).json({ error: 'Not authenticated' })
-    }
-
-    // Only ACTIVE + PENDING subscriptions
     const subs = await prisma.subscription.findMany({
       where: {
         userId,
-        status: { in: ['ACTIVE', 'PENDING'] as any },
+        status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.PENDING] },
       },
       include: {
         animal: {
-          select: {
-            id: true,
-            jmeno: true,
-            name: true,
-            main: true,
-          },
+          select: { id: true, jmeno: true, name: true, main: true },
         },
       },
-      orderBy: {
-        startedAt: 'asc',
-      },
+      orderBy: { startedAt: 'asc' },
     })
 
     const items = subs.map((sub) => ({
+      subscriptionId: sub.id,
       animalId: sub.animalId,
       title: sub.animal?.jmeno || sub.animal?.name || 'Zvíře',
       main: sub.animal?.main || undefined,
       since: sub.startedAt,
-      status: sub.status as any, // 'ACTIVE' | 'PENDING'
+      status: sub.status, // ACTIVE | PENDING
     }))
 
     return res.json(items)
-  } catch (e) {
-    console.error('[adoption/my] error:', e)
+  } catch (e: any) {
+    console.error('[adoption/my] error:', e?.message || e)
     return res.status(500).json({ error: 'Failed to load adoptions' })
   }
 })
@@ -61,48 +54,32 @@ router.get('/my', checkAuth, async (req: Request, res: Response) => {
  * POST /api/adoption/cancel
  * body: { animalId: string }
  *
- * Marks ALL user subscriptions for this animal as CANCELED.
- * Existing Stripe payments remain (they are historic), but the
- * adoption disappears from "Moje adopce" and detail is locked again.
+ * Cancels ACTIVE/PENDING subscriptions for this user+animal.
  */
 router.post('/cancel', checkAuth, async (req: Request, res: Response) => {
   try {
-    const authUser = (req as any).user
-    const userId = authUser?.sub || authUser?.id
-    const { animalId } = (req.body || {}) as { animalId?: string }
+    const userId = getUserId(req)
+    if (!userId) return res.status(401).json({ error: 'Not authenticated' })
 
-    if (!userId) {
-      return res.status(401).json({ error: 'Not authenticated' })
-    }
-    if (!animalId) {
-      return res.status(400).json({ error: 'Missing animalId' })
-    }
+    const animalId = req.body?.animalId ? String(req.body.animalId) : ''
+    if (!animalId) return res.status(400).json({ error: 'Missing animalId' })
 
-    // Cancel ALL ACTIVE/PENDING subscriptions for this user + animal
     const result = await prisma.subscription.updateMany({
       where: {
         userId,
         animalId,
-        status: { in: ['ACTIVE', 'PENDING'] as any },
+        status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.PENDING] },
       },
       data: {
-        status: 'CANCELED' as any,
+        status: SubscriptionStatus.CANCELED,
+        canceledAt: new Date(),
       },
     })
 
-    if (!result.count) {
-      console.warn(
-        '[adoption/cancel] no active/pending subscription found for user %s, animal %s',
-        userId,
-        animalId
-      )
-      return res.status(404).json({ error: 'Adoption not found' })
-    }
-
-    // We leave Pledge and Payment as they are (they describe past donations)
-    return res.json({ ok: true })
-  } catch (e) {
-    console.error('[adoption/cancel] error:', e)
+    if (!result.count) return res.status(404).json({ error: 'Adoption not found' })
+    return res.json({ ok: true, canceled: result.count })
+  } catch (e: any) {
+    console.error('[adoption/cancel] error:', e?.message || e)
     return res.status(500).json({ error: 'Failed to cancel adoption' })
   }
 })
@@ -111,32 +88,23 @@ router.post('/cancel', checkAuth, async (req: Request, res: Response) => {
  * POST /api/adoption/seen
  * body: { animalId?: string }
  *
- * Minimal endpoint to remove 404 in frontend.
- * For now it just returns ok + server timestamp.
- * (We can persist per-user/per-animal seen state later via Prisma model.)
+ * Minimal endpoint (no persistence yet) so frontend won't fail.
  */
 router.post('/seen', checkAuth, async (req: Request, res: Response) => {
   try {
-    const authUser = (req as any).user
-    const userId = authUser?.sub || authUser?.id
+    const userId = getUserId(req)
+    if (!userId) return res.status(401).json({ error: 'Not authenticated' })
 
-    if (!userId) {
-      return res.status(401).json({ error: 'Not authenticated' })
-    }
-
-    const animalId = req.body?.animalId ? String(req.body.animalId) : undefined
-
-    // No-op persistence for now (just acknowledge).
-    // Later: upsert into AdoptionSeen table (userId + animalId).
+    const animalId = req.body?.animalId ? String(req.body.animalId) : null
 
     return res.json({
       ok: true,
       userId,
-      animalId: animalId || null,
+      animalId,
       seenAt: new Date().toISOString(),
     })
-  } catch (e) {
-    console.error('[adoption/seen] error:', e)
+  } catch (e: any) {
+    console.error('[adoption/seen] error:', e?.message || e)
     return res.status(500).json({ error: 'Failed to mark seen' })
   }
 })
