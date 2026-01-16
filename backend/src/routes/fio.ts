@@ -1,54 +1,49 @@
 // backend/src/routes/fio.ts
-import { Router, Request, Response } from 'express'
+import { Router, type Request, type Response } from 'express'
 import { importFioTransactions } from '../services/fioImport'
-import { checkAuth } from '../middleware/checkAuth' // adjust path if needed
-import { prisma } from '../prisma'
 
 const router = Router()
 
-function isAdmin(req: Request): boolean {
-  const u = (req as any).user
-  return u?.role === 'ADMIN'
+function isoDate(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function parseISODateOrNull(s: unknown): string | null {
+  const v = String(s || '').trim()
+  if (!v) return null
+  // very light validation YYYY-MM-DD
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return null
+  return v
 }
 
 /**
- * GET /api/fio/status
+ * GET /api/fio/import?from=2026-01-09&to=2026-01-16
+ * - If from/to not provided, defaults to lookback (env FIO_CRON_LOOKBACK_DAYS or 7)
  */
-router.get('/status', checkAuth, async (req: Request, res: Response) => {
+router.get('/import', async (req: Request, res: Response) => {
   try {
-    if (!isAdmin(req)) return res.status(403).json({ error: 'Forbidden' })
+    const lookbackDays = Math.max(1, Number(process.env.FIO_CRON_LOOKBACK_DAYS || 7))
 
-    const cursor = await prisma.fioCursor.findUnique({
-      where: { id: 1 },
-      select: { lastId: true, updatedAt: true },
-    })
+    const toQ = parseISODateOrNull(req.query.to)
+    const fromQ = parseISODateOrNull(req.query.from)
 
-    return res.json({
-      ok: true,
-      fioTokenConfigured: !!process.env.FIO_TOKEN,
-      fioCron: process.env.FIO_CRON || null,
-      cursor: cursor
-        ? { lastId: cursor.lastId ?? null, updatedAt: cursor.updatedAt.toISOString() }
-        : null,
-    })
-  } catch (e: any) {
-    console.error('[fio/status] error', e?.message || e)
-    return res.status(500).json({ error: 'internal error' })
-  }
-})
+    const to = toQ || isoDate(new Date())
+    const from =
+      fromQ ||
+      (() => {
+        const d = new Date()
+        d.setDate(d.getDate() - lookbackDays)
+        return isoDate(d)
+      })()
 
-/**
- * POST /api/fio/import
- */
-router.post('/import', checkAuth, async (req: Request, res: Response) => {
-  try {
-    if (!isAdmin(req)) return res.status(403).json({ error: 'Forbidden' })
-
-    const result = await importFioTransactions()
+    const result = await importFioTransactions({ fromISO: from, toISO: to })
     return res.json(result)
   } catch (e: any) {
-    console.error('[fio/import] error', e?.message || e)
-    return res.status(500).json({ error: 'internal error' })
+    console.error('[fio route] import error', e?.message || e)
+    return res.status(500).json({ error: 'import failed', detail: e?.message || String(e) })
   }
 })
 
