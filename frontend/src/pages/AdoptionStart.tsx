@@ -17,7 +17,12 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import IconButton from '@mui/material/IconButton'
 import { useParams, useSearchParams, useNavigate, Link as RouterLink } from 'react-router-dom'
 import QRCode from 'qrcode'
-import { createCheckoutSession, stashPendingEmail } from '../services/api'
+import {
+  createCheckoutSession,
+  stashPendingEmail,
+  startBankAdoptionAndSendPdf,
+  setToken,
+} from '../services/api'
 import { useAuth } from '../context/AuthContext'
 
 type PaymentMethod = 'card' | 'applepay' | 'googlepay' | 'bank'
@@ -37,12 +42,7 @@ function moneyCZK(amountCZK: number): string {
  * SPAYD format (CZ):
  * SPD*1.0*ACC:<IBAN>*AM:<amount>*CC:CZK*X-VS:<vs>*MSG:<message>
  */
-function buildSpayd(params: {
-  iban: string
-  amountCZK: number
-  vs: string
-  message?: string
-}): string {
+function buildSpayd(params: { iban: string; amountCZK: number; vs: string; message?: string }): string {
   const iban = params.iban.replace(/\s+/g, '').toUpperCase()
   const parts: string[] = [
     'SPD*1.0',
@@ -88,13 +88,10 @@ export default function AdoptionStart() {
   const [loading, setLoading] = React.useState(false)
   const [err, setErr] = React.useState<string | null>(null)
 
-  const amountCZK = React.useMemo(
-    () => parseInt(search.get('amount') || '200', 10) || 200,
-    [search],
-  )
+  const amountCZK = React.useMemo(() => parseInt(search.get('amount') || '200', 10) || 200, [search])
 
   // -------------------------
-  // BANK INSTRUCTIONS (UI-only for now)
+  // BANK INSTRUCTIONS
   // -------------------------
   const [bankVS, setBankVS] = React.useState<string>(() => generateVS())
   const [qrDataUrl, setQrDataUrl] = React.useState<string>('')
@@ -145,22 +142,60 @@ export default function AdoptionStart() {
     }
   }, [paymentMethod])
 
+  function validateInputs(): string | null {
+    if (!id) return 'Chybí ID zvířete.'
+    if (!email) return 'Vyplňte prosím e-mail.'
+    if (!firstName) return 'Vyplňte prosím jméno.'
+    if (!password || password.length < 6) return 'Heslo musí mít alespoň 6 znaků.'
+    return null
+  }
+
+  const onSendPdfAndStartBank = async () => {
+    const v = validateInputs()
+    if (v) {
+      setErr(v)
+      return
+    }
+
+    setErr(null)
+    setLoading(true)
+
+    try {
+      stashPendingEmail(email)
+
+      // Backend should:
+      // 1) create/verify user + start adoption for 30 days
+      // 2) send PDF with payment instructions to the given email
+      // 3) return JWT token (token) so we can log the user in immediately
+      const resp = await startBankAdoptionAndSendPdf({
+        animalId: id as string,
+        amountCZK,
+        name: firstName,
+        email,
+        password,
+        vs: bankVS,
+      })
+
+      // ✅ log user in immediately (persistent token)
+      if ((resp as any)?.token) {
+        setToken((resp as any).token)
+      }
+
+      navigate(`/zvire/${id}?bank=started`)
+    } catch (e: any) {
+      const msg = (e?.response?.data?.error || e?.message || '').toString()
+      setErr(msg || 'Nepodařilo se odeslat PDF.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!id) {
-      setErr('Chybí ID zvířete.')
-      return
-    }
-    if (!email) {
-      setErr('Vyplňte prosím e-mail.')
-      return
-    }
-    if (!firstName) {
-      setErr('Vyplňte prosím jméno.')
-      return
-    }
-    if (!password || password.length < 6) {
-      setErr('Heslo musí mít alespoň 6 znaků.')
+
+    const v = validateInputs()
+    if (v) {
+      setErr(v)
       return
     }
 
@@ -171,12 +206,13 @@ export default function AdoptionStart() {
       stashPendingEmail(email)
 
       if (paymentMethod === 'bank') {
+        // Bank flow is handled by the dedicated button "Pošlete mi PDF e-mailem"
         setLoading(false)
         return
       }
 
       const session = await createCheckoutSession({
-        animalId: id,
+        animalId: id as string,
         amountCZK,
         name: firstName,
         email,
@@ -204,8 +240,8 @@ export default function AdoptionStart() {
       </Typography>
 
       <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        Vyplň prosím své údaje. Po úspěšné platbě ti vytvoříme účet, kde uvidíš všechny své
-        adopce a odemčené příspěvky.
+        Vyplň prosím své údaje. Po úspěšné platbě ti vytvoříme účet, kde uvidíš všechny své adopce a odemčené
+        příspěvky.
       </Typography>
 
       {err && (
@@ -269,8 +305,8 @@ export default function AdoptionStart() {
             </Typography>
 
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Pro aktivaci adopce prosím nastav <strong>trvalý příkaz</strong> (měsíčně). Nejrychlejší
-              je naskenovat QR kód v bankovní aplikaci.
+              Pro aktivaci adopce prosím nastav <strong>trvalý příkaz</strong> (měsíčně). Nejrychlejší je
+              naskenovat QR kód v bankovní aplikaci.
             </Typography>
 
             {!bankIban && (
@@ -315,14 +351,8 @@ export default function AdoptionStart() {
                 </IconButton>
               </Box>
 
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Typography variant="body2" sx={{ pr: 1 }}>
-                  <strong>Zpráva:</strong> {bankMessage}
-                </Typography>
-                <IconButton size="small" onClick={() => copyToClipboard(bankMessage)} aria-label="copy msg">
-                  <ContentCopyIcon fontSize="small" />
-                </IconButton>
-              </Box>
+              {/* Message ("Zpráva") is intentionally not shown in the UI.
+                  It is still included in the SPAYD payload as MSG=... for banking apps. */}
 
               <Divider sx={{ my: 1 }} />
 
@@ -343,26 +373,30 @@ export default function AdoptionStart() {
 
               {qrDataUrl && (
                 <Box sx={{ mt: 1, display: 'flex', justifyContent: 'center' }}>
-                  <Box
-                    component="img"
-                    src={qrDataUrl}
-                    alt="QR SPAYD"
-                    sx={{ width: 220, height: 220, borderRadius: 2 }}
-                  />
+                  <Box component="img" src={qrDataUrl} alt="QR SPAYD" sx={{ width: 220, height: 220, borderRadius: 2 }} />
                 </Box>
               )}
             </Stack>
 
             <Alert severity="info" sx={{ mt: 2 }}>
-              Tip: Po zaplacení převodem se adopce odemkne po automatickém spárování platby (import z Fio).
+              Tip: Po zaplacení převodem se adopce spáruje automaticky (import z Fio).
             </Alert>
           </Paper>
         )}
 
-        <Stack direction="row" spacing={2} sx={{ mt: 2 }}>
-          <Button type="submit" variant="contained" disabled={loading}>
-            {showBank ? 'Zobrazit pokyny' : 'Pokračovat k platbě'}
-          </Button>
+        <Stack spacing={2} sx={{ mt: 2 }}>
+          {!showBank && (
+            <Button type="submit" variant="contained" disabled={loading}>
+              Pokračovat k platbě
+            </Button>
+          )}
+
+          {showBank && (
+            <Button variant="contained" disabled={loading} onClick={onSendPdfAndStartBank}>
+              {loading ? 'Odesílám…' : 'Pošlete mi PDF e-mailem'}
+            </Button>
+          )}
+
           <Button variant="text" component={RouterLink} to={id ? `/zvire/${id}` : '/'}>
             Zpět na detail
           </Button>

@@ -321,6 +321,30 @@ export async function createCheckoutSession(params: {
 }
 
 /* =========================================================
+   Bank transfer: send PDF + start 30 days access
+========================================================= */
+
+/**
+ * Starts adoption (bank transfer) and sends PDF instructions by email.
+ * Backend endpoint should exist: POST /api/adoption/bank/start
+ *
+ * NOTE: Uses postJSON (fetch-based), NOT axios.
+ */
+export async function startBankAdoptionAndSendPdf(payload: {
+  animalId: string
+  amountCZK: number
+  name: string
+  email: string
+  password: string
+  vs: string
+}) {
+  return postJSON<{ ok: boolean; subscriptionId?: string; accessUntil?: string }>(
+    '/api/adoption/bank/start',
+    payload
+  )
+}
+
+/* =========================================================
    Stash helpers (after payment)
 ========================================================= */
 
@@ -646,6 +670,8 @@ const api = {
   claimPaid,
   confirmStripeSession,
   createCheckoutSession,
+  // ✅ include new helper in default export as well (optional)
+  startBankAdoptionAndSendPdf,
   stashPendingEmail,
   popPendingEmail,
   fetchAnimal,
