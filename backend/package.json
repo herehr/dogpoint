@@ -37,7 +37,7 @@
     "mime-types": "^2.1.35",
     "multer": "^2.0.2",
     "node-cron": "^4.2.1",
-    "nodemailer": "^7.0.11",
+    "nodemailer": "^7.0.12",
     "puppeteer-core": "^24.34.0",
     "sharp": "^0.34.4",
     "stripe": "^18.5.0",
