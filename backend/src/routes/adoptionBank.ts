@@ -200,6 +200,7 @@ router.post('/start', async (req: Request, res: Response) => {
     }
 
     // Upsert subscription as PENDING
+    // ✅ IMPORTANT: monthlyAmount is REQUIRED in your schema -> always set it.
     const now = new Date()
     const current = await prisma.subscription.findFirst({
       where: {
@@ -217,6 +218,9 @@ router.post('/start', async (req: Request, res: Response) => {
         data: {
           status: SubscriptionStatus.PENDING,
           startedAt: now,
+          monthlyAmount: Math.round(amountCZK), // ✅ required
+          // If you later add bank VS fields, add them here too
+          // bankVs: vs,
         } as any,
         select: { id: true },
       })
@@ -228,6 +232,9 @@ router.post('/start', async (req: Request, res: Response) => {
           animalId,
           status: SubscriptionStatus.PENDING,
           startedAt: now,
+          monthlyAmount: Math.round(amountCZK), // ✅ required
+          // bankVs: vs,
+          // provider: 'BANK',
         } as any,
         select: { id: true },
       })
@@ -244,7 +251,7 @@ router.post('/start', async (req: Request, res: Response) => {
       'Režim adopce: bankovní převod (Internetbanking)',
       '',
       `Zvíře: ${animalName}`,
-      `Částka: ${amountCZK} Kč / měsíc`,
+      `Částka: ${Math.round(amountCZK)} Kč / měsíc`,
       '',
       `Příjemce: ${bankName}`,
       `IBAN: ${bankIban}`,
