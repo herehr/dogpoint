@@ -201,7 +201,7 @@ router.post('/start', async (req: Request, res: Response) => {
 
     // ✅ Required fields in your schema
     const monthlyAmount = Math.round(amountCZK)
-    const provider = PaymentProvider.BANK
+    const provider = PaymentProvider.FIO
 
     // Upsert subscription as PENDING
     const now = new Date()
