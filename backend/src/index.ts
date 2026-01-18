@@ -91,8 +91,12 @@ app.use('/api/animals', animalRoutes)
 // Stripe JSON routes AFTER express.json()
 app.use('/api/stripe', stripeJsonRouter)
 
+// ✅ keep normal adoption routes here (/my, /cancel, /seen, ...)
 app.use('/api/adoption', adoptionRouter)
-app.use('/api/adoption', adoptionBankRoutes)
+
+// ✅ IMPORTANT: mount bank routes under a separate namespace
+// avoids path collisions like /api/adoption/bank/start returning 401 from a different router
+app.use('/api/adoption-bank', adoptionBankRoutes)
 
 app.use('/api/upload', uploadRoutes)
 app.use('/api/posts', postsRoutes)

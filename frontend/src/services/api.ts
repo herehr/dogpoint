@@ -339,7 +339,7 @@ export async function startBankAdoptionAndSendPdf(payload: {
   vs: string
 }) {
   return postJSON<{ ok: boolean; subscriptionId?: string; accessUntil?: string }>(
-    '/api/adoption/bank/start',
+    '/api/adoption-bank/start',
     payload
   )
 }
