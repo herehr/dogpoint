@@ -9,13 +9,69 @@ import QRCode from 'qrcode'
 
 const router = Router()
 
-/**
- * Build SPAYD payload (Czech banking QR).
- * Note: Keep it simple; most apps accept this.
- */
+/* ──────────────────────────────────────────────
+ * Helpers: robust asset path resolution
+ * Works in src and in dist, and on DO where cwd differs.
+ * ──────────────────────────────────────────── */
+
+function firstExistingPath(candidates: string[]): string | null {
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p)) return p
+    } catch {}
+  }
+  return null
+}
+
+function resolveFontPath(): string {
+  // Compiled file is usually: backend/dist/routes/adoptionBank.js
+  // So __dirname + ../../assets/... => backend/assets/...
+  const candidates = [
+    // ✅ best: repo backend/assets (works for src + dist)
+    path.resolve(__dirname, '../../assets/fonts/DejaVuSans.ttf'),
+    // if you keep assets under dist (not recommended, but supported)
+    path.resolve(__dirname, '../assets/fonts/DejaVuSans.ttf'), // dist/assets/fonts
+    // fallbacks based on cwd (varies on DO)
+    path.resolve(process.cwd(), 'assets/fonts/DejaVuSans.ttf'),
+    path.resolve(process.cwd(), 'backend/assets/fonts/DejaVuSans.ttf'),
+    path.resolve(process.cwd(), 'dist/assets/fonts/DejaVuSans.ttf'),
+    path.resolve(process.cwd(), 'backend/dist/assets/fonts/DejaVuSans.ttf'),
+  ]
+
+  const found = firstExistingPath(candidates)
+  if (!found) {
+    throw new Error(
+      `PDF font not found. Put DejaVuSans.ttf into backend/assets/fonts/DejaVuSans.ttf (or dist/assets/fonts). Tried:\n- ${candidates.join(
+        '\n- '
+      )}`
+    )
+  }
+  return found
+}
+
+function resolveLogoPath(): string | null {
+  const candidates = [
+    path.resolve(__dirname, '../../assets/logo.png'),
+    path.resolve(__dirname, '../../assets/logo.jpg'),
+    path.resolve(__dirname, '../assets/logo.png'),
+    path.resolve(__dirname, '../assets/logo.jpg'),
+    path.resolve(process.cwd(), 'assets/logo.png'),
+    path.resolve(process.cwd(), 'backend/assets/logo.png'),
+    path.resolve(process.cwd(), 'dist/assets/logo.png'),
+    path.resolve(process.cwd(), 'backend/dist/assets/logo.png'),
+  ]
+  return firstExistingPath(candidates)
+}
+
+/* ──────────────────────────────────────────────
+ * SPAYD
+ * ──────────────────────────────────────────── */
+
 function buildSpayd(params: { iban: string; amountCZK: number; vs: string; msg?: string }) {
   const iban = params.iban.replace(/\s+/g, '').toUpperCase()
   const amount = params.amountCZK.toFixed(2)
+
+  // keep ASCII only (avoid weird hidden chars)
   const parts = ['SPD*1.0', `ACC:${iban}`, `AM:${amount}`, 'CC:CZK', `X-VS:${params.vs}`]
 
   const msg = (params.msg || '').trim()
@@ -27,10 +83,10 @@ function buildSpayd(params: { iban: string; amountCZK: number; vs: string; msg?:
   return parts.join('*')
 }
 
-/**
- * Generates a nice UTF-8 PDF with QR code and payment details.
- * IMPORTANT: Use a UTF-8 capable font (DejaVuSans recommended).
- */
+/* ──────────────────────────────────────────────
+ * PDF generator: UTF-8 + QR + nice layout
+ * ──────────────────────────────────────────── */
+
 async function generateNicePdf(args: {
   animalId: string
   animalName: string
@@ -42,17 +98,9 @@ async function generateNicePdf(args: {
   password: string
   loginUrl: string
 }) {
-  const fontPath =
-    process.env.PDF_FONT_PATH ||
-    path.join(process.cwd(), 'dist', 'assets', 'fonts', 'DejaVuSans.ttf')
+  const fontPath = resolveFontPath()
+  const logoPath = resolveLogoPath()
 
-  const logoPath =
-    process.env.PDF_LOGO_PATH || path.join(process.cwd(), 'dist', 'assets', 'logo.png')
-
-  const hasFont = fs.existsSync(fontPath)
-  const hasLogo = fs.existsSync(logoPath)
-
-  // SPAYD + QR
   const spayd = buildSpayd({
     iban: args.bankIban,
     amountCZK: args.amountCZK,
@@ -71,93 +119,56 @@ async function generateNicePdf(args: {
   const chunks: Buffer[] = []
   doc.on('data', (d: Buffer) => chunks.push(d))
 
-  // Use UTF-8 font (required for Czech diacritics)
-  if (hasFont) {
-    doc.registerFont('Body', fontPath)
-    doc.font('Body')
-  } else {
-    // Fallback: Helvetica (⚠ diacritics may break)
-    doc.font('Helvetica')
-  }
+  // ✅ CRITICAL: real TTF font for Czech diacritics
+  doc.registerFont('Body', fontPath)
+  doc.font('Body')
 
   const pageWidth = doc.page.width
   const contentWidth = pageWidth - doc.page.margins.left - doc.page.margins.right
+  const x = doc.page.margins.left
 
   // Header
-  if (hasLogo) {
-    doc.image(logoPath, doc.page.margins.left, 28, { width: 140 })
+  if (logoPath) {
+    doc.image(logoPath, x, 28, { width: 140 })
   }
-
   doc
     .fontSize(20)
     .fillColor('#111')
-    .text('Děkujeme za adopci ❤️', doc.page.margins.left, 40, {
-      width: contentWidth,
-      align: 'right',
-    })
+    .text('Děkujeme za adopci ❤️', x, 40, { width: contentWidth, align: 'right' })
 
   doc.moveDown(2)
 
   // Intro box
-  const boxX = doc.page.margins.left
+  const boxX = x
   const boxY = 120
   const boxW = contentWidth
-  const boxH = 92
+  const boxH = 98
 
-  doc
-    .roundedRect(boxX, boxY, boxW, boxH, 10)
-    .fillAndStroke('#F6F8FF', '#D9E2FF')
+  doc.roundedRect(boxX, boxY, boxW, boxH, 10).fillAndStroke('#F6F8FF', '#D9E2FF')
 
-  doc
-    .fillColor('#111')
-    .fontSize(12)
-    .text(
-      'Váš účet je aktivní maximálně na 30 dní.',
-      boxX + 16,
-      boxY + 16,
-      { width: boxW - 32 }
-    )
-
-  doc
-    .fillColor('#111')
-    .fontSize(12)
-    .text(
-      'Prosíme, pošlete měsíční platbu co nejdříve a nastavte trvalý příkaz.',
-      boxX + 16,
-      boxY + 36,
-      { width: boxW - 32 }
-    )
-
-  doc
-    .fillColor('#111')
-    .fontSize(12)
-    .text(
-      'Děkujeme vám – díky lidem jako jste vy můžeme pomáhat každý den.',
-      boxX + 16,
-      boxY + 58,
-      { width: boxW - 32 }
-    )
-
-  doc.moveTo(boxX, boxY + boxH + 26)
+  doc.fillColor('#111').fontSize(12).text('Váš účet je aktivován maximálně na 30 dní.', boxX + 16, boxY + 16, {
+    width: boxW - 32,
+  })
+  doc.fillColor('#111').fontSize(12).text(
+    'Prosíme, pošlete měsíční platbu co nejdříve a nastavte trvalý příkaz (direct debit).',
+    boxX + 16,
+    boxY + 38,
+    { width: boxW - 32 }
+  )
+  doc.fillColor('#111').fontSize(12).text(
+    'Děkujeme vám – díky lidem jako jste vy můžeme pomáhat každý den.',
+    boxX + 16,
+    boxY + 62,
+    { width: boxW - 32 }
+  )
 
   // Payment section
-  const sectionY = boxY + boxH + 28
-  doc
-    .fillColor('#111')
-    .fontSize(15)
-    .text('Údaje k bankovnímu převodu', boxX, sectionY)
-
-  doc
-    .moveDown(0.8)
-    .fontSize(12)
-    .fillColor('#111')
+  const sectionY = boxY + boxH + 24
+  doc.fillColor('#111').fontSize(15).text('Údaje k bankovnímu převodu', boxX, sectionY)
 
   const leftColX = boxX
   const rightColX = boxX + Math.floor(contentWidth * 0.60)
-  const rowY = sectionY + 30
-
-  const labelColor = '#333'
-  const valueColor = '#000'
+  let y = sectionY + 28
 
   const rows: Array<{ label: string; value: string }> = [
     { label: 'Zvíře', value: args.animalName },
@@ -167,60 +178,38 @@ async function generateNicePdf(args: {
     { label: 'Variabilní symbol (VS)', value: args.vs },
   ]
 
-  let y = rowY
+  doc.fontSize(12)
   for (const r of rows) {
-    doc.fillColor(labelColor).text(`${r.label}:`, leftColX, y, { width: rightColX - leftColX - 10 })
-    doc.fillColor(valueColor).text(r.value, rightColX, y, { width: boxX + boxW - rightColX })
+    doc.fillColor('#333').text(`${r.label}:`, leftColX, y, { width: rightColX - leftColX - 10 })
+    doc.fillColor('#000').text(r.value, rightColX, y, { width: boxX + boxW - rightColX })
     y += 18
   }
 
   // QR block
   const qrBlockY = y + 16
-  doc
-    .roundedRect(boxX, qrBlockY, boxW, 190, 10)
-    .stroke('#E6E6E6')
+  doc.roundedRect(boxX, qrBlockY, boxW, 192, 10).stroke('#E6E6E6')
 
-  doc
-    .fillColor('#111')
-    .fontSize(13)
-    .text('QR kód pro platbu (SPAYD)', boxX + 16, qrBlockY + 14)
-
+  doc.fillColor('#111').fontSize(13).text('QR kód pro platbu (SPAYD)', boxX + 16, qrBlockY + 14)
   doc
     .fontSize(10)
     .fillColor('#555')
-    .text('Naskenujte v bankovní aplikaci a zkontrolujte částku + VS.', boxX + 16, qrBlockY + 34)
+    .text('Naskenujte v bankovní aplikaci a zkontrolujte částku a VS.', boxX + 16, qrBlockY + 34)
 
   doc.image(qrPngBuffer, boxX + 16, qrBlockY + 58, { width: 130 })
 
-  doc
-    .fontSize(9)
-    .fillColor('#666')
-    .text('SPAYD:', boxX + 160, qrBlockY + 62)
+  doc.fontSize(9).fillColor('#666').text('SPAYD:', boxX + 160, qrBlockY + 62)
   doc
     .fontSize(9)
     .fillColor('#222')
     .text(spayd, boxX + 160, qrBlockY + 76, { width: boxW - 176 })
 
   // Login section
-  const loginY = qrBlockY + 205
-  doc
-    .fillColor('#111')
-    .fontSize(15)
-    .text('Přihlášení do účtu', boxX, loginY)
+  const loginY = qrBlockY + 210
+  doc.fillColor('#111').fontSize(15).text('Přihlášení do účtu', boxX, loginY)
 
-  doc
-    .moveDown(0.5)
-    .fontSize(12)
-    .fillColor('#111')
-    .text(`Web: ${args.loginUrl}`, boxX, loginY + 26)
-
-  doc
-    .fontSize(12)
-    .text(`Uživatelské jméno: ${args.email}`, boxX, loginY + 44)
-
-  doc
-    .fontSize(12)
-    .text(`Heslo: ${args.password}`, boxX, loginY + 62)
+  doc.fontSize(12).fillColor('#111').text(`Web: ${args.loginUrl}`, boxX, loginY + 26)
+  doc.text(`Uživatelské jméno: ${args.email}`, boxX, loginY + 44)
+  doc.text(`Heslo: ${args.password}`, boxX, loginY + 62)
 
   // Footer
   doc
@@ -229,10 +218,13 @@ async function generateNicePdf(args: {
     .text('Děkujeme, že pomáháte. Tým Dogpoint ❤️', boxX, 790, { width: boxW, align: 'center' })
 
   doc.end()
-
   await new Promise<void>((resolve) => doc.on('end', () => resolve()))
   return Buffer.concat(chunks)
 }
+
+/* ──────────────────────────────────────────────
+ * Email sender with logo + nicer copy
+ * ──────────────────────────────────────────── */
 
 async function sendMailWithPdf(args: {
   to: string
@@ -264,20 +256,21 @@ async function sendMailWithPdf(args: {
     auth: { user, pass },
   })
 
-  // Logo in email (use URL)
   const logoUrl =
     process.env.EMAIL_LOGO_URL ||
-    process.env.DO_SPACE_PUBLIC_BASE?.replace(/\/+$/, '') + '/assets/logo.png'
+    (process.env.DO_SPACE_PUBLIC_BASE
+      ? `${process.env.DO_SPACE_PUBLIC_BASE.replace(/\/+$/, '')}/assets/logo.png`
+      : '')
 
   const html = `
-  <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; color:#111;">
-    ${logoUrl ? `<div style="margin: 10px 0 20px 0;"><img src="${logoUrl}" alt="Dogpoint" style="height:48px"/></div>` : ''}
+  <div style="font-family:Arial, sans-serif; max-width:640px; margin:0 auto; color:#111;">
+    ${logoUrl ? `<div style="margin:10px 0 20px 0;"><img src="${logoUrl}" alt="Dogpoint" style="height:48px" /></div>` : ''}
 
     <h2 style="margin:0 0 12px 0;">Děkujeme za adopci ❤️</h2>
 
     <p style="margin:0 0 10px 0; line-height:1.5;">
       Váš účet je aktivován <b>maximálně na 30 dní</b>.
-      Prosíme, pošlete měsíční platbu co nejdříve a nastavte <b>trvalý příkaz</b>.
+      Prosíme, pošlete měsíční platbu co nejdříve a nastavte <b>trvalý příkaz</b> (direct debit).
     </p>
 
     <p style="margin:0 0 10px 0; line-height:1.5;">
@@ -373,10 +366,7 @@ router.post('/start', async (req: Request, res: Response) => {
         if (!ok) return res.status(401).json({ error: 'Špatné heslo.' })
       } else {
         const passwordHash = await bcrypt.hash(password, 10)
-        await prisma.user.update({
-          where: { id: userId },
-          data: { passwordHash } as any,
-        })
+        await prisma.user.update({ where: { id: userId }, data: { passwordHash } as any })
       }
 
       if (!(existing as any).firstName && name) {
@@ -388,7 +378,6 @@ router.post('/start', async (req: Request, res: Response) => {
     const monthlyAmount = Math.round(amountCZK)
     const provider = PaymentProvider.FIO
 
-    // Upsert subscription as PENDING
     const now = new Date()
     const current = await prisma.subscription.findFirst({
       where: {
@@ -434,6 +423,7 @@ router.post('/start', async (req: Request, res: Response) => {
     const animalName = animal.jmeno || animal.name || 'Zvíře'
     const loginUrl = 'https://patron.dog-point.cz'
 
+    // ✅ If font missing, generateNicePdf throws -> you will SEE the error (no more silent broken PDFs)
     const pdfBuffer = await generateNicePdf({
       animalId,
       animalName,
