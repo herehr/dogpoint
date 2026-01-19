@@ -2,91 +2,246 @@
 import { Router, Request, Response } from 'express'
 import { prisma } from '../prisma'
 import { SubscriptionStatus, PaymentProvider } from '@prisma/client'
+import path from 'path'
+import fs from 'fs'
+import PDFDocument from 'pdfkit'
+import QRCode from 'qrcode'
 
 const router = Router()
 
 /**
- * Minimal PDF generator (Helvetica) - no external PDF libs.
+ * Build SPAYD payload (Czech banking QR).
+ * Note: Keep it simple; most apps accept this.
  */
-function makeSimplePdf(lines: string[]): Buffer {
-  const esc = (s: string) => s.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)')
+function buildSpayd(params: { iban: string; amountCZK: number; vs: string; msg?: string }) {
+  const iban = params.iban.replace(/\s+/g, '').toUpperCase()
+  const amount = params.amountCZK.toFixed(2)
+  const parts = ['SPD*1.0', `ACC:${iban}`, `AM:${amount}`, 'CC:CZK', `X-VS:${params.vs}`]
 
-  const startX = 50
-  const startY = 800
-  const lineHeight = 16
-
-  const textOps = lines
-    .map((line, i) => `1 0 0 1 ${startX} ${startY - i * lineHeight} Tm (${esc(line)}) Tj`)
-    .join('\n')
-
-  const content = `BT
-/F1 12 Tf
-${textOps}
-ET`
-
-  const contentBytes = Buffer.from(content, 'utf-8')
-  const contentLen = contentBytes.length
-
-  const parts: Buffer[] = []
-  const offsets: number[] = []
-
-  const push = (s: string | Buffer) => {
-    const b = typeof s === 'string' ? Buffer.from(s, 'utf-8') : s
-    parts.push(b)
+  const msg = (params.msg || '').trim()
+  if (msg) {
+    const safe = msg.replace(/\*/g, ' ').slice(0, 60)
+    parts.push(`MSG:${safe}`)
   }
 
-  push('%PDF-1.4\n')
+  return parts.join('*')
+}
 
-  const addObj = (objNum: number, body: string | Buffer) => {
-    offsets[objNum] = parts.reduce((sum, b) => sum + b.length, 0)
-    push(`${objNum} 0 obj\n`)
-    push(body)
-    if (typeof body === 'string' && !body.endsWith('\n')) push('\n')
-    push('endobj\n')
+/**
+ * Generates a nice UTF-8 PDF with QR code and payment details.
+ * IMPORTANT: Use a UTF-8 capable font (DejaVuSans recommended).
+ */
+async function generateNicePdf(args: {
+  animalId: string
+  animalName: string
+  amountCZK: number
+  bankIban: string
+  bankName: string
+  vs: string
+  email: string
+  password: string
+  loginUrl: string
+}) {
+  const fontPath =
+    process.env.PDF_FONT_PATH ||
+    path.join(process.cwd(), 'dist', 'assets', 'fonts', 'DejaVuSans.ttf')
+
+  const logoPath =
+    process.env.PDF_LOGO_PATH || path.join(process.cwd(), 'dist', 'assets', 'logo.png')
+
+  const hasFont = fs.existsSync(fontPath)
+  const hasLogo = fs.existsSync(logoPath)
+
+  // SPAYD + QR
+  const spayd = buildSpayd({
+    iban: args.bankIban,
+    amountCZK: args.amountCZK,
+    vs: args.vs,
+    msg: `Dogpoint adopce ${args.animalId}`,
+  })
+
+  const qrPngBuffer = await QRCode.toBuffer(spayd, {
+    errorCorrectionLevel: 'M',
+    margin: 1,
+    scale: 6,
+    type: 'png',
+  })
+
+  const doc = new PDFDocument({ size: 'A4', margin: 48 })
+  const chunks: Buffer[] = []
+  doc.on('data', (d: Buffer) => chunks.push(d))
+
+  // Use UTF-8 font (required for Czech diacritics)
+  if (hasFont) {
+    doc.registerFont('Body', fontPath)
+    doc.font('Body')
+  } else {
+    // Fallback: Helvetica (⚠ diacritics may break)
+    doc.font('Helvetica')
   }
 
-  addObj(1, `<< /Type /Catalog /Pages 2 0 R >>\n`)
-  addObj(2, `<< /Type /Pages /Kids [3 0 R] /Count 1 >>\n`)
-  addObj(
-    3,
-    `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842]
-/Resources << /Font << /F1 4 0 R >> >>
-/Contents 5 0 R
->>\n`
-  )
-  addObj(4, `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\n`)
+  const pageWidth = doc.page.width
+  const contentWidth = pageWidth - doc.page.margins.left - doc.page.margins.right
 
-  offsets[5] = parts.reduce((sum, b) => sum + b.length, 0)
-  push(`5 0 obj\n`)
-  push(`<< /Length ${contentLen} >>\nstream\n`)
-  push(contentBytes)
-  push(`\nendstream\nendobj\n`)
-
-  const xrefStart = parts.reduce((sum, b) => sum + b.length, 0)
-  const objCount = 6
-
-  push('xref\n')
-  push(`0 ${objCount}\n`)
-  push('0000000000 65535 f \n')
-  for (let i = 1; i < objCount; i++) {
-    const off = offsets[i] ?? 0
-    push(`${String(off).padStart(10, '0')} 00000 n \n`)
+  // Header
+  if (hasLogo) {
+    doc.image(logoPath, doc.page.margins.left, 28, { width: 140 })
   }
 
-  push('trailer\n')
-  push(`<< /Size ${objCount} /Root 1 0 R >>\n`)
-  push('startxref\n')
-  push(`${xrefStart}\n`)
-  push('%%EOF\n')
+  doc
+    .fontSize(20)
+    .fillColor('#111')
+    .text('Děkujeme za adopci ❤️', doc.page.margins.left, 40, {
+      width: contentWidth,
+      align: 'right',
+    })
 
-  return Buffer.concat(parts)
+  doc.moveDown(2)
+
+  // Intro box
+  const boxX = doc.page.margins.left
+  const boxY = 120
+  const boxW = contentWidth
+  const boxH = 92
+
+  doc
+    .roundedRect(boxX, boxY, boxW, boxH, 10)
+    .fillAndStroke('#F6F8FF', '#D9E2FF')
+
+  doc
+    .fillColor('#111')
+    .fontSize(12)
+    .text(
+      'Váš účet je aktivní maximálně na 30 dní.',
+      boxX + 16,
+      boxY + 16,
+      { width: boxW - 32 }
+    )
+
+  doc
+    .fillColor('#111')
+    .fontSize(12)
+    .text(
+      'Prosíme, pošlete měsíční platbu co nejdříve a nastavte trvalý příkaz.',
+      boxX + 16,
+      boxY + 36,
+      { width: boxW - 32 }
+    )
+
+  doc
+    .fillColor('#111')
+    .fontSize(12)
+    .text(
+      'Děkujeme vám – díky lidem jako jste vy můžeme pomáhat každý den.',
+      boxX + 16,
+      boxY + 58,
+      { width: boxW - 32 }
+    )
+
+  doc.moveTo(boxX, boxY + boxH + 26)
+
+  // Payment section
+  const sectionY = boxY + boxH + 28
+  doc
+    .fillColor('#111')
+    .fontSize(15)
+    .text('Údaje k bankovnímu převodu', boxX, sectionY)
+
+  doc
+    .moveDown(0.8)
+    .fontSize(12)
+    .fillColor('#111')
+
+  const leftColX = boxX
+  const rightColX = boxX + Math.floor(contentWidth * 0.60)
+  const rowY = sectionY + 30
+
+  const labelColor = '#333'
+  const valueColor = '#000'
+
+  const rows: Array<{ label: string; value: string }> = [
+    { label: 'Zvíře', value: args.animalName },
+    { label: 'Částka', value: `${args.amountCZK} Kč / měsíc` },
+    { label: 'Příjemce', value: args.bankName },
+    { label: 'IBAN', value: args.bankIban },
+    { label: 'Variabilní symbol (VS)', value: args.vs },
+  ]
+
+  let y = rowY
+  for (const r of rows) {
+    doc.fillColor(labelColor).text(`${r.label}:`, leftColX, y, { width: rightColX - leftColX - 10 })
+    doc.fillColor(valueColor).text(r.value, rightColX, y, { width: boxX + boxW - rightColX })
+    y += 18
+  }
+
+  // QR block
+  const qrBlockY = y + 16
+  doc
+    .roundedRect(boxX, qrBlockY, boxW, 190, 10)
+    .stroke('#E6E6E6')
+
+  doc
+    .fillColor('#111')
+    .fontSize(13)
+    .text('QR kód pro platbu (SPAYD)', boxX + 16, qrBlockY + 14)
+
+  doc
+    .fontSize(10)
+    .fillColor('#555')
+    .text('Naskenujte v bankovní aplikaci a zkontrolujte částku + VS.', boxX + 16, qrBlockY + 34)
+
+  doc.image(qrPngBuffer, boxX + 16, qrBlockY + 58, { width: 130 })
+
+  doc
+    .fontSize(9)
+    .fillColor('#666')
+    .text('SPAYD:', boxX + 160, qrBlockY + 62)
+  doc
+    .fontSize(9)
+    .fillColor('#222')
+    .text(spayd, boxX + 160, qrBlockY + 76, { width: boxW - 176 })
+
+  // Login section
+  const loginY = qrBlockY + 205
+  doc
+    .fillColor('#111')
+    .fontSize(15)
+    .text('Přihlášení do účtu', boxX, loginY)
+
+  doc
+    .moveDown(0.5)
+    .fontSize(12)
+    .fillColor('#111')
+    .text(`Web: ${args.loginUrl}`, boxX, loginY + 26)
+
+  doc
+    .fontSize(12)
+    .text(`Uživatelské jméno: ${args.email}`, boxX, loginY + 44)
+
+  doc
+    .fontSize(12)
+    .text(`Heslo: ${args.password}`, boxX, loginY + 62)
+
+  // Footer
+  doc
+    .fontSize(10)
+    .fillColor('#666')
+    .text('Děkujeme, že pomáháte. Tým Dogpoint ❤️', boxX, 790, { width: boxW, align: 'center' })
+
+  doc.end()
+
+  await new Promise<void>((resolve) => doc.on('end', () => resolve()))
+  return Buffer.concat(chunks)
 }
 
 async function sendMailWithPdf(args: {
   to: string
   subject: string
-  textLines: string[]
   filename: string
+  pdfBuffer: Buffer
+  loginUrl: string
+  email: string
+  password: string
 }) {
   const nodemailerMod: any = await import('nodemailer')
   const nodemailer = nodemailerMod.default || nodemailerMod
@@ -109,20 +264,50 @@ async function sendMailWithPdf(args: {
     auth: { user, pass },
   })
 
-  const pdf = makeSimplePdf(args.textLines)
+  // Logo in email (use URL)
+  const logoUrl =
+    process.env.EMAIL_LOGO_URL ||
+    process.env.DO_SPACE_PUBLIC_BASE?.replace(/\/+$/, '') + '/assets/logo.png'
+
+  const html = `
+  <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; color:#111;">
+    ${logoUrl ? `<div style="margin: 10px 0 20px 0;"><img src="${logoUrl}" alt="Dogpoint" style="height:48px"/></div>` : ''}
+
+    <h2 style="margin:0 0 12px 0;">Děkujeme za adopci ❤️</h2>
+
+    <p style="margin:0 0 10px 0; line-height:1.5;">
+      Váš účet je aktivován <b>maximálně na 30 dní</b>.
+      Prosíme, pošlete měsíční platbu co nejdříve a nastavte <b>trvalý příkaz</b>.
+    </p>
+
+    <p style="margin:0 0 10px 0; line-height:1.5;">
+      Děkujeme vám. Díky lidem jako jste vy může Dogpoint pomáhat každý den.
+    </p>
+
+    <div style="background:#F6F8FF; border:1px solid #D9E2FF; border-radius:12px; padding:14px 16px; margin:16px 0;">
+      <div style="font-weight:700; margin-bottom:8px;">Přihlášení do účtu</div>
+      <div>Web: <a href="${args.loginUrl}" target="_blank" rel="noreferrer">${args.loginUrl}</a></div>
+      <div>Uživatelské jméno: <b>${args.email}</b></div>
+      <div>Heslo: <b>${args.password}</b></div>
+    </div>
+
+    <p style="margin:0 0 14px 0; line-height:1.5;">
+      V příloze posíláme PDF s QR kódem a všemi údaji k převodu.
+    </p>
+
+    <p style="margin:0; color:#555;">Tým Dogpoint ❤️</p>
+  </div>
+  `
 
   await transporter.sendMail({
     from,
     to: args.to,
     subject: args.subject,
-    html: `
-      <p>Děkujeme! Vaše adopce byla aktivována na <b>30 dní</b>.</p>
-      <p>V příloze posíláme PDF s pokyny pro bankovní převod.</p>
-    `,
+    html,
     attachments: [
       {
         filename: args.filename,
-        content: pdf,
+        content: args.pdfBuffer,
         contentType: 'application/pdf',
       },
     ],
@@ -221,8 +406,8 @@ router.post('/start', async (req: Request, res: Response) => {
         data: {
           status: SubscriptionStatus.PENDING,
           startedAt: now,
-          monthlyAmount, // ✅ required
-          provider,      // ✅ required
+          monthlyAmount,
+          provider,
         } as any,
         select: { id: true },
       })
@@ -234,8 +419,8 @@ router.post('/start', async (req: Request, res: Response) => {
           animalId,
           status: SubscriptionStatus.PENDING,
           startedAt: now,
-          monthlyAmount, // ✅ required
-          provider,      // ✅ required
+          monthlyAmount,
+          provider,
         } as any,
         select: { id: true },
       })
@@ -247,26 +432,28 @@ router.post('/start', async (req: Request, res: Response) => {
     const bankIban = process.env.BANK_IBAN || process.env.DOGPOINT_IBAN || 'CZ6508000000001234567899'
     const bankName = process.env.BANK_NAME || 'Dogpoint o.p.s.'
     const animalName = animal.jmeno || animal.name || 'Zvíře'
+    const loginUrl = 'https://patron.dog-point.cz'
 
-    const lines = [
-      'Režim adopce: bankovní převod (Internetbanking)',
-      '',
-      `Zvíře: ${animalName}`,
-      `Částka: ${monthlyAmount} Kč / měsíc`,
-      '',
-      `Příjemce: ${bankName}`,
-      `IBAN: ${bankIban}`,
-      `Variabilní symbol (VS): ${vs}`,
-      '',
-      'Adopce je aktivní na 30 dní.',
-      'Prosíme nastavte trvalý příkaz (měsíčně).',
-    ]
+    const pdfBuffer = await generateNicePdf({
+      animalId,
+      animalName,
+      amountCZK: monthlyAmount,
+      bankIban,
+      bankName,
+      vs,
+      email,
+      password,
+      loginUrl,
+    })
 
     await sendMailWithPdf({
       to: email,
-      subject: 'Pokyny pro bankovní převod – Dogpoint adopce',
-      textLines: lines,
-      filename: `dogpoint-bank-${animalId}.pdf`,
+      subject: 'Děkujeme za adopci – pokyny k bankovnímu převodu',
+      filename: `dogpoint-adopce-${animalId}.pdf`,
+      pdfBuffer,
+      loginUrl,
+      email,
+      password,
     })
 
     return res.json({ ok: true, token, userId, subscriptionId })
