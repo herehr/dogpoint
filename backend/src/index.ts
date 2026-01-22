@@ -13,6 +13,7 @@ import adoptionRouter from './routes/adoption'
 import emailTestRoutes from './routes/emailTest'
 import adminModeratorsRoutes from './routes/adminModerators'
 import adminStatsRoutes from './routes/adminStats'
+import adminAnimalStatsRoutes from './routes/adminAnimalStats'
 import adminDashboardRoutes from './routes/adminDashboard'
 import subscriptionRoutes from './routes/subscriptionRoutes'
 import paymentRouter from './routes/paymentRoutes'
@@ -24,6 +25,7 @@ import taxRoutes from './routes/tax'
 import taxCertificatesRoutes from './routes/taxCertificates'
 import fioRoutes from './routes/fio'
 import adoptionBankRoutes from './routes/adoptionBank'
+
 
 import { startFioCron } from './jobs/fioCron'
 import { prisma } from './prisma'
@@ -102,6 +104,7 @@ app.use('/api/upload', uploadRoutes)
 app.use('/api/posts', postsRoutes)
 
 app.use('/api/admin/stats', adminStatsRoutes)
+app.use('/api/admin/stats', adminAnimalStatsRoutes)
 app.use('/api/admin/dashboard', adminDashboardRoutes)
 app.use('/api/admin', adminModeratorsRoutes)
 
