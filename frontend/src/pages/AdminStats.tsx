@@ -1,4 +1,3 @@
-// frontend/src/pages/AdminStats.tsx
 import React, { useEffect, useMemo, useState } from 'react'
 import {
   Container,
@@ -37,8 +36,19 @@ function yRangeOf(date = new Date()) {
 
 type Props = { embedded?: boolean }
 
+type AnimalAggRow = {
+  animalId: string
+  animalName: string | null
+  donorsActive: number
+  monthlyActiveSum: number
+  paidSumSubscriptions: number
+  paidSumPledges: number
+  paidSumTotal: number
+}
+
 export default function AdminStats({ embedded = false }: Props) {
-  const [tab, setTab] = useState<'payments' | 'pledges' | 'expected'>('payments')
+  // ✅ added "animals"
+  const [tab, setTab] = useState<'payments' | 'pledges' | 'expected' | 'animals'>('payments')
   const [range, setRange] = useState<{ from?: string; to?: string }>(ymRangeOf())
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState<string | null>(null)
@@ -47,17 +57,24 @@ export default function AdminStats({ embedded = false }: Props) {
   const [pledges, setPledges] = useState<any>(null)
   const [expected, setExpected] = useState<any>(null)
 
+  // ✅ new state for animal aggregation
+  const [animals, setAnimals] = useState<{ count: number; rows: AnimalAggRow[] } | null>(null)
+
   const params = useMemo(() => {
     const p: Record<string, string> = {}
-    if (range?.from) p.from = range.from
-    if (range?.to) p.to = range.to
+    // Animals stats do not need date-range (keep range for other tabs)
+    if (tab !== 'animals') {
+      if (range?.from) p.from = range.from
+      if (range?.to) p.to = range.to
+    }
     return p
-  }, [range])
+  }, [range, tab])
 
   const endpoint = useMemo(() => {
     if (tab === 'payments') return '/api/admin/stats/payments'
     if (tab === 'pledges') return '/api/admin/stats/pledges'
-    return '/api/admin/stats/expected'
+    if (tab === 'expected') return '/api/admin/stats/expected'
+    return '/api/admin/stats/animals'
   }, [tab])
 
   async function load() {
@@ -69,7 +86,8 @@ export default function AdminStats({ embedded = false }: Props) {
 
       if (tab === 'payments') setPayments(data)
       else if (tab === 'pledges') setPledges(data)
-      else setExpected(data)
+      else if (tab === 'expected') setExpected(data)
+      else setAnimals(data)
     } catch (e: any) {
       setErr(e?.message || 'Chyba načítání statistik')
     } finally {
@@ -84,6 +102,8 @@ export default function AdminStats({ embedded = false }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, params.from, params.to])
 
+  const showDateRange = tab !== 'animals'
+
   const content = (
     <>
       {!embedded && (
@@ -95,52 +115,49 @@ export default function AdminStats({ embedded = false }: Props) {
       <Paper sx={{ p: 2, mb: 2, borderRadius: 3 }}>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center">
           <ToggleButtonGroup
-  exclusive
-  value={tab}
-  onChange={(_, v) => v && setTab(v)}
-  size="small"
->
-  <ToggleButton value="payments">
-    Předplatné (uhrazené)
-  </ToggleButton>
-
-  <ToggleButton value="pledges">
-    Neuhrazené přísliby
-  </ToggleButton>
-
-  <ToggleButton value="expected">
-    Očekávaný měsíční příjem
-  </ToggleButton>
-</ToggleButtonGroup>
-
-          <Divider orientation="vertical" flexItem sx={{ display: { xs: 'none', sm: 'block' } }} />
-
-          <TextField
-            type="date"
-            label="Od"
+            exclusive
+            value={tab}
+            onChange={(_, v) => v && setTab(v)}
             size="small"
-            value={range?.from || ''}
-            onChange={(e) =>
-              setRange((r) => ({ ...(r || {}), from: e.target.value || undefined }))
-            }
-            InputLabelProps={{ shrink: true }}
-          />
-          <TextField
-            type="date"
-            label="Do"
-            size="small"
-            value={range?.to || ''}
-            onChange={(e) =>
-              setRange((r) => ({ ...(r || {}), to: e.target.value || undefined }))
-            }
-            InputLabelProps={{ shrink: true }}
-          />
+          >
+            <ToggleButton value="payments">Předplatné (uhrazené)</ToggleButton>
+            <ToggleButton value="pledges">Neuhrazené přísliby</ToggleButton>
+            <ToggleButton value="expected">Očekávaný měsíční příjem</ToggleButton>
 
-          <Box sx={{ flex: 1 }} />
+            {/* ✅ NEW TAB */}
+            <ToggleButton value="animals">Zvířata</ToggleButton>
+          </ToggleButtonGroup>
 
-          <Button onClick={() => setRange(ymRangeOf())}>Tento měsíc</Button>
-          <Button onClick={() => setRange(yRangeOf())}>Tento rok</Button>
-          <Button onClick={() => setRange({})}>Vymazat</Button>
+          {showDateRange && (
+            <>
+              <Divider orientation="vertical" flexItem sx={{ display: { xs: 'none', sm: 'block' } }} />
+
+              <TextField
+                type="date"
+                label="Od"
+                size="small"
+                value={range?.from || ''}
+                onChange={(e) => setRange((r) => ({ ...(r || {}), from: e.target.value || undefined }))}
+                InputLabelProps={{ shrink: true }}
+              />
+              <TextField
+                type="date"
+                label="Do"
+                size="small"
+                value={range?.to || ''}
+                onChange={(e) => setRange((r) => ({ ...(r || {}), to: e.target.value || undefined }))}
+                InputLabelProps={{ shrink: true }}
+              />
+
+              <Box sx={{ flex: 1 }} />
+
+              <Button onClick={() => setRange(ymRangeOf())}>Tento měsíc</Button>
+              <Button onClick={() => setRange(yRangeOf())}>Tento rok</Button>
+              <Button onClick={() => setRange({})}>Vymazat</Button>
+            </>
+          )}
+
+          {!showDateRange && <Box sx={{ flex: 1 }} />}
         </Stack>
       </Paper>
 
@@ -214,6 +231,28 @@ export default function AdminStats({ embedded = false }: Props) {
           />
         </Paper>
       )}
+
+      {/* ✅ NEW: per-animal aggregation */}
+      {tab === 'animals' && (
+        <Paper sx={{ p: 2, borderRadius: 3 }}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mb: 2 }}>
+            <Stat label="Počet zvířat" value={animals?.count ?? '—'} />
+          </Stack>
+
+          <DataTable
+            loading={loading}
+            rows={animals?.rows || []}
+            columns={[
+              { key: 'animalName', label: 'Zvíře' },
+              { key: 'donorsActive', label: 'Aktivní dárci' },
+              { key: 'monthlyActiveSum', label: 'Měsíčně aktivní (CZK)' },
+              { key: 'paidSumSubscriptions', label: 'Uhrazeno (předplatné)' },
+              { key: 'paidSumPledges', label: 'Uhrazeno (přísliby)' },
+              { key: 'paidSumTotal', label: 'Uhrazeno celkem' },
+            ]}
+          />
+        </Paper>
+      )}
     </>
   )
 
@@ -266,7 +305,7 @@ function DataTable(props: any) {
             </TableRow>
           ) : (
             rows.map((r: any, idx: number) => (
-              <TableRow key={r?.id || `${r?.createdAt || ''}-${r?.email || ''}-${idx}`}>
+              <TableRow key={r?.id || r?.animalId || `${r?.createdAt || ''}-${r?.email || ''}-${idx}`}>
                 {columns.map((c: any) => (
                   <TableCell key={c.key}>
                     {c.key === 'createdAt'

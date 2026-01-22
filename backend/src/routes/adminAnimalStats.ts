@@ -7,15 +7,13 @@ const router = Router()
 
 /**
  * GET /api/admin/stats/animals
- * Returns:
- * - donorsActive: number of ACTIVE subscriptions per animal (unique donors)
+ * - donorsActive: distinct users with ACTIVE subscription for animal
  * - monthlyActiveSum: sum of monthlyAmount for ACTIVE subscriptions
- * - paidSumSubscriptions: sum of PAID Payment.amount linked via Subscription
- * - paidSumPledges: sum of PAID PledgePayment.amount linked via Pledge
+ * - paidSumSubscriptions: sum of PAID payments linked via Subscription
+ * - paidSumPledges: sum of PAID pledge payments linked via Pledge
  * - paidSumTotal: paidSumSubscriptions + paidSumPledges
  */
 router.get('/animals', checkRole(Role.ADMIN), async (_req, res) => {
-  // Postgres SQL is the fastest + simplest here (avoids N+1 and distinct pitfalls)
   const rows = await prisma.$queryRaw<
     Array<{
       animalId: string
@@ -63,7 +61,7 @@ router.get('/animals', checkRole(Role.ADMIN), async (_req, res) => {
     ORDER BY "paidSumTotal" DESC, "donorsActive" DESC;
   `
 
-  res.json(rows)
+  res.json({ count: rows.length, rows })
 })
 
 export default router
