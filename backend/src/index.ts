@@ -26,8 +26,8 @@ import taxCertificatesRoutes from './routes/taxCertificates'
 import fioRoutes from './routes/fio'
 import adoptionBankRoutes from './routes/adoptionBank'
 
-
 import { startFioCron } from './jobs/fioCron'
+import { startAdoptionBankCron } from './jobs/adoptionBankCron' // ✅ BANK TRANSFER CRON
 import { prisma } from './prisma'
 
 /* ──────────────────────────────────────────────
@@ -42,16 +42,13 @@ const allowedOrigins: string[] =
 
 const corsOptions: Parameters<typeof cors>[0] = {
   origin(origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void): void {
-    // No origin (e.g. curl, health checks) -> allow
     if (!origin) return callback(null, true)
 
-    // If nothing configured, allow all (dev fallback) OR allow-listed origins
     if (allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
       return callback(null, true)
     }
 
     console.warn('[CORS] blocked origin:', origin)
-    // Do NOT throw – avoids 500 in preflight; browser just won’t get CORS headers.
     return callback(null, false)
   },
   credentials: true,
@@ -64,17 +61,15 @@ const corsOptions: Parameters<typeof cors>[0] = {
 const app = express()
 app.set('trust proxy', 1)
 
-// CORS (and preflight)
 app.use(cors(corsOptions))
 app.options('*', cors(corsOptions))
 
 /* ──────────────────────────────────────────────
- * Stripe
- * IMPORTANT: raw webhook MUST be mounted BEFORE express.json()
+ * Stripe (RAW webhook FIRST)
  * ──────────────────────────────────────────── */
 app.use('/api/stripe', stripeRawRouter)
 
-// JSON parser for the rest
+// JSON parser for everything else
 app.use(express.json({ limit: '2mb' }))
 
 // Request logger
@@ -90,14 +85,11 @@ app.use((req, _res, next) => {
 app.use('/api/auth', authRoutes)
 app.use('/api/animals', animalRoutes)
 
-// Stripe JSON routes AFTER express.json()
+// Stripe JSON routes AFTER body parser
 app.use('/api/stripe', stripeJsonRouter)
 
-// ✅ keep normal adoption routes here (/my, /cancel, /seen, ...)
+// Adoption
 app.use('/api/adoption', adoptionRouter)
-
-// ✅ IMPORTANT: mount bank routes under a separate namespace
-// avoids path collisions like /api/adoption/bank/start returning 401 from a different router
 app.use('/api/adoption-bank', adoptionBankRoutes)
 
 app.use('/api/upload', uploadRoutes)
@@ -112,7 +104,7 @@ app.use('/api/subscriptions', subscriptionRoutes)
 app.use('/api/payments', paymentRouter)
 
 app.use('/api/notifications', notificationRoutes)
-app.use('/api/notifications-test', notificationTestRoutes) // ✅ avoid double-mount
+app.use('/api/notifications-test', notificationTestRoutes)
 
 app.use('/api/moderation', moderationRoutes)
 
@@ -123,7 +115,7 @@ app.use('/api/tax-certificates', taxCertificatesRoutes)
 
 app.use('/api/fio', fioRoutes)
 
-// GP webpay (feature flag)
+// GP WebPay (feature-flagged)
 const gpEnabled =
   !!process.env.GP_MERCHANT_NUMBER &&
   !!process.env.GP_GATEWAY_BASE &&
@@ -138,74 +130,60 @@ if (gpEnabled) {
 }
 
 /* ──────────────────────────────────────────────
- * Base
+ * Base / Health
  * ──────────────────────────────────────────── */
 
-app.get('/', (_req: Request, res: Response) => {
-  res.json({ ok: true, component: 'backend', root: '/' })
+app.get('/', (_req, res) => {
+  res.json({ ok: true, component: 'backend' })
 })
 
-app.get('/api/proto', (_req: Request, res: Response) => {
-  res.json({ ok: true, component: 'backend', route: '/api/proto' })
+app.get('/health', (_req, res) => {
+  res.status(200).json({ status: 'ok' })
 })
 
-/* ──────────────────────────────────────────────
- * Health
- * ──────────────────────────────────────────── */
-
-app.get('/health', (_req: Request, res: Response) => {
-  res.status(200).json({ status: 'ok', server: true })
-})
-
-app.get('/health/db', async (_req: Request, res: Response) => {
+app.get('/health/db', async (_req, res) => {
   try {
     await prisma.$queryRaw`SELECT 1`
-    res.status(200).json({ status: 'ok', db: true })
+    res.json({ db: true })
   } catch (e: any) {
-    res.status(500).json({ status: 'error', db: false, error: e?.message })
+    res.status(500).json({ db: false, error: e?.message })
   }
 })
 
-app.get('/health/stripe', (_req, res) => {
-  const hasStripe = !!process.env.STRIPE_SECRET_KEY || !!process.env.STRIPE_SECRET
-  res.json({ stripe: hasStripe })
-})
-
 /* ──────────────────────────────────────────────
- * 404 + Error handler
+ * Errors
  * ──────────────────────────────────────────── */
 
-app.use((req: Request, res: Response) => {
-  res.status(404).json({ error: 'Not Found', path: req.originalUrl })
+app.use((_req, res) => {
+  res.status(404).json({ error: 'Not Found' })
 })
 
 app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
-  console.error('[ERR]', {
-    route: req.originalUrl,
-    method: req.method,
-    message: err?.message,
-    code: err?.code,
-    meta: err?.meta,
-    stack: err?.stack,
-  })
+  console.error('[ERR]', req.method, req.originalUrl, err?.message)
   res.status(500).json({ error: 'Internal server error' })
 })
 
 /* ──────────────────────────────────────────────
- * Server
+ * Server + CRONS
  * ──────────────────────────────────────────── */
 
 const PORT = Number(process.env.PORT) || 3000
-const HOST = '0.0.0.0'
 
-const server = app.listen(PORT, HOST, () => {
-  console.log(`Server listening on http://${HOST}:${PORT}`)
+const server = app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Server listening on ${PORT}`)
 
-  // Start FIO sync scheduler (advisory lock inside prevents multi-instance duplication)
+  // FIO import cron
   try {
     startFioCron()
   } catch (e: any) {
-    console.error('[FIO] cron start failed:', e?.message)
+    console.error('[FIO CRON] failed to start', e?.message)
+  }
+
+  // ✅ BANK TRANSFER adoption cron (30d reminder / 40d deactivate)
+  try {
+    startAdoptionBankCron()
+  } catch (e: any) {
+    console.error('[ADOPTION-BANK CRON] failed to start', e?.message)
   }
 })
 
@@ -213,22 +191,10 @@ const server = app.listen(PORT, HOST, () => {
 const shutdown = async (signal: string) => {
   console.log(`[${signal}] shutting down...`)
   server.close(async () => {
-    try {
-      await prisma.$disconnect()
-    } finally {
-      process.exit(0)
-    }
+    await prisma.$disconnect()
+    process.exit(0)
   })
 }
+
 process.on('SIGTERM', () => shutdown('SIGTERM'))
 process.on('SIGINT', () => shutdown('SIGINT'))
-
-// ----- DB probe -----
-;(async () => {
-  try {
-    const animals = await prisma.animal.count()
-    console.log('[DB] connected. animals:', animals)
-  } catch (e: any) {
-    console.error('[DB probe error]', e?.message)
-  }
-})()

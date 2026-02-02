@@ -24,14 +24,9 @@ function firstExistingPath(candidates: string[]): string | null {
 }
 
 function resolveFontPath(): string {
-  // Compiled file is usually: backend/dist/routes/adoptionBank.js
-  // So __dirname + ../../assets/... => backend/assets/...
   const candidates = [
-    // ✅ best: repo backend/assets (works for src + dist)
     path.resolve(__dirname, '../../assets/fonts/DejaVuSans.ttf'),
-    // if you keep assets under dist (not recommended, but supported)
-    path.resolve(__dirname, '../assets/fonts/DejaVuSans.ttf'), // dist/assets/fonts
-    // fallbacks based on cwd (varies on DO)
+    path.resolve(__dirname, '../assets/fonts/DejaVuSans.ttf'),
     path.resolve(process.cwd(), 'assets/fonts/DejaVuSans.ttf'),
     path.resolve(process.cwd(), 'backend/assets/fonts/DejaVuSans.ttf'),
     path.resolve(process.cwd(), 'dist/assets/fonts/DejaVuSans.ttf'),
@@ -42,8 +37,8 @@ function resolveFontPath(): string {
   if (!found) {
     throw new Error(
       `PDF font not found. Put DejaVuSans.ttf into backend/assets/fonts/DejaVuSans.ttf (or dist/assets/fonts). Tried:\n- ${candidates.join(
-        '\n- '
-      )}`
+        '\n- ',
+      )}`,
     )
   }
   return found
@@ -71,7 +66,6 @@ function buildSpayd(params: { iban: string; amountCZK: number; vs: string; msg?:
   const iban = params.iban.replace(/\s+/g, '').toUpperCase()
   const amount = params.amountCZK.toFixed(2)
 
-  // keep ASCII only (avoid weird hidden chars)
   const parts = ['SPD*1.0', `ACC:${iban}`, `AM:${amount}`, 'CC:CZK', `X-VS:${params.vs}`]
 
   const msg = (params.msg || '').trim()
@@ -119,7 +113,6 @@ async function generateNicePdf(args: {
   const chunks: Buffer[] = []
   doc.on('data', (d: Buffer) => chunks.push(d))
 
-  // ✅ CRITICAL: real TTF font for Czech diacritics
   doc.registerFont('Body', fontPath)
   doc.font('Body')
 
@@ -127,7 +120,6 @@ async function generateNicePdf(args: {
   const contentWidth = pageWidth - doc.page.margins.left - doc.page.margins.right
   const x = doc.page.margins.left
 
-  // Header
   if (logoPath) {
     doc.image(logoPath, x, 28, { width: 140 })
   }
@@ -138,7 +130,6 @@ async function generateNicePdf(args: {
 
   doc.moveDown(2)
 
-  // Intro box
   const boxX = x
   const boxY = 120
   const boxW = contentWidth
@@ -146,23 +137,31 @@ async function generateNicePdf(args: {
 
   doc.roundedRect(boxX, boxY, boxW, boxH, 10).fillAndStroke('#F6F8FF', '#D9E2FF')
 
-  doc.fillColor('#111').fontSize(12).text('Váš účet je aktivován maximálně na 30 dní.', boxX + 16, boxY + 16, {
-    width: boxW - 32,
-  })
-  doc.fillColor('#111').fontSize(12).text(
-    'Prosíme, pošlete měsíční platbu co nejdříve a nastavte trvalý příkaz (direct debit).',
-    boxX + 16,
-    boxY + 38,
-    { width: boxW - 32 }
-  )
-  doc.fillColor('#111').fontSize(12).text(
-    'Děkujeme vám – díky lidem jako jste vy můžeme pomáhat každý den.',
-    boxX + 16,
-    boxY + 62,
-    { width: boxW - 32 }
-  )
+  doc
+    .fillColor('#111')
+    .fontSize(12)
+    .text('Váš účet je aktivován maximálně na 30 dní.', boxX + 16, boxY + 16, {
+      width: boxW - 32,
+    })
+  doc
+    .fillColor('#111')
+    .fontSize(12)
+    .text(
+      'Prosíme, pošlete měsíční platbu co nejdříve a nastavte trvalý příkaz (direct debit).',
+      boxX + 16,
+      boxY + 38,
+      { width: boxW - 32 },
+    )
+  doc
+    .fillColor('#111')
+    .fontSize(12)
+    .text(
+      'Děkujeme vám – díky lidem jako jste vy můžeme pomáhat každý den.',
+      boxX + 16,
+      boxY + 62,
+      { width: boxW - 32 },
+    )
 
-  // Payment section
   const sectionY = boxY + boxH + 24
   doc.fillColor('#111').fontSize(15).text('Údaje k bankovnímu převodu', boxX, sectionY)
 
@@ -185,7 +184,6 @@ async function generateNicePdf(args: {
     y += 18
   }
 
-  // QR block
   const qrBlockY = y + 16
   doc.roundedRect(boxX, qrBlockY, boxW, 192, 10).stroke('#E6E6E6')
 
@@ -203,7 +201,6 @@ async function generateNicePdf(args: {
     .fillColor('#222')
     .text(spayd, boxX + 160, qrBlockY + 76, { width: boxW - 176 })
 
-  // Login section
   const loginY = qrBlockY + 210
   doc.fillColor('#111').fontSize(15).text('Přihlášení do účtu', boxX, loginY)
 
@@ -211,7 +208,6 @@ async function generateNicePdf(args: {
   doc.text(`Uživatelské jméno: ${args.email}`, boxX, loginY + 44)
   doc.text(`Heslo: ${args.password}`, boxX, loginY + 62)
 
-  // Footer
   doc
     .fontSize(10)
     .fillColor('#666')
@@ -374,11 +370,13 @@ router.post('/start', async (req: Request, res: Response) => {
       }
     }
 
-    // ✅ Required fields in your schema
     const monthlyAmount = Math.round(amountCZK)
     const provider = PaymentProvider.FIO
 
     const now = new Date()
+    const tempAccessUntil = new Date(now.getTime())
+    tempAccessUntil.setDate(tempAccessUntil.getDate() + 30)
+
     const current = await prisma.subscription.findFirst({
       where: {
         userId,
@@ -397,6 +395,13 @@ router.post('/start', async (req: Request, res: Response) => {
           startedAt: now,
           monthlyAmount,
           provider,
+
+          // ✅ timeline fields (critical for cron)
+          pendingSince: now,
+          tempAccessUntil,
+          graceUntil: null,
+          reminderSentAt: null,
+          reminderCount: 0,
         } as any,
         select: { id: true },
       })
@@ -410,6 +415,13 @@ router.post('/start', async (req: Request, res: Response) => {
           startedAt: now,
           monthlyAmount,
           provider,
+
+          // ✅ timeline fields (critical for cron)
+          pendingSince: now,
+          tempAccessUntil,
+          graceUntil: null,
+          reminderSentAt: null,
+          reminderCount: 0,
         } as any,
         select: { id: true },
       })
@@ -423,7 +435,6 @@ router.post('/start', async (req: Request, res: Response) => {
     const animalName = animal.jmeno || animal.name || 'Zvíře'
     const loginUrl = 'https://patron.dog-point.cz'
 
-    // ✅ If font missing, generateNicePdf throws -> you will SEE the error (no more silent broken PDFs)
     const pdfBuffer = await generateNicePdf({
       animalId,
       animalName,

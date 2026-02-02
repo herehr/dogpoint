@@ -204,9 +204,9 @@ model Subscription {
   reminderSentAt  DateTime?
   reminderCount   Int       @default(0)
 
-  payments       Payment[]
-  animal         Animal             @relation(fields: [animalId], references: [id], onDelete: Cascade)
-  user           User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  payments Payment[]
+  animal   Animal    @relation(fields: [animalId], references: [id], onDelete: Cascade)
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, animalId, status])
   @@index([userId])
