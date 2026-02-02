@@ -24,9 +24,10 @@ RUN npx prisma generate --schema=./prisma/schema.prisma
 FROM node:${NODE_VERSION}-alpine AS builder
 WORKDIR /app
 
+COPY package.json package-lock.json ./
 COPY --from=deps /app/node_modules ./node_modules
-COPY tsconfig.json ./tsconfig.json
-COPY src ./src
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/assets ./assets
 COPY prisma ./prisma
 
 # compile TS → dist
