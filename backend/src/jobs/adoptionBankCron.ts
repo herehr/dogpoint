@@ -1,10 +1,12 @@
 // backend/src/jobs/adoptionBankCron.ts
 import cron from 'node-cron'
 import { prisma } from '../prisma'
+import { SubscriptionStatus, PaymentProvider } from '@prisma/client'
 import { sendEmailSafe } from '../services/email'
-import { PaymentProvider, SubscriptionStatus, PaymentStatus } from '@prisma/client'
 
-// Simple advisory lock so multiple app instances don't run simultaneously
+/**
+ * Advisory lock so multiple app instances on DO don't run it simultaneously.
+ */
 async function withAdvisoryLock<T>(key: number, fn: () => Promise<T>): Promise<T | null> {
   const got = await prisma.$queryRawUnsafe<{ locked: boolean }[]>(
     `SELECT pg_try_advisory_lock(${key}) as locked`,
@@ -17,19 +19,16 @@ async function withAdvisoryLock<T>(key: number, fn: () => Promise<T>): Promise<T
   }
 }
 
-function daysAgo(days: number): Date {
-  const d = new Date()
-  d.setDate(d.getDate() - days)
-  return d
+function daysAgo(d: Date, days: number): Date {
+  const x = new Date(d)
+  x.setDate(x.getDate() - days)
+  return x
 }
 
-function escapeHtml(s: string): string {
-  return s
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;')
+function addDays(d: Date, days: number): Date {
+  const x = new Date(d)
+  x.setDate(x.getDate() + days)
+  return x
 }
 
 export function startAdoptionBankCron() {
@@ -39,127 +38,87 @@ export function startAdoptionBankCron() {
     return
   }
 
-  // Default: every day at 03:20
-  const schedule = process.env.ADOPTION_BANK_CRON_SCHEDULE || '20 3 * * *'
-  const runOnInit =
-    String(process.env.ADOPTION_BANK_CRON_RUN_ON_INIT || 'false').toLowerCase() === 'true'
+  const schedule = process.env.ADOPTION_BANK_CRON_SCHEDULE || '20 3 * * *' // daily 03:20
+  const runOnInit = String(process.env.ADOPTION_BANK_CRON_RUN_ON_INIT || 'false').toLowerCase() === 'true'
 
   const reminderAfterDays = Math.max(1, Number(process.env.ADOPTION_BANK_REMINDER_AFTER_DAYS || 30))
-  const cancelAfterDays = Math.max(
-    reminderAfterDays + 1,
-    Number(process.env.ADOPTION_BANK_CANCEL_AFTER_DAYS || 40),
-  )
+  const cancelAfterDays = Math.max(reminderAfterDays + 1, Number(process.env.ADOPTION_BANK_CANCEL_AFTER_DAYS || 40))
 
   console.log(
     `[ADOPTION-BANK CRON] scheduled: ${schedule} (runOnInit=${runOnInit}) reminderAfterDays=${reminderAfterDays} cancelAfterDays=${cancelAfterDays}`,
   )
 
   const job = async () => {
-    const reminderCutoff = daysAgo(reminderAfterDays)
-    const cancelCutoff = daysAgo(cancelAfterDays)
-
-    console.log(
-      `[ADOPTION-BANK CRON] run start (remind <= ${reminderCutoff.toISOString()}, cancel <= ${cancelCutoff.toISOString()})`,
-    )
+    const now = new Date()
 
     const res = await withAdvisoryLock(991133, async () => {
-      // 0) Activate if a PAID payment exists (FIO import creates Payment rows)
-      const activated = await prisma.subscription.updateMany({
+      // 1) Ensure pendingSince is set for BANK/FIO pending subscriptions that don't have it
+      const seeded = await prisma.subscription.updateMany({
         where: {
           provider: PaymentProvider.FIO,
           status: SubscriptionStatus.PENDING,
-          payments: {
-            some: {
-              status: PaymentStatus.PAID,
-              paidAt: { not: null },
-            },
-          },
+          pendingSince: { equals: null },
         },
         data: {
-          status: SubscriptionStatus.ACTIVE,
-          pendingSince: null,
-          tempAccessUntil: null,
-          graceUntil: null,
+          pendingSince: now, // OK: assigning Date
+          tempAccessUntil: addDays(now, reminderAfterDays),
+          graceUntil: addDays(now, cancelAfterDays),
         },
       })
 
-      // 1) Reminder after N days (only once)
-      const remindCandidates = await prisma.subscription.findMany({
+      // 2) Send reminders: pendingSince <= now - reminderAfterDays AND reminderSentAt is null
+      const reminderCutoff = daysAgo(now, reminderAfterDays)
+
+      const toRemind = await prisma.subscription.findMany({
         where: {
           provider: PaymentProvider.FIO,
           status: SubscriptionStatus.PENDING,
-          pendingSince: { not: null, lte: reminderCutoff },
-          reminderSentAt: null,
-          payments: {
-            none: {
-              status: PaymentStatus.PAID,
-              paidAt: { not: null },
-            },
-          },
+          pendingSince: { lte: reminderCutoff },
+          reminderSentAt: { equals: null },
         },
-        select: {
-          id: true,
-          user: { select: { email: true, firstName: true, lastName: true } },
-          animal: { select: { name: true, jmeno: true } },
-          monthlyAmount: true,
-          currency: true,
-          pendingSince: true,
-          variableSymbol: true,
+        include: {
+          user: { select: { email: true, firstName: true } },
+          animal: { select: { jmeno: true, name: true, id: true } },
         },
-        take: 2000,
+        take: 500,
       })
 
       let reminded = 0
+      for (const sub of toRemind) {
+        const email = sub.user?.email
+        if (!email) continue
 
-      for (const s of remindCandidates) {
-        const to = s.user.email
-        if (!to) continue
+        const animalName = sub.animal?.jmeno || sub.animal?.name || 'zvíře'
+        const amount = sub.monthlyAmount
+        const vs = sub.variableSymbol || ''
+        const iban = (process.env.BANK_IBAN || process.env.DOGPOINT_IBAN || '').trim()
 
-        const animalName = s.animal?.jmeno || s.animal?.name || 'zvíře'
-        const fullName = [s.user.firstName, s.user.lastName].filter(Boolean).join(' ').trim()
-        const greeting = fullName ? `Dobrý den ${escapeHtml(fullName)},` : 'Dobrý den,'
-
-        const vs = s.variableSymbol ? String(s.variableSymbol) : ''
-        const amount = `${Math.round(s.monthlyAmount / 100)} ${escapeHtml(s.currency)}`
-        const pendingSinceIso = s.pendingSince ? new Date(s.pendingSince).toISOString().slice(0, 10) : ''
-
-        const subject = `Připomenutí platby – adopce (${animalName})`
-
+        const subject = 'Připomínka platby – adopce bankovním převodem'
         const html = `
-          <div style="font-family:Arial,sans-serif;line-height:1.5">
-            <p>${greeting}</p>
-            <p>
-              připomínáme platbu k Vaší adopci (<b>${escapeHtml(animalName)}</b>).
-              Evidujeme, že zatím nedorazila první platba.
+          <div style="font-family:Arial,sans-serif;max-width:640px;margin:0 auto;color:#111;">
+            <h2 style="margin:0 0 12px 0;">Připomínka platby</h2>
+            <p style="margin:0 0 10px 0;line-height:1.5;">
+              Děkujeme za adopci. Zatím jsme u vaší adopce neviděli první platbu.
             </p>
-            <ul>
-              <li>Částka: <b>${escapeHtml(amount)}</b></li>
-              ${vs ? `<li>Variabilní symbol: <b>${escapeHtml(vs)}</b></li>` : ''}
-              ${pendingSinceIso ? `<li>Zahájeno: <b>${escapeHtml(pendingSinceIso)}</b></li>` : ''}
-            </ul>
-            <p>
-              Pokud jste již platbu odeslali, děkujeme – v tom případě prosím tento e-mail ignorujte.
+            <div style="background:#F6F8FF;border:1px solid #D9E2FF;border-radius:12px;padding:14px 16px;margin:16px 0;">
+              <div><b>Zvíře:</b> ${animalName}</div>
+              <div><b>Částka:</b> ${amount} Kč / měsíc</div>
+              ${iban ? `<div><b>IBAN:</b> ${iban}</div>` : ''}
+              ${vs ? `<div><b>VS:</b> ${vs}</div>` : ''}
+            </div>
+            <p style="margin:0;line-height:1.5;">
+              Pokud platba nepřijde v nejbližších dnech, přístup může být dočasně deaktivován.
             </p>
-            <p>
-              Děkujeme za podporu,<br/>
-              Dogpoint.cz
-            </p>
+            <p style="margin:12px 0 0 0;color:#555;">Tým Dogpoint ❤️</p>
           </div>
-        `.trim()
+        `
 
-        await sendEmailSafe({
-          to,
-          subject,
-          html,
-          text: `${greeting}\n\nPřipomínáme platbu k Vaší adopci (${animalName}). Evidujeme, že zatím nedorazila první platba.\nČástka: ${amount}\n${
-            vs ? `VS: ${vs}\n` : ''
-          }${pendingSinceIso ? `Zahájeno: ${pendingSinceIso}\n` : ''}\nDěkujeme,\nDogpoint.cz`,
-        })
+        await sendEmailSafe({ to: email, subject, html })
 
         await prisma.subscription.update({
-          where: { id: s.id },
+          where: { id: sub.id },
           data: {
-            reminderSentAt: new Date(),
+            reminderSentAt: now,
             reminderCount: { increment: 1 },
           },
         })
@@ -167,32 +126,32 @@ export function startAdoptionBankCron() {
         reminded++
       }
 
-      // 2) Cancel after M days if still unpaid
-      const canceled = await prisma.subscription.updateMany({
+      // 3) Cancel/deactivate after cancelAfterDays since pendingSince
+      const cancelCutoff = daysAgo(now, cancelAfterDays)
+
+      const toCancel = await prisma.subscription.findMany({
         where: {
           provider: PaymentProvider.FIO,
           status: SubscriptionStatus.PENDING,
-          pendingSince: { not: null, lte: cancelCutoff },
-          payments: {
-            none: {
-              status: PaymentStatus.PAID,
-              paidAt: { not: null },
-            },
-          },
+          pendingSince: { lte: cancelCutoff },
         },
+        select: { id: true },
+        take: 1000,
+      })
+
+      const canceled = await prisma.subscription.updateMany({
+        where: { id: { in: toCancel.map((x) => x.id) } },
         data: {
           status: SubscriptionStatus.CANCELED,
-          canceledAt: new Date(),
-          graceUntil: null,
-          tempAccessUntil: null,
+          canceledAt: now,
+
+          // IMPORTANT: Prisma wants `{ set: null }` for nullable DateTime fields
+          tempAccessUntil: { set: null },
+          graceUntil: { set: null },
         },
       })
 
-      console.log(
-        `[ADOPTION-BANK CRON] activated=${activated.count} reminded=${reminded} canceled=${canceled.count}`,
-      )
-
-      return { activated: activated.count, reminded, canceled: canceled.count }
+      return { seeded: seeded.count, toRemind: toRemind.length, reminded, canceled: canceled.count }
     })
 
     if (!res) {
@@ -201,14 +160,12 @@ export function startAdoptionBankCron() {
     }
 
     console.log(
-      `[ADOPTION-BANK CRON] run ok activated=${res.activated} reminded=${res.reminded} canceled=${res.canceled}`,
+      `[ADOPTION-BANK CRON] ok seeded=${res.seeded} toRemind=${res.toRemind} reminded=${res.reminded} canceled=${res.canceled}`,
     )
   }
 
   cron.schedule(schedule, () => {
-    job().catch((e: any) => {
-      console.error('[ADOPTION-BANK CRON] error', e?.message || e)
-    })
+    job().catch((e: any) => console.error('[ADOPTION-BANK CRON] error', e?.message || e))
   })
 
   if (runOnInit) {
