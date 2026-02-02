@@ -23,14 +23,26 @@ function firstExistingPath(candidates: string[]): string | null {
   return null
 }
 
+/**
+ * Resolve DejaVuSans.ttf in a way that works for:
+ * - local dev (cwd repo root OR cwd backend/)
+ * - production Docker/DO (cwd usually /app)
+ * - compiled dist (where __dirname is dist/routes)
+ */
 function resolveFontPath(): string {
   const candidates = [
+    // compiled (dist/routes -> ../../assets/fonts)
     path.resolve(__dirname, '../../assets/fonts/DejaVuSans.ttf'),
-    path.resolve(__dirname, '../assets/fonts/DejaVuSans.ttf'),
+
+    // local dev when running from backend/ (cwd = backend)
     path.resolve(process.cwd(), 'assets/fonts/DejaVuSans.ttf'),
+
+    // local dev when running from repo root (cwd = repo)
     path.resolve(process.cwd(), 'backend/assets/fonts/DejaVuSans.ttf'),
-    path.resolve(process.cwd(), 'dist/assets/fonts/DejaVuSans.ttf'),
-    path.resolve(process.cwd(), 'backend/dist/assets/fonts/DejaVuSans.ttf'),
+
+    // DO/Docker absolute (if you COPY assets -> /app/assets)
+    '/app/assets/fonts/DejaVuSans.ttf',
+    '/app/backend/assets/fonts/DejaVuSans.ttf',
   ]
 
   const found = firstExistingPath(candidates)
@@ -46,14 +58,23 @@ function resolveFontPath(): string {
 
 function resolveLogoPath(): string | null {
   const candidates = [
+    // compiled dist
     path.resolve(__dirname, '../../assets/logo.png'),
     path.resolve(__dirname, '../../assets/logo.jpg'),
-    path.resolve(__dirname, '../assets/logo.png'),
-    path.resolve(__dirname, '../assets/logo.jpg'),
+
+    // local dev cwd=backend
     path.resolve(process.cwd(), 'assets/logo.png'),
+    path.resolve(process.cwd(), 'assets/logo.jpg'),
+
+    // local dev cwd=repo root
     path.resolve(process.cwd(), 'backend/assets/logo.png'),
-    path.resolve(process.cwd(), 'dist/assets/logo.png'),
-    path.resolve(process.cwd(), 'backend/dist/assets/logo.png'),
+    path.resolve(process.cwd(), 'backend/assets/logo.jpg'),
+
+    // DO/Docker absolute
+    '/app/assets/logo.png',
+    '/app/assets/logo.jpg',
+    '/app/backend/assets/logo.png',
+    '/app/backend/assets/logo.jpg',
   ]
   return firstExistingPath(candidates)
 }
@@ -95,6 +116,12 @@ async function generateNicePdf(args: {
   const fontPath = resolveFontPath()
   const logoPath = resolveLogoPath()
 
+  // optional runtime log (helps on DO)
+  if (process.env.NODE_ENV === 'production') {
+    console.log('[PDF] Font OK:', fontPath)
+    if (logoPath) console.log('[PDF] Logo OK:', logoPath)
+  }
+
   const spayd = buildSpayd({
     iban: args.bankIban,
     amountCZK: args.amountCZK,
@@ -113,6 +140,7 @@ async function generateNicePdf(args: {
   const chunks: Buffer[] = []
   doc.on('data', (d: Buffer) => chunks.push(d))
 
+  // ✅ UTF-8 safe font
   doc.registerFont('Body', fontPath)
   doc.font('Body')
 
@@ -155,12 +183,9 @@ async function generateNicePdf(args: {
   doc
     .fillColor('#111')
     .fontSize(12)
-    .text(
-      'Děkujeme vám – díky lidem jako jste vy můžeme pomáhat každý den.',
-      boxX + 16,
-      boxY + 62,
-      { width: boxW - 32 },
-    )
+    .text('Děkujeme vám – díky lidem jako jste vy můžeme pomáhat každý den.', boxX + 16, boxY + 62, {
+      width: boxW - 32,
+    })
 
   const sectionY = boxY + boxH + 24
   doc.fillColor('#111').fontSize(15).text('Údaje k bankovnímu převodu', boxX, sectionY)
@@ -196,10 +221,7 @@ async function generateNicePdf(args: {
   doc.image(qrPngBuffer, boxX + 16, qrBlockY + 58, { width: 130 })
 
   doc.fontSize(9).fillColor('#666').text('SPAYD:', boxX + 160, qrBlockY + 62)
-  doc
-    .fontSize(9)
-    .fillColor('#222')
-    .text(spayd, boxX + 160, qrBlockY + 76, { width: boxW - 176 })
+  doc.fontSize(9).fillColor('#222').text(spayd, boxX + 160, qrBlockY + 76, { width: boxW - 176 })
 
   const loginY = qrBlockY + 210
   doc.fillColor('#111').fontSize(15).text('Přihlášení do účtu', boxX, loginY)
@@ -399,8 +421,9 @@ router.post('/start', async (req: Request, res: Response) => {
           // ✅ timeline fields (critical for cron)
           pendingSince: now,
           tempAccessUntil,
-          graceUntil: null,
-          reminderSentAt: null,
+          // IMPORTANT: use undefined rather than null for strict Prisma typings
+          graceUntil: undefined,
+          reminderSentAt: undefined,
           reminderCount: 0,
         } as any,
         select: { id: true },
@@ -419,8 +442,9 @@ router.post('/start', async (req: Request, res: Response) => {
           // ✅ timeline fields (critical for cron)
           pendingSince: now,
           tempAccessUntil,
-          graceUntil: null,
-          reminderSentAt: null,
+          // IMPORTANT: use undefined rather than null for strict Prisma typings
+          graceUntil: undefined,
+          reminderSentAt: undefined,
           reminderCount: 0,
         } as any,
         select: { id: true },
@@ -433,7 +457,7 @@ router.post('/start', async (req: Request, res: Response) => {
     const bankIban = process.env.BANK_IBAN || process.env.DOGPOINT_IBAN || 'CZ6508000000001234567899'
     const bankName = process.env.BANK_NAME || 'Dogpoint o.p.s.'
     const animalName = animal.jmeno || animal.name || 'Zvíře'
-    const loginUrl = 'https://patron.dog-point.cz'
+    const loginUrl = process.env.PATRON_LOGIN_URL || 'https://patron.dog-point.cz'
 
     const pdfBuffer = await generateNicePdf({
       animalId,
