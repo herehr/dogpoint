@@ -3,9 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider          = "postgresql"
-  url               = env("DATABASE_URL")
-  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 model User {
@@ -284,6 +283,7 @@ model Pledge {
   userId         String?
   subscriptionId String?
   variableSymbol String?
+
   @@index([variableSymbol])
   @@index([email, animalId])
   @@index([status, method])

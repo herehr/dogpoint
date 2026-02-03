@@ -31,20 +31,31 @@ function resolveFontPath(): string {
     '/app/assets/fonts/DejaVuSans.ttf',
     '/app/backend/assets/fonts/DejaVuSans.ttf',
     '/usr/share/fonts/ttf-dejavu/DejaVuSans.ttf',
+    '/usr/share/fonts/dejavu/DejaVuSans.ttf',
+    '/usr/share/fonts/DejaVuSans.ttf',
   ]
 
   const found = firstExistingPath(candidates)
-  if (!found) throw new Error('PDF font DejaVuSans.ttf not found')
+  if (!found) {
+    throw new Error(
+      `PDF font DejaVuSans.ttf not found. Tried:\n- ${candidates.join('\n- ')}`,
+    )
+  }
   return found
 }
 
 function resolveLogoPath(): string | null {
   return firstExistingPath([
     path.resolve(__dirname, '../../assets/logo.png'),
+    path.resolve(__dirname, '../../assets/logo.jpg'),
     path.resolve(process.cwd(), 'assets/logo.png'),
+    path.resolve(process.cwd(), 'assets/logo.jpg'),
     path.resolve(process.cwd(), 'backend/assets/logo.png'),
+    path.resolve(process.cwd(), 'backend/assets/logo.jpg'),
     '/app/assets/logo.png',
+    '/app/assets/logo.jpg',
     '/app/backend/assets/logo.png',
+    '/app/backend/assets/logo.jpg',
   ])
 }
 
@@ -136,17 +147,24 @@ async function sendPdfEmail(args: {
   email: string
   password: string
 }) {
+  // Match your “screenshot” email wording (simple + clean)
   const html = `
-    <h2>Děkujeme za adopci ❤️</h2>
-    <p>V příloze najdete PDF s QR kódem a údaji k platbě.</p>
-    <p>
-      Přihlášení: <a href="${args.loginUrl}">${args.loginUrl}</a><br/>
-      E-mail: <b>${args.email}</b><br/>
-      Heslo: <b>${args.password}</b>
-    </p>
-  `
+<div style="font-family:Arial, sans-serif; max-width:640px; margin:0 auto; color:#111;">
+  <h2 style="margin:0 0 12px 0;">Děkujeme za adopci ❤️</h2>
+  <p style="margin:0 0 12px 0; line-height:1.5;">
+    V příloze najdete PDF s QR kódem a údaji k platbě.
+  </p>
+  <div style="background:#F6F8FF; border:1px solid #D9E2FF; border-radius:12px; padding:14px 16px; margin:14px 0;">
+    <div style="font-weight:700; margin-bottom:8px;">Přihlášení do účtu</div>
+    <div>Přihlášení: <a href="${args.loginUrl}" target="_blank" rel="noreferrer">${args.loginUrl}</a></div>
+    <div>E-mail: <b>${args.email}</b></div>
+    <div>Heslo: <b>${args.password}</b></div>
+  </div>
+  <p style="margin:0; color:#555;">Tým Dogpoint ❤️</p>
+</div>
+`.trim()
 
-  // ✅ awaited, and safe (never throws)
+  // ✅ awaited, safe (never throws)
   await sendEmailSafe({
     to: args.to,
     subject: args.subject,
@@ -202,7 +220,7 @@ async function ensureUserAndGetToken(args: { email: string; password: string; na
       const ok = await bcrypt.compare(password, (existing as any).passwordHash)
       if (!ok) throw Object.assign(new Error('Špatné heslo'), { status: 401 })
     } else {
-      // ✅ if user exists without hash, set it now
+      // user exists without hash -> set it now
       const hash = await bcrypt.hash(password, 10)
       await prisma.user.update({ where: { id: userId }, data: { passwordHash: hash } as any })
     }
@@ -251,63 +269,106 @@ router.post('/start', async (req: Request, res: Response) => {
     const now = new Date()
     const tempAccessUntil = new Date(now.getTime() + 40 * 86400000)
 
-    const existing = await prisma.subscription.findFirst({
-      where: {
-        userId,
-        animalId,
-        status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.PENDING] },
-      },
-      select: { id: true },
-    })
-
+    // ✅ IMPORTANT: schema now has @@unique([userId, animalId])
+    // -> use upsert to avoid "Unique constraint failed (userId, animalId)"
     let subscriptionId: string
-
-    if (existing) {
-      const updated = await prisma.subscription.update({
-        where: { id: existing.id }, // ✅ no composite unique
-        data: {
-          status: SubscriptionStatus.PENDING,
-          startedAt: now,
-          monthlyAmount,
-          provider,
-          pendingSince: now,
-          tempAccessUntil,
-          graceUntil: undefined,
-          reminderSentAt: undefined,
-          reminderCount: 0,
-        } as any,
-        select: { id: true },
-      })
-      subscriptionId = updated.id
-    } else {
-      const created = await prisma.subscription.create({
-        data: {
+    try {
+      const sub = await prisma.subscription.upsert({
+        where: { userId_animalId: { userId, animalId } } as any,
+        create: {
           userId,
           animalId,
           status: SubscriptionStatus.PENDING,
           startedAt: now,
           monthlyAmount,
           provider,
+          variableSymbol: vs,
           pendingSince: now,
           tempAccessUntil,
-          graceUntil: undefined,
-          reminderSentAt: undefined,
+          reminderCount: 0,
+        } as any,
+        update: {
+          status: SubscriptionStatus.PENDING,
+          startedAt: now,
+          monthlyAmount,
+          provider,
+          variableSymbol: vs,
+          pendingSince: now,
+          tempAccessUntil,
+          graceUntil: null,
+          reminderSentAt: null,
           reminderCount: 0,
         } as any,
         select: { id: true },
       })
-      subscriptionId = created.id
+      subscriptionId = sub.id
+    } catch (e: any) {
+      // If Prisma client is not regenerated yet and `userId_animalId` doesn't exist,
+      // fallback to findFirst+update/create (still safe).
+      const msg = String(e?.message || '')
+      if (/userId_animalId/i.test(msg) || /SubscriptionWhereUniqueInput/i.test(msg)) {
+        const existing = await prisma.subscription.findFirst({
+          where: {
+            userId,
+            animalId,
+            status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.PENDING] },
+          },
+          select: { id: true },
+        })
+
+        if (existing) {
+          const updated = await prisma.subscription.update({
+            where: { id: existing.id },
+            data: {
+              status: SubscriptionStatus.PENDING,
+              startedAt: now,
+              monthlyAmount,
+              provider,
+              variableSymbol: vs,
+              pendingSince: now,
+              tempAccessUntil,
+              graceUntil: null,
+              reminderSentAt: null,
+              reminderCount: 0,
+            } as any,
+            select: { id: true },
+          })
+          subscriptionId = updated.id
+        } else {
+          const created = await prisma.subscription.create({
+            data: {
+              userId,
+              animalId,
+              status: SubscriptionStatus.PENDING,
+              startedAt: now,
+              monthlyAmount,
+              provider,
+              variableSymbol: vs,
+              pendingSince: now,
+              tempAccessUntil,
+              reminderCount: 0,
+            } as any,
+            select: { id: true },
+          })
+          subscriptionId = created.id
+        }
+      } else {
+        throw e
+      }
     }
 
-    const bankIban = process.env.BANK_IBAN || process.env.DOGPOINT_IBAN || ''
-    const bankName = process.env.BANK_NAME || 'Dogpoint'
+    const bankIban =
+      process.env.BANK_IBAN ||
+      process.env.DOGPOINT_IBAN ||
+      'CZ6508000000001234567899'
+    const bankName = process.env.BANK_NAME || 'Dogpoint o.p.s.'
     const loginUrl = process.env.PATRON_LOGIN_URL || 'https://patron.dog-point.cz'
 
     if (sendEmail) {
       const pdf = await generateNicePdf({
         animalId,
         animalName: animal.jmeno || animal.name || 'Zvíře',
-        amountCZK: monthlyAmount, // ✅ normalized
+        amountCZK: monthlyAmount,
         bankIban,
         bankName,
         vs,
@@ -318,8 +379,8 @@ router.post('/start', async (req: Request, res: Response) => {
 
       await sendPdfEmail({
         to: email,
-        subject: 'Dogpoint – pokyny k bankovnímu převodu',
-        filename: `dogpoint-${animalId}.pdf`,
+        subject: 'Adopce – údaje k platbě',
+        filename: `dogpoint-adopce-${animalId}.pdf`,
         pdfBuffer: pdf,
         loginUrl,
         email,
@@ -370,14 +431,17 @@ router.post('/send-email', async (req: Request, res: Response) => {
 
     const { token } = await ensureUserAndGetToken({ email, password, name })
 
-    const bankIban = process.env.BANK_IBAN || process.env.DOGPOINT_IBAN || ''
-    const bankName = process.env.BANK_NAME || 'Dogpoint'
+    const bankIban =
+      process.env.BANK_IBAN ||
+      process.env.DOGPOINT_IBAN ||
+      'CZ6508000000001234567899'
+    const bankName = process.env.BANK_NAME || 'Dogpoint o.p.s.'
     const loginUrl = process.env.PATRON_LOGIN_URL || 'https://patron.dog-point.cz'
 
     const pdf = await generateNicePdf({
       animalId,
       animalName: animal.jmeno || animal.name || 'Zvíře',
-      amountCZK: monthlyAmount, // ✅ normalized
+      amountCZK: monthlyAmount,
       bankIban,
       bankName,
       vs,
@@ -388,8 +452,8 @@ router.post('/send-email', async (req: Request, res: Response) => {
 
     await sendPdfEmail({
       to: email,
-      subject: 'Dogpoint – pokyny k bankovnímu převodu',
-      filename: `dogpoint-${animalId}.pdf`,
+      subject: 'Adopce – údaje k platbě',
+      filename: `dogpoint-adopce-${animalId}.pdf`,
       pdfBuffer: pdf,
       loginUrl,
       email,
