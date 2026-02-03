@@ -206,20 +206,55 @@ router.post('/start', async (req: Request, res: Response) => {
     const now = new Date()
     const tempAccessUntil = new Date(now.getTime() + 40 * 86400000)
 
-    await prisma.subscription.upsert({
-      where: { userId_animalId: { userId, animalId } },
-      update: { status: 'PENDING', pendingSince: now, tempAccessUntil },
-      create: {
-        userId,
-        animalId,
-        status: 'PENDING',
-        provider: PaymentProvider.FIO,
-        startedAt: now,
-        pendingSince: now,
-        tempAccessUntil,
-        monthlyAmount: amountCZK,
-      },
-    })
+    const existing = await prisma.subscription.findFirst({
+  where: {
+    userId,
+    animalId,
+    status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.PENDING] },
+  },
+})
+  const amount = Number(amountCZK)
+  const monthlyAmount = Math.round(amountCZK)
+  const provider = PaymentProvider.FIO
+
+let subscriptionId: string
+
+if (existing) {
+  const updated = await prisma.subscription.update({
+    where: { id: existing.id },
+    data: {
+      status: SubscriptionStatus.PENDING,
+      startedAt: now,
+      monthlyAmount,
+      provider,
+      pendingSince: now,
+      tempAccessUntil,
+      graceUntil: undefined,
+      reminderSentAt: undefined,
+      reminderCount: 0,
+    } as any,
+    select: { id: true },
+  })
+  subscriptionId = updated.id
+} else {
+  const created = await prisma.subscription.create({
+    data: {
+      userId,
+      animalId,
+      status: SubscriptionStatus.PENDING,
+      startedAt: now,
+      monthlyAmount,
+      provider,
+      pendingSince: now,
+      tempAccessUntil,
+      graceUntil: undefined,
+      reminderSentAt: undefined,
+      reminderCount: 0,
+    } as any,
+    select: { id: true },
+  })
+  subscriptionId = created.id
+}
 
     if (sendEmail) {
       const pdf = await generateNicePdf({
