@@ -346,17 +346,19 @@ export async function startBankAdoption(payload: {
  * STEP 2: send payment details by email (PDF).
  * Backend endpoint: POST /api/adoption-bank/send-email
  */
-export async function sendBankPaymentEmail(payload: {
+export async function sendBankPaymentDetailsEmail(payload: {
   animalId: string
   amountCZK: number
+  name: string
   email: string
+  password: string
   vs: string
 }) {
-  return postJSON<{ ok: boolean }>(
-    '/api/adoption-bank/send-email',
-    payload
-  )
+  return postJSON<{ ok: boolean; token?: string }>('/api/adoption-bank/send-email', payload)
 }
+// ✅ Alias to match AdoptionStart.tsx import
+export const sendBankPaymentEmail = sendBankPaymentDetailsEmail
+
 
 /**
  * Back-compat: starts adoption and sends PDF in one call (older flow).
@@ -369,11 +371,19 @@ export async function startBankAdoptionAndSendPdf(payload: {
   email: string
   password: string
   vs: string
+  sendEmail?: boolean
 }) {
-  return postJSON<{ ok: boolean; subscriptionId?: string; accessUntil?: string }>(
-    '/api/adoption-bank/start',
-    payload
-  )
+  return postJSON<{
+    ok: boolean
+    token?: string
+    userId?: string
+    subscriptionId?: string
+    bankIban?: string
+    bankName?: string
+    vs?: string
+    amountCZK?: number
+    sendEmail?: boolean
+  }>('/api/adoption-bank/start', payload)
 }
 
 /* =========================================================

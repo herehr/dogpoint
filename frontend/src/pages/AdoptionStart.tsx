@@ -21,8 +21,8 @@ import QRCode from 'qrcode'
 import {
   createCheckoutSession,
   stashPendingEmail,
-  startBankAdoption,          // ✅ NEW
-  sendBankPaymentEmail,       // ✅ NEW
+  startBankAdoption, // ✅ NEW
+  sendBankPaymentEmail, // ✅ NEW
   startBankAdoptionAndSendPdf, // (kept; not used in 2-step flow)
   setToken,
 } from '../services/api'
@@ -218,17 +218,28 @@ export default function AdoptionStart() {
 
   // ✅ STEP 2b: send details by email -> forward to adopted animal
   const onSendEmail = async () => {
+    const v = validateInputs()
+    if (v) {
+      setErr(v)
+      return
+    }
     if (!id) return
 
     setErr(null)
     setBankBusy(true)
     try {
-      await sendBankPaymentEmail({
+      // NOTE: endpoint should send email with payment details; adoption already started in step 1
+      const resp = await sendBankPaymentEmail({
         animalId: id,
         amountCZK,
+        name: firstName,
         email,
+        password,
         vs: bankVS,
       })
+
+      if ((resp as any)?.token) setToken((resp as any).token)
+
       navigate(`/zvire/${id}?bank=email`)
     } catch (e: any) {
       const msg = (e?.response?.data?.error || e?.message || '').toString()
@@ -407,11 +418,11 @@ export default function AdoptionStart() {
           {/* ✅ END: exactly 2 buttons */}
           <Stack spacing={1.5} sx={{ mt: 2 }}>
             <Button variant="contained" onClick={onIHavePaid}>
-              I PAID
+              Zaplatil jsem
             </Button>
 
             <Button variant="outlined" disabled={bankBusy} onClick={onSendEmail}>
-              {bankBusy ? 'Odesílám…' : 'Send me the payment details by E-mail'}
+              {bankBusy ? 'Odesílám…' : 'Pošlete mi údaje e-mailem'}
             </Button>
           </Stack>
         </Paper>
