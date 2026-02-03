@@ -16,7 +16,7 @@ import {
 } from '@mui/material'
 import NotificationsIcon from '@mui/icons-material/Notifications'
 
-import { fetchAnimal } from '../api'
+import { fetchAnimal } from '../services/api'
 import { useAccess } from '../context/AccessContext'
 import PostsSection from '../components/PostsSection'
 import BlurBox from '../components/BlurBox'
@@ -134,7 +134,6 @@ function triggerBrowserNotification(title: string, options?: NotificationOptions
 }
 
 function withLockBust(url: string, unlocked: boolean): string {
-  // stable per lock state (prevents stale cache, but won't re-bust every render)
   const tag = unlocked ? 'u1' : 'l1'
   return url.includes('?') ? `${url}&v=${tag}` : `${url}?v=${tag}`
 }
@@ -160,7 +159,6 @@ function MediaView(props: {
   const video = isVideoUrl(url)
 
   if (video) {
-    // DETAIL: autoplay (muted) so it "just plays" on open in all major browsers
     if (variant === 'detail') {
       return (
         <video
@@ -183,7 +181,6 @@ function MediaView(props: {
       )
     }
 
-    // THUMB: muted autoplay loop works on most browsers (incl. iOS) when muted+playsInline
     return (
       <Box sx={{ position: 'relative', width: '100%', height, bgcolor: '#000' }}>
         <video
@@ -379,17 +376,17 @@ export default function AnimalDetail() {
   }, [id, isUnlocked, loadPosts])
 
   const prefillEmail = useMemo(() => {
-  try {
-    const stash = localStorage.getItem('dp:pendingUser')
-    if (stash) {
-      const parsed = JSON.parse(stash)
-      if (parsed?.email) return String(parsed.email)
-    }
-    const fallback = localStorage.getItem('dp:pendingEmail')
-    if (fallback) return String(fallback)
-  } catch {}
-  return ''
-}, [])
+    try {
+      const stash = localStorage.getItem('dp:pendingUser')
+      if (stash) {
+        const parsed = JSON.parse(stash)
+        if (parsed?.email) return String(parsed.email)
+      }
+      const fallback = localStorage.getItem('dp:pendingEmail')
+      if (fallback) return String(fallback)
+    } catch {}
+    return ''
+  }, [])
 
   // after payment return handler (keep your finalized logic)
   useEffect(() => {
@@ -706,14 +703,14 @@ export default function AnimalDetail() {
       </Box>
 
       <AfterPaymentPasswordDialog
-  open={showAfterPay}
-  onClose={() => setShowAfterPay(false)}
-  defaultEmail={afterPayEmail || prefillEmail}
-  onLoggedIn={() => {
-    if (id) grantAccess(id)
-    navigate('/user', { replace: true })
-  }}
-/>
+        open={showAfterPay}
+        onClose={() => setShowAfterPay(false)}
+        defaultEmail={afterPayEmail || prefillEmail}
+        onLoggedIn={() => {
+          if (id) grantAccess(id)
+          navigate('/user', { replace: true })
+        }}
+      />
     </Container>
   )
 }

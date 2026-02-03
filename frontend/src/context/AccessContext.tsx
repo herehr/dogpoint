@@ -1,6 +1,6 @@
 // frontend/src/context/AccessContext.tsx
 import React, {
-  createContext, useCallback, useContext, useEffect, useMemo, useRef, useState
+  createContext, useCallback, useContext, useEffect, useMemo, useRef, useState,
 } from 'react'
 import { useAuth } from './AuthContext'
 import { getAdoptionMe } from '../services/api'
@@ -70,13 +70,24 @@ export function AccessProvider({ children }: { children: React.ReactNode }) {
         const skey = keyFor(uid)
         storageKeyRef.current = skey
 
-        // Merge server truth with any local draft (rare)
-        const local = readFromStorage(skey)
-        const merged: AccessMap = { ...local, ...(res?.access || {}) }
-        setMap(merged)
-        writeToStorage(skey, merged)
+        const serverAccess: AccessMap | undefined = res?.access || undefined
+
+        // ✅ IMPORTANT FIX:
+        // Server is source-of-truth (so cancel/expiry works).
+        // Only fall back to local if server access is missing (backend down).
+        if (serverAccess && typeof serverAccess === 'object') {
+          setMap(serverAccess)
+          writeToStorage(skey, serverAccess)
+        } else {
+          const local = readFromStorage(skey)
+          setMap(local)
+          writeToStorage(skey, local)
+        }
       } catch {
-        // Silent: backend might be down; keep current map (likely empty on first load)
+        // Silent: backend might be down; keep local cache
+        const skey = storageKeyRef.current
+        const local = readFromStorage(skey)
+        setMap(local)
       }
     }
 
@@ -91,7 +102,7 @@ export function AccessProvider({ children }: { children: React.ReactNode }) {
 
   const hasAccess = useCallback((animalId: string) => !!map[animalId], [map])
 
-  // Optimistic unlock (used after successful adoption)
+  // Optimistic unlock (used after successful adoption / after-payment dialog)
   const grantAccess = useCallback((animalId: string) => {
     setMap(prev => {
       if (prev[animalId]) return prev
@@ -118,7 +129,7 @@ export function AccessProvider({ children }: { children: React.ReactNode }) {
 
   const value = useMemo(
     () => ({ hasAccess, grantAccess, resetAccess }),
-    [hasAccess, grantAccess, resetAccess]
+    [hasAccess, grantAccess, resetAccess],
   )
 
   return <AccessContext.Provider value={value}>{children}</AccessContext.Provider>

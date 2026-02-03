@@ -434,7 +434,7 @@ router.post('/start', async (req: Request, res: Response) => {
 
     const now = new Date()
     const tempAccessUntil = new Date(now.getTime())
-    tempAccessUntil.setDate(tempAccessUntil.getDate() + 30)
+    tempAccessUntil.setDate(tempAccessUntil.getDate() + 40)
 
     const current = await prisma.subscription.findFirst({
       where: {
