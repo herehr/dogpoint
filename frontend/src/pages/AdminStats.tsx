@@ -17,7 +17,7 @@ import {
   TableBody,
   Box,
 } from '@mui/material'
-import { getJSON, qs } from '../services/api'
+import { getJSON, qs, apiUrl, getToken } from '../services/api'
 
 function ymRangeOf(date = new Date()) {
   const y = date.getFullYear()
@@ -46,6 +46,13 @@ type AnimalAggRow = {
   paidSumTotal: number
 }
 
+type AdoptionOverview = {
+  promisedCount: number
+  promisedSumCZK: number
+  paidCount: number
+  paidSumCZK: number
+}
+
 export default function AdminStats({ embedded = false }: Props) {
   // ✅ added "animals"
   const [tab, setTab] = useState<'payments' | 'pledges' | 'expected' | 'animals'>('payments')
@@ -59,6 +66,11 @@ export default function AdminStats({ embedded = false }: Props) {
 
   // ✅ new state for animal aggregation
   const [animals, setAnimals] = useState<{ count: number; rows: AnimalAggRow[] } | null>(null)
+
+  // ✅ NEW: overview state (promised vs paid)
+  const [overview, setOverview] = useState<AdoptionOverview | null>(null)
+  const [overviewErr, setOverviewErr] = useState<string | null>(null)
+  const [overviewLoading, setOverviewLoading] = useState(false)
 
   const params = useMemo(() => {
     const p: Record<string, string> = {}
@@ -104,6 +116,79 @@ export default function AdminStats({ embedded = false }: Props) {
 
   const showDateRange = tab !== 'animals'
 
+  // ✅ NEW: Load adoption overview (promised vs paid)
+  async function loadOverview() {
+    setOverviewErr(null)
+    setOverviewLoading(true)
+    try {
+      // Overview should follow date range (when date range is visible), otherwise use current range anyway.
+      const q = showDateRange ? qs({ ...(range?.from ? { from: range.from } : {}), ...(range?.to ? { to: range.to } : {}) }) : qs({ ...(range?.from ? { from: range.from } : {}), ...(range?.to ? { to: range.to } : {}) })
+
+      const [pays, pled] = await Promise.all([
+        getJSON<any>(`/api/admin/stats/payments${q}`),
+        getJSON<any>(`/api/admin/stats/pledges${q}`),
+      ])
+
+      const paidRows = Array.isArray(pays?.rows) ? pays.rows : []
+      const paidCount = paidRows.filter((r: any) => String(r?.status || '').toUpperCase() === 'PAID').length
+      const paidSumCZK = Number(pays?.total || 0) || 0
+
+      const promisedCount = Number(pled?.count || 0) || 0
+      const promisedSumCZK = Number(pled?.sum || 0) || 0
+
+      setOverview({
+        promisedCount,
+        promisedSumCZK,
+        paidCount,
+        paidSumCZK,
+      })
+    } catch (e: any) {
+      setOverviewErr(e?.message || 'Chyba načítání přehledu adopcí')
+      setOverview(null)
+    } finally {
+      setOverviewLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    // Load once + whenever date range changes
+    const t = setTimeout(loadOverview, 150)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [range?.from, range?.to])
+
+  // ✅ NEW: CSV export (UTF-8)
+  async function downloadAdoptersCsv() {
+    setErr(null)
+    try {
+      // Backend endpoint to implement:
+      // GET /api/admin/stats/adopters.csv
+      // -> returns text/csv; charset=utf-8
+      const token = getToken()
+      const res = await fetch(apiUrl('/api/admin/stats/adopters.csv'), {
+        method: 'GET',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: 'include',
+      })
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '')
+        throw new Error(txt || `Export selhal (HTTP ${res.status})`)
+      }
+
+      const blob = await res.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `dogpoint-adopce-export-${new Date().toISOString().slice(0, 10)}.csv`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (e: any) {
+      setErr(e?.message || 'Export CSV selhal')
+    }
+  }
+
   const content = (
     <>
       {!embedded && (
@@ -112,14 +197,67 @@ export default function AdminStats({ embedded = false }: Props) {
         </Typography>
       )}
 
+      {/* ✅ NEW: Adoption overview */}
+      <Paper sx={{ p: 2, mb: 2, borderRadius: 3 }} variant="outlined">
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="stretch">
+          <Box sx={{ flex: 1 }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 1 }}>
+              Adopce – přehled
+            </Typography>
+
+            {overviewErr && (
+              <Alert severity="warning" sx={{ mb: 1 }}>
+                {String(overviewErr)}
+              </Alert>
+            )}
+
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+              <Stat
+                label="Přísliby (neuhrazené)"
+                value={
+                  overviewLoading
+                    ? 'Načítám…'
+                    : `${overview?.promisedCount ?? 0} / ${overview?.promisedSumCZK ?? 0} CZK`
+                }
+              />
+              <Stat
+                label="Uhrazeno (cash)"
+                value={
+                  overviewLoading
+                    ? 'Načítám…'
+                    : `${overview?.paidCount ?? 0} / ${overview?.paidSumCZK ?? 0} CZK`
+                }
+              />
+            </Stack>
+
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+              Pozn.: „Přísliby“ = neuhrazené (Pledge PENDING). „Uhrazeno“ = Payment PAID.
+            </Typography>
+          </Box>
+
+          <Divider flexItem orientation="vertical" sx={{ display: { xs: 'none', sm: 'block' } }} />
+
+          <Box sx={{ minWidth: { xs: '100%', sm: 280 } }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 1 }}>
+              Export
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+              Export všech e-mailů + adres + adoptovaných zvířat (CSV / UTF-8).
+            </Typography>
+            <Button variant="contained" onClick={downloadAdoptersCsv}>
+              Stáhnout CSV
+            </Button>
+
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+              Endpoint: <code>/api/admin/stats/adopters.csv</code>
+            </Typography>
+          </Box>
+        </Stack>
+      </Paper>
+
       <Paper sx={{ p: 2, mb: 2, borderRadius: 3 }}>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center">
-          <ToggleButtonGroup
-            exclusive
-            value={tab}
-            onChange={(_, v) => v && setTab(v)}
-            size="small"
-          >
+          <ToggleButtonGroup exclusive value={tab} onChange={(_, v) => v && setTab(v)} size="small">
             <ToggleButton value="payments">Předplatné (uhrazené)</ToggleButton>
             <ToggleButton value="pledges">Neuhrazené přísliby</ToggleButton>
             <ToggleButton value="expected">Očekávaný měsíční příjem</ToggleButton>
@@ -309,7 +447,9 @@ function DataTable(props: any) {
                 {columns.map((c: any) => (
                   <TableCell key={c.key}>
                     {c.key === 'createdAt'
-                      ? (r?.[c.key] ? new Date(r[c.key]).toLocaleString() : '')
+                      ? r?.[c.key]
+                        ? new Date(r[c.key]).toLocaleString()
+                        : ''
                       : String(r?.[c.key] ?? '')}
                   </TableCell>
                 ))}

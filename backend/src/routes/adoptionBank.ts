@@ -37,9 +37,7 @@ function resolveFontPath(): string {
 
   const found = firstExistingPath(candidates)
   if (!found) {
-    throw new Error(
-      `PDF font DejaVuSans.ttf not found. Tried:\n- ${candidates.join('\n- ')}`,
-    )
+    throw new Error(`PDF font DejaVuSans.ttf not found. Tried:\n- ${candidates.join('\n- ')}`)
   }
   return found
 }
@@ -147,7 +145,7 @@ async function sendPdfEmail(args: {
   email: string
   password: string
 }) {
-  // Match your “screenshot” email wording (simple + clean)
+  // Matches your screenshot wording (simple + clean)
   const html = `
 <div style="font-family:Arial, sans-serif; max-width:640px; margin:0 auto; color:#111;">
   <h2 style="margin:0 0 12px 0;">Děkujeme za adopci ❤️</h2>
@@ -164,7 +162,6 @@ async function sendPdfEmail(args: {
 </div>
 `.trim()
 
-  // ✅ awaited, safe (never throws)
   await sendEmailSafe({
     to: args.to,
     subject: args.subject,
@@ -220,7 +217,6 @@ async function ensureUserAndGetToken(args: { email: string; password: string; na
       const ok = await bcrypt.compare(password, (existing as any).passwordHash)
       if (!ok) throw Object.assign(new Error('Špatné heslo'), { status: 401 })
     } else {
-      // user exists without hash -> set it now
       const hash = await bcrypt.hash(password, 10)
       await prisma.user.update({ where: { id: userId }, data: { passwordHash: hash } as any })
     }
@@ -232,6 +228,32 @@ async function ensureUserAndGetToken(args: { email: string; password: string; na
 
   const token = jwt.sign({ sub: userId, id: userId, role: 'USER' }, JWT_SECRET, { expiresIn: '30d' })
   return { userId, token }
+}
+
+/* ────────────────────────────────────────────── */
+/* Internal: get Subscription by new unique        */
+/* (avoid TS needing regenerated composite type)   */
+/* ────────────────────────────────────────────── */
+
+async function findSubscriptionByUserAnimal(userId: string, animalId: string) {
+  // schema has @@unique([userId, animalId])
+  // but TS might not have regenerated client -> use findFirst safely
+  return prisma.subscription.findFirst({
+    where: { userId, animalId },
+    select: {
+      id: true,
+      status: true,
+      monthlyAmount: true,
+      provider: true,
+      variableSymbol: true,
+      pendingSince: true,
+      tempAccessUntil: true,
+      graceUntil: true,
+      reminderSentAt: true,
+      reminderCount: true,
+      startedAt: true,
+    },
+  })
 }
 
 /* ────────────────────────────────────────────── */
@@ -266,28 +288,39 @@ router.post('/start', async (req: Request, res: Response) => {
 
     const { userId, token } = await ensureUserAndGetToken({ email, password, name })
 
-    const now = new Date()
-    const tempAccessUntil = new Date(now.getTime() + 40 * 86400000)
+    const bankIban = process.env.BANK_IBAN || process.env.DOGPOINT_IBAN || 'CZ6508000000001234567899'
+    const bankName = process.env.BANK_NAME || 'Dogpoint o.p.s.'
+    const loginUrl = process.env.PATRON_LOGIN_URL || 'https://patron.dog-point.cz'
 
-    // ✅ IMPORTANT: schema now has @@unique([userId, animalId])
-    // -> use upsert to avoid "Unique constraint failed (userId, animalId)"
+    // ✅ IDEMPOTENCY:
+    // If subscription already exists for (userId, animalId) -> DO NOT reset timestamps / status.
+    // Just reuse it and optionally send email/PDF again if requested.
+    const existing = await findSubscriptionByUserAnimal(userId, animalId)
+
     let subscriptionId: string
-    try {
-      const sub = await prisma.subscription.upsert({
-        where: { userId_animalId: { userId, animalId } } as any,
-        create: {
+    let reused = false
+
+    if (existing) {
+      subscriptionId = existing.id
+      reused = true
+
+      // NOTE: no resets here on purpose.
+      // We only ensure the VS is stored if it was missing (optional, minimal update).
+      if (!existing.variableSymbol && vs) {
+        await prisma.subscription.update({
+          where: { id: existing.id },
+          data: { variableSymbol: vs } as any,
+          select: { id: true },
+        })
+      }
+    } else {
+      const now = new Date()
+      const tempAccessUntil = new Date(now.getTime() + 40 * 86400000)
+
+      const created = await prisma.subscription.create({
+        data: {
           userId,
           animalId,
-          status: SubscriptionStatus.PENDING,
-          startedAt: now,
-          monthlyAmount,
-          provider,
-          variableSymbol: vs,
-          pendingSince: now,
-          tempAccessUntil,
-          reminderCount: 0,
-        } as any,
-        update: {
           status: SubscriptionStatus.PENDING,
           startedAt: now,
           monthlyAmount,
@@ -301,68 +334,8 @@ router.post('/start', async (req: Request, res: Response) => {
         } as any,
         select: { id: true },
       })
-      subscriptionId = sub.id
-    } catch (e: any) {
-      // If Prisma client is not regenerated yet and `userId_animalId` doesn't exist,
-      // fallback to findFirst+update/create (still safe).
-      const msg = String(e?.message || '')
-      if (/userId_animalId/i.test(msg) || /SubscriptionWhereUniqueInput/i.test(msg)) {
-        const existing = await prisma.subscription.findFirst({
-          where: {
-            userId,
-            animalId,
-            status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.PENDING] },
-          },
-          select: { id: true },
-        })
-
-        if (existing) {
-          const updated = await prisma.subscription.update({
-            where: { id: existing.id },
-            data: {
-              status: SubscriptionStatus.PENDING,
-              startedAt: now,
-              monthlyAmount,
-              provider,
-              variableSymbol: vs,
-              pendingSince: now,
-              tempAccessUntil,
-              graceUntil: null,
-              reminderSentAt: null,
-              reminderCount: 0,
-            } as any,
-            select: { id: true },
-          })
-          subscriptionId = updated.id
-        } else {
-          const created = await prisma.subscription.create({
-            data: {
-              userId,
-              animalId,
-              status: SubscriptionStatus.PENDING,
-              startedAt: now,
-              monthlyAmount,
-              provider,
-              variableSymbol: vs,
-              pendingSince: now,
-              tempAccessUntil,
-              reminderCount: 0,
-            } as any,
-            select: { id: true },
-          })
-          subscriptionId = created.id
-        }
-      } else {
-        throw e
-      }
+      subscriptionId = created.id
     }
-
-    const bankIban =
-      process.env.BANK_IBAN ||
-      process.env.DOGPOINT_IBAN ||
-      'CZ6508000000001234567899'
-    const bankName = process.env.BANK_NAME || 'Dogpoint o.p.s.'
-    const loginUrl = process.env.PATRON_LOGIN_URL || 'https://patron.dog-point.cz'
 
     if (sendEmail) {
       const pdf = await generateNicePdf({
@@ -393,6 +366,7 @@ router.post('/start', async (req: Request, res: Response) => {
       token,
       userId,
       subscriptionId,
+      reused,
       bankIban,
       bankName,
       vs,
@@ -429,12 +403,37 @@ router.post('/send-email', async (req: Request, res: Response) => {
     })
     if (!animal) return res.status(404).json({ error: 'Animal not found' })
 
-    const { token } = await ensureUserAndGetToken({ email, password, name })
+    const { userId, token } = await ensureUserAndGetToken({ email, password, name })
 
-    const bankIban =
-      process.env.BANK_IBAN ||
-      process.env.DOGPOINT_IBAN ||
-      'CZ6508000000001234567899'
+    // Ensure subscription exists (idempotent: if exists, don’t reset)
+    const existing = await findSubscriptionByUserAnimal(userId, animalId)
+    if (!existing) {
+      const now = new Date()
+      const tempAccessUntil = new Date(now.getTime() + 40 * 86400000)
+      await prisma.subscription.create({
+        data: {
+          userId,
+          animalId,
+          status: SubscriptionStatus.PENDING,
+          startedAt: now,
+          monthlyAmount,
+          provider: PaymentProvider.FIO,
+          variableSymbol: vs,
+          pendingSince: now,
+          tempAccessUntil,
+          graceUntil: null,
+          reminderSentAt: null,
+          reminderCount: 0,
+        } as any,
+      })
+    } else if (!existing.variableSymbol && vs) {
+      await prisma.subscription.update({
+        where: { id: existing.id },
+        data: { variableSymbol: vs } as any,
+      })
+    }
+
+    const bankIban = process.env.BANK_IBAN || process.env.DOGPOINT_IBAN || 'CZ6508000000001234567899'
     const bankName = process.env.BANK_NAME || 'Dogpoint o.p.s.'
     const loginUrl = process.env.PATRON_LOGIN_URL || 'https://patron.dog-point.cz'
 
@@ -463,6 +462,97 @@ router.post('/send-email', async (req: Request, res: Response) => {
     return res.json({ ok: true, token })
   } catch (e: any) {
     console.error('[adoption-bank/send-email]', e)
+    return res.status(e?.status || 500).json({ error: e?.message || 'Failed' })
+  }
+})
+
+/**
+ * OPTIONAL: “Zaplatil jsem” email + PDF (same attachment).
+ * Frontend can call it when user clicks "Zaplatil jsem".
+ */
+router.post('/paid-email', async (req: Request, res: Response) => {
+  try {
+    const animalId = String(req.body?.animalId || '')
+    const name = String(req.body?.name || '')
+    const email = String(req.body?.email || '').trim().toLowerCase()
+    const password = String(req.body?.password || '')
+    const vs = String(req.body?.vs || '')
+
+    const amount = Number(req.body?.amountCZK || 0)
+    const monthlyAmount = Math.round(amount)
+
+    if (!animalId) return res.status(400).json({ error: 'Missing animalId' })
+    if (!email) return res.status(400).json({ error: 'Missing email' })
+    if (!name) return res.status(400).json({ error: 'Missing name' })
+    if (!password || password.length < 6) return res.status(400).json({ error: 'Password too short' })
+    if (!vs) return res.status(400).json({ error: 'Missing vs' })
+    if (!Number.isFinite(amount) || amount <= 0) return res.status(400).json({ error: 'Invalid amountCZK' })
+
+    const animal = await prisma.animal.findUnique({
+      where: { id: animalId },
+      select: { id: true, jmeno: true, name: true },
+    })
+    if (!animal) return res.status(404).json({ error: 'Animal not found' })
+
+    const { userId, token } = await ensureUserAndGetToken({ email, password, name })
+
+    // Ensure subscription exists (do not reset)
+    const existing = await findSubscriptionByUserAnimal(userId, animalId)
+    if (!existing) {
+      const now = new Date()
+      const tempAccessUntil = new Date(now.getTime() + 40 * 86400000)
+      await prisma.subscription.create({
+        data: {
+          userId,
+          animalId,
+          status: SubscriptionStatus.PENDING,
+          startedAt: now,
+          monthlyAmount,
+          provider: PaymentProvider.FIO,
+          variableSymbol: vs,
+          pendingSince: now,
+          tempAccessUntil,
+          graceUntil: null,
+          reminderSentAt: null,
+          reminderCount: 0,
+        } as any,
+      })
+    } else if (!existing.variableSymbol && vs) {
+      await prisma.subscription.update({
+        where: { id: existing.id },
+        data: { variableSymbol: vs } as any,
+      })
+    }
+
+    const bankIban = process.env.BANK_IBAN || process.env.DOGPOINT_IBAN || 'CZ6508000000001234567899'
+    const bankName = process.env.BANK_NAME || 'Dogpoint o.p.s.'
+    const loginUrl = process.env.PATRON_LOGIN_URL || 'https://patron.dog-point.cz'
+
+    const pdf = await generateNicePdf({
+      animalId,
+      animalName: animal.jmeno || animal.name || 'Zvíře',
+      amountCZK: monthlyAmount,
+      bankIban,
+      bankName,
+      vs,
+      email,
+      password,
+      loginUrl,
+    })
+
+    await sendPdfEmail({
+      to: email,
+      subject: 'Děkujeme za adopci ❤️',
+      filename: `dogpoint-dekujeme-za-adopci-${animalId}.pdf`,
+      pdfBuffer: pdf,
+      loginUrl,
+      email,
+      password,
+    })
+
+    return res.json({ ok: true, token })
+  } catch (e: any) {
+    console.error('[adoption-bank/paid-email]', e)
     return res.status(e?.status || 500).json({ error: e?.message || 'Failed' })
   }
 })

@@ -23,7 +23,6 @@ import {
   stashPendingEmail,
   startBankAdoption, // ✅ 2-step flow (step 1)
   sendBankPaymentEmail, // ✅ 2-step flow (step 2: send details)
-  startBankAdoptionAndSendPdf, // (kept; legacy)
   setToken,
 } from '../services/api'
 import { useAuth } from '../context/AuthContext'
