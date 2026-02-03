@@ -288,6 +288,21 @@ export default function AnimalDetail() {
     return !!(id && hasAccess(id)) && !forceLocked
   }, [isStaff, id, hasAccess, forceLocked])
 
+    // ✅ BANK return handler: if user arrived from AdoptionStart (?bank=paid|email),
+  // unlock immediately and clean the URL
+  useEffect(() => {
+    if (!id) return
+    const p = new URLSearchParams(location.search)
+    const bank = p.get('bank')
+    if (bank === 'paid' || bank === 'email') {
+      grantAccess(id)
+
+      p.delete('bank')
+      const clean = `${window.location.pathname}${p.toString() ? `?${p}` : ''}`
+      window.history.replaceState({}, '', clean)
+    }
+  }, [id, location.search, grantAccess])
+
   // load animal
   useEffect(() => {
     let alive = true

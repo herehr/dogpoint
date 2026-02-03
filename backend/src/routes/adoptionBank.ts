@@ -11,8 +11,6 @@ const router = Router()
 
 /* ──────────────────────────────────────────────
  * Helpers: robust asset path resolution
- * Works in src and in dist, and on DO where cwd differs.
- * PLUS: fallback to system DejaVu (apk add ttf-dejavu).
  * ──────────────────────────────────────────── */
 
 function firstExistingPath(candidates: string[]): string | null {
@@ -24,29 +22,13 @@ function firstExistingPath(candidates: string[]): string | null {
   return null
 }
 
-/**
- * Resolve DejaVuSans.ttf in a way that works for:
- * - local dev (cwd repo root OR cwd backend/)
- * - compiled dist (where __dirname is dist/routes)
- * - production Docker/DO (cwd usually /app)
- * - Alpine system font paths (ttf-dejavu)
- */
 function resolveFontPath(): string {
   const candidates = [
-    // compiled dist: dist/routes -> ../../assets/fonts
     path.resolve(__dirname, '../../assets/fonts/DejaVuSans.ttf'),
-
-    // local dev when running from backend/ (cwd=backend)
     path.resolve(process.cwd(), 'assets/fonts/DejaVuSans.ttf'),
-
-    // local dev when running from repo root (cwd=repo)
     path.resolve(process.cwd(), 'backend/assets/fonts/DejaVuSans.ttf'),
-
-    // DO/Docker absolute if you COPY assets -> /app/assets
     '/app/assets/fonts/DejaVuSans.ttf',
     '/app/backend/assets/fonts/DejaVuSans.ttf',
-
-    // ✅ Alpine system paths (install with: apk add ttf-dejavu)
     '/usr/share/fonts/ttf-dejavu/DejaVuSans.ttf',
     '/usr/share/fonts/dejavu/DejaVuSans.ttf',
     '/usr/share/fonts/DejaVuSans.ttf',
@@ -65,19 +47,12 @@ function resolveFontPath(): string {
 
 function resolveLogoPath(): string | null {
   const candidates = [
-    // compiled dist
     path.resolve(__dirname, '../../assets/logo.png'),
     path.resolve(__dirname, '../../assets/logo.jpg'),
-
-    // local dev cwd=backend
     path.resolve(process.cwd(), 'assets/logo.png'),
     path.resolve(process.cwd(), 'assets/logo.jpg'),
-
-    // local dev cwd=repo root
     path.resolve(process.cwd(), 'backend/assets/logo.png'),
     path.resolve(process.cwd(), 'backend/assets/logo.jpg'),
-
-    // DO/Docker absolute
     '/app/assets/logo.png',
     '/app/assets/logo.jpg',
     '/app/backend/assets/logo.png',
@@ -106,7 +81,7 @@ function buildSpayd(params: { iban: string; amountCZK: number; vs: string; msg?:
 }
 
 /* ──────────────────────────────────────────────
- * PDF generator: UTF-8 + QR + nice layout
+ * PDF generator
  * ──────────────────────────────────────────── */
 
 async function generateNicePdf(args: {
@@ -146,7 +121,6 @@ async function generateNicePdf(args: {
   const chunks: Buffer[] = []
   doc.on('data', (d: Buffer) => chunks.push(d))
 
-  // ✅ UTF-8 safe font
   doc.registerFont('Body', fontPath)
   doc.font('Body')
 
@@ -247,7 +221,7 @@ async function generateNicePdf(args: {
 }
 
 /* ──────────────────────────────────────────────
- * Email sender
+ * Email sender (REPAIRED)
  * ──────────────────────────────────────────── */
 
 async function sendMailWithPdf(args: {
@@ -259,18 +233,29 @@ async function sendMailWithPdf(args: {
   email: string
   password: string
 }) {
+  const EMAIL_ENABLED = (process.env.EMAIL_ENABLED ?? '1') !== '0'
+  if (!EMAIL_ENABLED) {
+    console.warn('[email] EMAIL_ENABLED=0 -> skipping', { to: args.to, subject: args.subject })
+    return
+  }
+
   const nodemailerMod: any = await import('nodemailer')
   const nodemailer = nodemailerMod.default || nodemailerMod
 
   const host = process.env.EMAIL_HOST
   const user = process.env.EMAIL_USER
-  const pass = process.env.EMAIL_PASS
+
+  // ✅ accept either EMAIL_PASS or EMAIL_PASSWORD (same as backend/src/services/email.ts)
+  const pass = process.env.EMAIL_PASS || process.env.EMAIL_PASSWORD
+
   const from = process.env.EMAIL_FROM || 'Dogpoint <info@dogpoint.cz>'
   const port = Number(process.env.EMAIL_PORT || 587)
-  const secure = port === 465
+
+  // ✅ secure = true for 465 OR if explicitly set
+  const secure = port === 465 || process.env.EMAIL_SECURE === 'true'
 
   if (!host || !user || !pass) {
-    throw new Error('EMAIL_* env vars missing (EMAIL_HOST, EMAIL_USER, EMAIL_PASS)')
+    throw new Error('EMAIL_* env vars missing (EMAIL_HOST, EMAIL_USER, EMAIL_PASS/EMAIL_PASSWORD)')
   }
 
   const transporter = nodemailer.createTransport({
@@ -329,10 +314,12 @@ async function sendMailWithPdf(args: {
       },
     ],
   })
+
+  console.log('[email] sent bank PDF', { to: args.to, subject: args.subject })
 }
 
 /* ──────────────────────────────────────────────
- * Internal auth helper (used for /start and /send-email)
+ * Internal auth helper
  * ──────────────────────────────────────────── */
 
 async function ensureUserAndGetToken(args: { email: string; password: string; name?: string }) {
@@ -386,12 +373,7 @@ async function ensureUserAndGetToken(args: { email: string; password: string; na
 }
 
 /* ──────────────────────────────────────────────
- * POST /api/adoption-bank/start  (PUBLIC)
- * body: { animalId, amountCZK, name, email, password, vs, sendEmail? }
- *
- * ✅ Backward-compatible:
- * - default sendEmail=true (old behavior)
- * - sendEmail=false enables 2-step UI: show instructions first, email later
+ * POST /api/adoption-bank/start
  * ──────────────────────────────────────────── */
 
 router.post('/start', async (req: Request, res: Response) => {
@@ -417,7 +399,6 @@ router.post('/start', async (req: Request, res: Response) => {
     })
     if (!animal) return res.status(404).json({ error: 'Animal not found' })
 
-    // ensure user + token
     let userId: string
     let token: string
     try {
@@ -454,11 +435,8 @@ router.post('/start', async (req: Request, res: Response) => {
           startedAt: now,
           monthlyAmount,
           provider,
-
           pendingSince: now,
           tempAccessUntil,
-
-          // Prisma strict: do not write null unless your schema is nullable
           graceUntil: undefined,
           reminderSentAt: undefined,
           reminderCount: 0,
@@ -475,10 +453,8 @@ router.post('/start', async (req: Request, res: Response) => {
           startedAt: now,
           monthlyAmount,
           provider,
-
           pendingSince: now,
           tempAccessUntil,
-
           graceUntil: undefined,
           reminderSentAt: undefined,
           reminderCount: 0,
@@ -488,13 +464,11 @@ router.post('/start', async (req: Request, res: Response) => {
       subscriptionId = created.id
     }
 
-    // Bank constants
     const bankIban = process.env.BANK_IBAN || process.env.DOGPOINT_IBAN || 'CZ6508000000001234567899'
     const bankName = process.env.BANK_NAME || 'Dogpoint o.p.s.'
     const animalName = animal.jmeno || animal.name || 'Zvíře'
     const loginUrl = process.env.PATRON_LOGIN_URL || 'https://patron.dog-point.cz'
 
-    // optional email now (old flow)
     if (sendEmail) {
       const pdfBuffer = await generateNicePdf({
         animalId,
@@ -537,9 +511,7 @@ router.post('/start', async (req: Request, res: Response) => {
 })
 
 /* ──────────────────────────────────────────────
- * POST /api/adoption-bank/send-email (PUBLIC)
- * body: { animalId, amountCZK, name, email, password, vs }
- * Used for the 2-step UI button: "Send me the payment details by E-mail"
+ * POST /api/adoption-bank/send-email
  * ──────────────────────────────────────────── */
 
 router.post('/send-email', async (req: Request, res: Response) => {
@@ -564,7 +536,6 @@ router.post('/send-email', async (req: Request, res: Response) => {
     })
     if (!animal) return res.status(404).json({ error: 'Animal not found' })
 
-    // verify user password (and return token as convenience)
     let token: string
     try {
       const auth = await ensureUserAndGetToken({ email, password, name })

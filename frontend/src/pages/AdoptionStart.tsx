@@ -115,6 +115,13 @@ export default function AdoptionStart() {
     })
   }, [bankIban, amountCZK, bankVS, bankMessage])
 
+  // ✅ ensure email is updated when user loads later (fix: user may be undefined on first render)
+  React.useEffect(() => {
+    if (user?.email && !email) setEmail(user.email)
+    // intentionally NOT depending on `email` to avoid overwriting user's manual edits
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.email])
+
   // generate QR only when bankStarted (don’t do it before user clicks)
   React.useEffect(() => {
     let cancelled = false
@@ -185,6 +192,7 @@ export default function AdoptionStart() {
           vs: bankVS,
         })
 
+        // ✅ keep token if backend returns it
         if ((resp as any)?.token) setToken((resp as any).token)
 
         setBankStarted(true) // show instructions below
@@ -401,12 +409,7 @@ export default function AdoptionStart() {
 
             {qrDataUrl && (
               <Box sx={{ mt: 1, display: 'flex', justifyContent: 'center' }}>
-                <Box
-                  component="img"
-                  src={qrDataUrl}
-                  alt="QR SPAYD"
-                  sx={{ width: 220, height: 220, borderRadius: 2 }}
-                />
+                <Box component="img" src={qrDataUrl} alt="QR SPAYD" sx={{ width: 220, height: 220, borderRadius: 2 }} />
               </Box>
             )}
           </Stack>
