@@ -359,6 +359,20 @@ export async function sendBankPaymentDetailsEmail(payload: {
 // ✅ Alias to match AdoptionStart.tsx import
 export const sendBankPaymentEmail = sendBankPaymentDetailsEmail
 
+/**
+ * ✅ NEW: "I paid" -> send thanks email + PDF
+ * Backend endpoint: POST /api/adoption-bank/paid
+ */
+export async function sendBankPaidEmail(payload: {
+  animalId: string
+  amountCZK: number
+  name: string
+  email: string
+  password: string
+  vs: string
+}) {
+  return postJSON<{ ok: boolean; token?: string }>('/api/adoption-bank/paid', payload)
+}
 
 /**
  * Back-compat: starts adoption and sends PDF in one call (older flow).
@@ -697,6 +711,7 @@ const api = {
   // ✅ bank: both flows available
   startBankAdoption,
   sendBankPaymentEmail,
+  sendBankPaidEmail, // ✅ NEW
   startBankAdoptionAndSendPdf,
 
   stashPendingEmail,
