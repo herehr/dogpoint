@@ -3,8 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider          = "postgresql"
+  url               = env("DATABASE_URL")
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
 }
 
 model User {
@@ -208,7 +209,7 @@ model Subscription {
   animal   Animal    @relation(fields: [animalId], references: [id], onDelete: Cascade)
   user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, animalId, status])
+  @@unique([userId, animalId])
   @@index([userId])
   @@index([animalId])
   @@index([status])
@@ -283,7 +284,7 @@ model Pledge {
   userId         String?
   subscriptionId String?
   variableSymbol String?
-
+  @@index([variableSymbol])
   @@index([email, animalId])
   @@index([status, method])
 }
