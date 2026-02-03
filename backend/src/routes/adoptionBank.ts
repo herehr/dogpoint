@@ -34,9 +34,7 @@ function resolveFontPath(): string {
   ]
 
   const found = firstExistingPath(candidates)
-  if (!found) {
-    throw new Error('PDF font DejaVuSans.ttf not found')
-  }
+  if (!found) throw new Error('PDF font DejaVuSans.ttf not found')
   return found
 }
 
@@ -55,11 +53,12 @@ function resolveLogoPath(): string | null {
 /* ────────────────────────────────────────────── */
 
 function buildSpayd(params: { iban: string; amountCZK: number; vs: string; msg?: string }) {
-  const iban = params.iban.replace(/\s+/g, '').toUpperCase()
-  const amount = params.amountCZK.toFixed(2)
+  const iban = String(params.iban || '').replace(/\s+/g, '').toUpperCase()
+  const amount = Number(params.amountCZK || 0).toFixed(2)
 
   const parts = ['SPD*1.0', `ACC:${iban}`, `AM:${amount}`, 'CC:CZK', `X-VS:${params.vs}`]
-  if (params.msg) parts.push(`MSG:${params.msg.replace(/\*/g, ' ').slice(0, 60)}`)
+  const msg = (params.msg || '').trim()
+  if (msg) parts.push(`MSG:${msg.replace(/\*/g, ' ').slice(0, 60)}`)
   return parts.join('*')
 }
 
@@ -92,7 +91,7 @@ async function generateNicePdf(args: {
 
   const doc = new PDFDocument({ size: 'A4', margin: 48 })
   const chunks: Buffer[] = []
-  doc.on('data', (d) => chunks.push(d))
+  doc.on('data', (d: Buffer) => chunks.push(d))
 
   doc.registerFont('Body', fontPath)
   doc.font('Body')
@@ -120,12 +119,12 @@ async function generateNicePdf(args: {
   doc.text(`Heslo: ${args.password}`)
 
   doc.end()
-  await new Promise((r) => doc.on('end', r))
+  await new Promise<void>((resolve) => doc.on('end', () => resolve()))
   return Buffer.concat(chunks)
 }
 
 /* ────────────────────────────────────────────── */
-/* EMAIL (USING SHARED MAILER)                     */
+/* EMAIL (USING SHARED MAILER)                    */
 /* ────────────────────────────────────────────── */
 
 async function sendPdfEmail(args: {
@@ -147,6 +146,7 @@ async function sendPdfEmail(args: {
     </p>
   `
 
+  // ✅ awaited, and safe (never throws)
   await sendEmailSafe({
     to: args.to,
     subject: args.subject,
@@ -166,27 +166,53 @@ async function sendPdfEmail(args: {
 /* ────────────────────────────────────────────── */
 
 async function ensureUserAndGetToken(args: { email: string; password: string; name?: string }) {
-  const bcrypt = (await import('bcryptjs')).default
-  const jwt = (await import('jsonwebtoken')).default
+  const bcryptMod: any = await import('bcryptjs')
+  const bcrypt = bcryptMod.default || bcryptMod
 
-  const JWT_SECRET = process.env.JWT_SECRET!
-  const existing = await prisma.user.findUnique({ where: { email: args.email } })
+  const jwtMod: any = await import('jsonwebtoken')
+  const jwt = jwtMod.default || jwtMod
+
+  const JWT_SECRET = process.env.JWT_SECRET
+  if (!JWT_SECRET) throw new Error('JWT_SECRET missing')
+
+  const email = String(args.email || '').trim().toLowerCase()
+  const password = String(args.password || '')
+
+  const existing = await prisma.user.findUnique({ where: { email } })
 
   let userId: string
+
   if (!existing) {
-    const hash = await bcrypt.hash(args.password, 10)
+    const hash = await bcrypt.hash(password, 10)
     const u = await prisma.user.create({
-      data: { email: args.email, passwordHash: hash, role: 'USER', firstName: args.name },
+      data: {
+        email,
+        passwordHash: hash,
+        role: 'USER' as any,
+        firstName: args.name || undefined,
+      } as any,
+      select: { id: true },
     })
     userId = u.id
   } else {
     userId = existing.id
-    if (!(await bcrypt.compare(args.password, existing.passwordHash!))) {
-      throw Object.assign(new Error('Špatné heslo'), { status: 401 })
+
+    const hasHash = Boolean((existing as any).passwordHash)
+    if (hasHash) {
+      const ok = await bcrypt.compare(password, (existing as any).passwordHash)
+      if (!ok) throw Object.assign(new Error('Špatné heslo'), { status: 401 })
+    } else {
+      // ✅ if user exists without hash, set it now
+      const hash = await bcrypt.hash(password, 10)
+      await prisma.user.update({ where: { id: userId }, data: { passwordHash: hash } as any })
+    }
+
+    if (!(existing as any).firstName && args.name) {
+      await prisma.user.update({ where: { id: userId }, data: { firstName: args.name } as any })
     }
   }
 
-  const token = jwt.sign({ id: userId, role: 'USER' }, JWT_SECRET, { expiresIn: '30d' })
+  const token = jwt.sign({ sub: userId, id: userId, role: 'USER' }, JWT_SECRET, { expiresIn: '30d' })
   return { userId, token }
 }
 
@@ -196,9 +222,28 @@ async function ensureUserAndGetToken(args: { email: string; password: string; na
 
 router.post('/start', async (req: Request, res: Response) => {
   try {
-    const { animalId, amountCZK, name, email, password, vs, sendEmail = true } = req.body
+    const animalId = String(req.body?.animalId || '')
+    const name = String(req.body?.name || '')
+    const email = String(req.body?.email || '').trim().toLowerCase()
+    const password = String(req.body?.password || '')
+    const vs = String(req.body?.vs || '')
+    const sendEmail = req.body?.sendEmail === undefined ? true : Boolean(req.body.sendEmail)
 
-    const animal = await prisma.animal.findUnique({ where: { id: animalId } })
+    const amount = Number(req.body?.amountCZK || 0)
+    const monthlyAmount = Math.round(amount)
+    const provider = PaymentProvider.FIO
+
+    if (!animalId) return res.status(400).json({ error: 'Missing animalId' })
+    if (!email) return res.status(400).json({ error: 'Missing email' })
+    if (!name) return res.status(400).json({ error: 'Missing name' })
+    if (!password || password.length < 6) return res.status(400).json({ error: 'Password too short' })
+    if (!vs) return res.status(400).json({ error: 'Missing vs' })
+    if (!Number.isFinite(amount) || amount <= 0) return res.status(400).json({ error: 'Invalid amountCZK' })
+
+    const animal = await prisma.animal.findUnique({
+      where: { id: animalId },
+      select: { id: true, jmeno: true, name: true },
+    })
     if (!animal) return res.status(404).json({ error: 'Animal not found' })
 
     const { userId, token } = await ensureUserAndGetToken({ email, password, name })
@@ -207,66 +252,68 @@ router.post('/start', async (req: Request, res: Response) => {
     const tempAccessUntil = new Date(now.getTime() + 40 * 86400000)
 
     const existing = await prisma.subscription.findFirst({
-  where: {
-    userId,
-    animalId,
-    status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.PENDING] },
-  },
-})
-  const amount = Number(amountCZK)
-  const monthlyAmount = Math.round(amountCZK)
-  const provider = PaymentProvider.FIO
+      where: {
+        userId,
+        animalId,
+        status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.PENDING] },
+      },
+      select: { id: true },
+    })
 
-let subscriptionId: string
+    let subscriptionId: string
 
-if (existing) {
-  const updated = await prisma.subscription.update({
-    where: { id: existing.id },
-    data: {
-      status: SubscriptionStatus.PENDING,
-      startedAt: now,
-      monthlyAmount,
-      provider,
-      pendingSince: now,
-      tempAccessUntil,
-      graceUntil: undefined,
-      reminderSentAt: undefined,
-      reminderCount: 0,
-    } as any,
-    select: { id: true },
-  })
-  subscriptionId = updated.id
-} else {
-  const created = await prisma.subscription.create({
-    data: {
-      userId,
-      animalId,
-      status: SubscriptionStatus.PENDING,
-      startedAt: now,
-      monthlyAmount,
-      provider,
-      pendingSince: now,
-      tempAccessUntil,
-      graceUntil: undefined,
-      reminderSentAt: undefined,
-      reminderCount: 0,
-    } as any,
-    select: { id: true },
-  })
-  subscriptionId = created.id
-}
+    if (existing) {
+      const updated = await prisma.subscription.update({
+        where: { id: existing.id }, // ✅ no composite unique
+        data: {
+          status: SubscriptionStatus.PENDING,
+          startedAt: now,
+          monthlyAmount,
+          provider,
+          pendingSince: now,
+          tempAccessUntil,
+          graceUntil: undefined,
+          reminderSentAt: undefined,
+          reminderCount: 0,
+        } as any,
+        select: { id: true },
+      })
+      subscriptionId = updated.id
+    } else {
+      const created = await prisma.subscription.create({
+        data: {
+          userId,
+          animalId,
+          status: SubscriptionStatus.PENDING,
+          startedAt: now,
+          monthlyAmount,
+          provider,
+          pendingSince: now,
+          tempAccessUntil,
+          graceUntil: undefined,
+          reminderSentAt: undefined,
+          reminderCount: 0,
+        } as any,
+        select: { id: true },
+      })
+      subscriptionId = created.id
+    }
+
+    const bankIban = process.env.BANK_IBAN || process.env.DOGPOINT_IBAN || ''
+    const bankName = process.env.BANK_NAME || 'Dogpoint'
+    const loginUrl = process.env.PATRON_LOGIN_URL || 'https://patron.dog-point.cz'
 
     if (sendEmail) {
       const pdf = await generateNicePdf({
         animalId,
-        animalName: animal.jmeno || animal.name!,
-        amountCZK,
-        bankIban: process.env.BANK_IBAN!,
-        bankName: process.env.BANK_NAME || 'Dogpoint',
+        animalName: animal.jmeno || animal.name || 'Zvíře',
+        amountCZK: monthlyAmount, // ✅ normalized
+        bankIban,
+        bankName,
         vs,
         email,
         password,
-        loginUrl: process.env.PATRON_LOGIN_URL!,
+        loginUrl,
       })
 
       await sendPdfEmail({
@@ -274,37 +321,69 @@ if (existing) {
         subject: 'Dogpoint – pokyny k bankovnímu převodu',
         filename: `dogpoint-${animalId}.pdf`,
         pdfBuffer: pdf,
-        loginUrl: process.env.PATRON_LOGIN_URL!,
+        loginUrl,
         email,
         password,
       })
     }
 
-    res.json({ ok: true, token })
+    return res.json({
+      ok: true,
+      token,
+      userId,
+      subscriptionId,
+      bankIban,
+      bankName,
+      vs,
+      amountCZK: monthlyAmount,
+      sendEmail,
+    })
   } catch (e: any) {
     console.error('[adoption-bank/start]', e)
-    res.status(e.status || 500).json({ error: e.message })
+    return res.status(e?.status || 500).json({ error: e?.message || 'Failed' })
   }
 })
 
 router.post('/send-email', async (req: Request, res: Response) => {
   try {
-    const { animalId, amountCZK, name, email, password, vs } = req.body
-    const animal = await prisma.animal.findUnique({ where: { id: animalId } })
+    const animalId = String(req.body?.animalId || '')
+    const name = String(req.body?.name || '')
+    const email = String(req.body?.email || '').trim().toLowerCase()
+    const password = String(req.body?.password || '')
+    const vs = String(req.body?.vs || '')
+
+    const amount = Number(req.body?.amountCZK || 0)
+    const monthlyAmount = Math.round(amount)
+
+    if (!animalId) return res.status(400).json({ error: 'Missing animalId' })
+    if (!email) return res.status(400).json({ error: 'Missing email' })
+    if (!name) return res.status(400).json({ error: 'Missing name' })
+    if (!password || password.length < 6) return res.status(400).json({ error: 'Password too short' })
+    if (!vs) return res.status(400).json({ error: 'Missing vs' })
+    if (!Number.isFinite(amount) || amount <= 0) return res.status(400).json({ error: 'Invalid amountCZK' })
+
+    const animal = await prisma.animal.findUnique({
+      where: { id: animalId },
+      select: { id: true, jmeno: true, name: true },
+    })
     if (!animal) return res.status(404).json({ error: 'Animal not found' })
 
     const { token } = await ensureUserAndGetToken({ email, password, name })
 
+    const bankIban = process.env.BANK_IBAN || process.env.DOGPOINT_IBAN || ''
+    const bankName = process.env.BANK_NAME || 'Dogpoint'
+    const loginUrl = process.env.PATRON_LOGIN_URL || 'https://patron.dog-point.cz'
+
     const pdf = await generateNicePdf({
       animalId,
-      animalName: animal.jmeno || animal.name!,
-      amountCZK,
-      bankIban: process.env.BANK_IBAN!,
-      bankName: process.env.BANK_NAME || 'Dogpoint',
+      animalName: animal.jmeno || animal.name || 'Zvíře',
+      amountCZK: monthlyAmount, // ✅ normalized
+      bankIban,
+      bankName,
       vs,
       email,
       password,
-      loginUrl: process.env.PATRON_LOGIN_URL!,
+      loginUrl,
     })
 
     await sendPdfEmail({
@@ -312,15 +391,15 @@ router.post('/send-email', async (req: Request, res: Response) => {
       subject: 'Dogpoint – pokyny k bankovnímu převodu',
       filename: `dogpoint-${animalId}.pdf`,
       pdfBuffer: pdf,
-      loginUrl: process.env.PATRON_LOGIN_URL!,
+      loginUrl,
       email,
       password,
     })
 
-    res.json({ ok: true, token })
+    return res.json({ ok: true, token })
   } catch (e: any) {
     console.error('[adoption-bank/send-email]', e)
-    res.status(e.status || 500).json({ error: e.message })
+    return res.status(e?.status || 500).json({ error: e?.message || 'Failed' })
   }
 })
 
