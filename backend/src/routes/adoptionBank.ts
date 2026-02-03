@@ -12,12 +12,13 @@ const router = Router()
 /* ──────────────────────────────────────────────
  * Helpers: robust asset path resolution
  * Works in src and in dist, and on DO where cwd differs.
+ * PLUS: fallback to system DejaVu (apk add ttf-dejavu).
  * ──────────────────────────────────────────── */
 
 function firstExistingPath(candidates: string[]): string | null {
   for (const p of candidates) {
     try {
-      if (fs.existsSync(p)) return p
+      if (p && fs.existsSync(p)) return p
     } catch {}
   }
   return null
@@ -26,29 +27,35 @@ function firstExistingPath(candidates: string[]): string | null {
 /**
  * Resolve DejaVuSans.ttf in a way that works for:
  * - local dev (cwd repo root OR cwd backend/)
- * - production Docker/DO (cwd usually /app)
  * - compiled dist (where __dirname is dist/routes)
+ * - production Docker/DO (cwd usually /app)
+ * - Alpine system font paths (ttf-dejavu)
  */
 function resolveFontPath(): string {
   const candidates = [
-    // compiled (dist/routes -> ../../assets/fonts)
+    // compiled dist: dist/routes -> ../../assets/fonts
     path.resolve(__dirname, '../../assets/fonts/DejaVuSans.ttf'),
 
-    // local dev when running from backend/ (cwd = backend)
+    // local dev when running from backend/ (cwd=backend)
     path.resolve(process.cwd(), 'assets/fonts/DejaVuSans.ttf'),
 
-    // local dev when running from repo root (cwd = repo)
+    // local dev when running from repo root (cwd=repo)
     path.resolve(process.cwd(), 'backend/assets/fonts/DejaVuSans.ttf'),
 
-    // DO/Docker absolute (if you COPY assets -> /app/assets)
+    // DO/Docker absolute if you COPY assets -> /app/assets
     '/app/assets/fonts/DejaVuSans.ttf',
     '/app/backend/assets/fonts/DejaVuSans.ttf',
+
+    // ✅ Alpine system paths (install with: apk add ttf-dejavu)
+    '/usr/share/fonts/ttf-dejavu/DejaVuSans.ttf',
+    '/usr/share/fonts/dejavu/DejaVuSans.ttf',
+    '/usr/share/fonts/DejaVuSans.ttf',
   ]
 
   const found = firstExistingPath(candidates)
   if (!found) {
     throw new Error(
-      `PDF font not found. Put DejaVuSans.ttf into backend/assets/fonts/DejaVuSans.ttf (or dist/assets/fonts). Tried:\n- ${candidates.join(
+      `PDF font not found. Put DejaVuSans.ttf into backend/assets/fonts/DejaVuSans.ttf (or install ttf-dejavu). Tried:\n- ${candidates.join(
         '\n- ',
       )}`,
     )
@@ -116,7 +123,6 @@ async function generateNicePdf(args: {
   const fontPath = resolveFontPath()
   const logoPath = resolveLogoPath()
 
-  // optional runtime log (helps on DO)
   if (process.env.NODE_ENV === 'production') {
     console.log('[PDF] Font OK:', fontPath)
     if (logoPath) console.log('[PDF] Logo OK:', logoPath)
@@ -241,7 +247,7 @@ async function generateNicePdf(args: {
 }
 
 /* ──────────────────────────────────────────────
- * Email sender with logo + nicer copy
+ * Email sender
  * ──────────────────────────────────────────── */
 
 async function sendMailWithPdf(args: {
@@ -325,10 +331,69 @@ async function sendMailWithPdf(args: {
   })
 }
 
-/**
+/* ──────────────────────────────────────────────
+ * Internal auth helper (used for /start and /send-email)
+ * ──────────────────────────────────────────── */
+
+async function ensureUserAndGetToken(args: { email: string; password: string; name?: string }) {
+  const bcryptMod: any = await import('bcryptjs')
+  const bcrypt = bcryptMod.default || bcryptMod
+
+  const jwtMod: any = await import('jsonwebtoken')
+  const jwt = jwtMod.default || jwtMod
+
+  const JWT_SECRET = process.env.JWT_SECRET
+  if (!JWT_SECRET) throw new Error('JWT_SECRET missing')
+
+  const existing = await prisma.user.findUnique({ where: { email: args.email } })
+
+  let userId: string
+  if (!existing) {
+    const passwordHash = await bcrypt.hash(args.password, 10)
+    const created = await prisma.user.create({
+      data: {
+        email: args.email,
+        passwordHash,
+        role: 'USER' as any,
+        firstName: args.name || undefined,
+      } as any,
+      select: { id: true },
+    })
+    userId = created.id
+  } else {
+    userId = existing.id
+
+    const hasHash = Boolean((existing as any).passwordHash)
+    if (hasHash) {
+      const ok = await bcrypt.compare(args.password, (existing as any).passwordHash)
+      if (!ok) {
+        const err: any = new Error('Špatné heslo.')
+        err.status = 401
+        throw err
+      }
+    } else {
+      const passwordHash = await bcrypt.hash(args.password, 10)
+      await prisma.user.update({ where: { id: userId }, data: { passwordHash } as any })
+    }
+
+    if (!(existing as any).firstName && args.name) {
+      await prisma.user.update({ where: { id: userId }, data: { firstName: args.name } as any })
+    }
+  }
+
+  const token = jwt.sign({ sub: userId, id: userId, role: 'USER' }, JWT_SECRET, { expiresIn: '30d' })
+  return { userId, token }
+}
+
+/* ──────────────────────────────────────────────
  * POST /api/adoption-bank/start  (PUBLIC)
- * body: { animalId, amountCZK, name, email, password, vs }
- */
+ * body: { animalId, amountCZK, name, email, password, vs, sendEmail? }
+ *
+ * ✅ Backward-compatible:
+ * - default sendEmail=true (old behavior)
+ * - sendEmail=false enables 2-step UI: show instructions first, email later
+ * ──────────────────────────────────────────── */
+
 router.post('/start', async (req: Request, res: Response) => {
   try {
     const animalId = req.body?.animalId ? String(req.body.animalId) : ''
@@ -337,6 +402,7 @@ router.post('/start', async (req: Request, res: Response) => {
     const email = req.body?.email ? String(req.body.email).trim().toLowerCase() : ''
     const password = req.body?.password ? String(req.body.password) : ''
     const vs = req.body?.vs ? String(req.body.vs) : ''
+    const sendEmail = req.body?.sendEmail === undefined ? true : Boolean(req.body.sendEmail)
 
     if (!animalId) return res.status(400).json({ error: 'Missing animalId' })
     if (!email) return res.status(400).json({ error: 'Missing email' })
@@ -351,45 +417,16 @@ router.post('/start', async (req: Request, res: Response) => {
     })
     if (!animal) return res.status(404).json({ error: 'Animal not found' })
 
-    const bcryptMod: any = await import('bcryptjs')
-    const bcrypt = bcryptMod.default || bcryptMod
-
-    const jwtMod: any = await import('jsonwebtoken')
-    const jwt = jwtMod.default || jwtMod
-
-    const JWT_SECRET = process.env.JWT_SECRET
-    if (!JWT_SECRET) return res.status(500).json({ error: 'JWT_SECRET missing' })
-
-    const existing = await prisma.user.findUnique({ where: { email } })
-
+    // ensure user + token
     let userId: string
-    if (!existing) {
-      const passwordHash = await bcrypt.hash(password, 10)
-      const created = await prisma.user.create({
-        data: {
-          email,
-          passwordHash,
-          role: 'USER' as any,
-          firstName: name,
-        } as any,
-        select: { id: true },
-      })
-      userId = created.id
-    } else {
-      userId = existing.id
-
-      const hasHash = Boolean((existing as any).passwordHash)
-      if (hasHash) {
-        const ok = await bcrypt.compare(password, (existing as any).passwordHash)
-        if (!ok) return res.status(401).json({ error: 'Špatné heslo.' })
-      } else {
-        const passwordHash = await bcrypt.hash(password, 10)
-        await prisma.user.update({ where: { id: userId }, data: { passwordHash } as any })
-      }
-
-      if (!(existing as any).firstName && name) {
-        await prisma.user.update({ where: { id: userId }, data: { firstName: name } as any })
-      }
+    let token: string
+    try {
+      const auth = await ensureUserAndGetToken({ email, password, name })
+      userId = auth.userId
+      token = auth.token
+    } catch (e: any) {
+      const status = e?.status || 500
+      return res.status(status).json({ error: e?.message || 'Auth failed' })
     }
 
     const monthlyAmount = Math.round(amountCZK)
@@ -418,10 +455,10 @@ router.post('/start', async (req: Request, res: Response) => {
           monthlyAmount,
           provider,
 
-          // ✅ timeline fields (critical for cron)
           pendingSince: now,
           tempAccessUntil,
-          // IMPORTANT: use undefined rather than null for strict Prisma typings
+
+          // Prisma strict: do not write null unless your schema is nullable
           graceUntil: undefined,
           reminderSentAt: undefined,
           reminderCount: 0,
@@ -439,10 +476,9 @@ router.post('/start', async (req: Request, res: Response) => {
           monthlyAmount,
           provider,
 
-          // ✅ timeline fields (critical for cron)
           pendingSince: now,
           tempAccessUntil,
-          // IMPORTANT: use undefined rather than null for strict Prisma typings
+
           graceUntil: undefined,
           reminderSentAt: undefined,
           reminderCount: 0,
@@ -452,8 +488,93 @@ router.post('/start', async (req: Request, res: Response) => {
       subscriptionId = created.id
     }
 
-    const token = jwt.sign({ sub: userId, id: userId, role: 'USER' }, JWT_SECRET, { expiresIn: '30d' })
+    // Bank constants
+    const bankIban = process.env.BANK_IBAN || process.env.DOGPOINT_IBAN || 'CZ6508000000001234567899'
+    const bankName = process.env.BANK_NAME || 'Dogpoint o.p.s.'
+    const animalName = animal.jmeno || animal.name || 'Zvíře'
+    const loginUrl = process.env.PATRON_LOGIN_URL || 'https://patron.dog-point.cz'
 
+    // optional email now (old flow)
+    if (sendEmail) {
+      const pdfBuffer = await generateNicePdf({
+        animalId,
+        animalName,
+        amountCZK: monthlyAmount,
+        bankIban,
+        bankName,
+        vs,
+        email,
+        password,
+        loginUrl,
+      })
+
+      await sendMailWithPdf({
+        to: email,
+        subject: 'Děkujeme za adopci – pokyny k bankovnímu převodu',
+        filename: `dogpoint-adopce-${animalId}.pdf`,
+        pdfBuffer,
+        loginUrl,
+        email,
+        password,
+      })
+    }
+
+    return res.json({
+      ok: true,
+      token,
+      userId,
+      subscriptionId,
+      bankIban,
+      bankName,
+      vs,
+      amountCZK: monthlyAmount,
+      sendEmail,
+    })
+  } catch (e: any) {
+    console.error('[adoption-bank/start] error:', e?.message || e)
+    return res.status(500).json({ error: e?.message || 'Failed to start bank adoption' })
+  }
+})
+
+/* ──────────────────────────────────────────────
+ * POST /api/adoption-bank/send-email (PUBLIC)
+ * body: { animalId, amountCZK, name, email, password, vs }
+ * Used for the 2-step UI button: "Send me the payment details by E-mail"
+ * ──────────────────────────────────────────── */
+
+router.post('/send-email', async (req: Request, res: Response) => {
+  try {
+    const animalId = req.body?.animalId ? String(req.body.animalId) : ''
+    const amountCZK = Number(req.body?.amountCZK || 0)
+    const name = req.body?.name ? String(req.body.name) : ''
+    const email = req.body?.email ? String(req.body.email).trim().toLowerCase() : ''
+    const password = req.body?.password ? String(req.body.password) : ''
+    const vs = req.body?.vs ? String(req.body.vs) : ''
+
+    if (!animalId) return res.status(400).json({ error: 'Missing animalId' })
+    if (!email) return res.status(400).json({ error: 'Missing email' })
+    if (!name) return res.status(400).json({ error: 'Missing name' })
+    if (!password || password.length < 6) return res.status(400).json({ error: 'Password too short' })
+    if (!vs) return res.status(400).json({ error: 'Missing vs' })
+    if (!Number.isFinite(amountCZK) || amountCZK <= 0) return res.status(400).json({ error: 'Invalid amountCZK' })
+
+    const animal = await prisma.animal.findUnique({
+      where: { id: animalId },
+      select: { id: true, jmeno: true, name: true },
+    })
+    if (!animal) return res.status(404).json({ error: 'Animal not found' })
+
+    // verify user password (and return token as convenience)
+    let token: string
+    try {
+      const auth = await ensureUserAndGetToken({ email, password, name })
+      token = auth.token
+    } catch (e: any) {
+      const status = e?.status || 500
+      return res.status(status).json({ error: e?.message || 'Auth failed' })
+    }
+
+    const monthlyAmount = Math.round(amountCZK)
     const bankIban = process.env.BANK_IBAN || process.env.DOGPOINT_IBAN || 'CZ6508000000001234567899'
     const bankName = process.env.BANK_NAME || 'Dogpoint o.p.s.'
     const animalName = animal.jmeno || animal.name || 'Zvíře'
@@ -481,10 +602,10 @@ router.post('/start', async (req: Request, res: Response) => {
       password,
     })
 
-    return res.json({ ok: true, token, userId, subscriptionId })
+    return res.json({ ok: true, token })
   } catch (e: any) {
-    console.error('[adoption-bank/start] error:', e?.message || e)
-    return res.status(500).json({ error: e?.message || 'Failed to start bank adoption' })
+    console.error('[adoption-bank/send-email] error:', e?.message || e)
+    return res.status(500).json({ error: e?.message || 'Failed to send email' })
   }
 })
 

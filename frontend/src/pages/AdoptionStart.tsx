@@ -21,7 +21,9 @@ import QRCode from 'qrcode'
 import {
   createCheckoutSession,
   stashPendingEmail,
-  startBankAdoptionAndSendPdf,
+  startBankAdoption,          // ✅ NEW
+  sendBankPaymentEmail,       // ✅ NEW
+  startBankAdoptionAndSendPdf, // (kept; not used in 2-step flow)
   setToken,
 } from '../services/api'
 import { useAuth } from '../context/AuthContext'
@@ -37,6 +39,10 @@ function moneyCZK(amountCZK: number): string {
   return `${amountCZK.toFixed(2)}`
 }
 
+/**
+ * SPAYD format (CZ):
+ * SPD*1.0*ACC:<IBAN>*AM:<amount>*CC:CZK*X-VS:<vs>*MSG:<message>
+ */
 function buildSpayd(params: { iban: string; amountCZK: number; vs: string; message?: string }): string {
   const iban = params.iban.replace(/\s+/g, '').toUpperCase()
   const parts: string[] = [
@@ -46,11 +52,13 @@ function buildSpayd(params: { iban: string; amountCZK: number; vs: string; messa
     'CC:CZK',
     `X-VS:${params.vs}`,
   ]
+
   const msg = (params.message || '').trim()
   if (msg) {
     const safe = msg.replace(/\*/g, ' ').slice(0, 60)
     parts.push(`MSG:${safe}`)
   }
+
   return parts.join('*')
 }
 
@@ -83,11 +91,12 @@ export default function AdoptionStart() {
   const amountCZK = React.useMemo(() => parseInt(search.get('amount') || '200', 10) || 200, [search])
 
   // -------------------------
-  // BANK FLOW
+  // BANK FLOW (2-step)
   // -------------------------
   const [bankVS, setBankVS] = React.useState<string>(() => generateVS())
   const [qrDataUrl, setQrDataUrl] = React.useState<string>('')
   const [bankStarted, setBankStarted] = React.useState(false)
+  const [bankBusy, setBankBusy] = React.useState(false)
 
   const bankIban = (import.meta as any).env?.VITE_BANK_IBAN as string | undefined
   const bankName = (import.meta as any).env?.VITE_BANK_NAME as string | undefined
@@ -106,13 +115,15 @@ export default function AdoptionStart() {
     })
   }, [bankIban, amountCZK, bankVS, bankMessage])
 
-  // regenerate QR only when bankStarted (don’t do it before user clicks)
+  // generate QR only when bankStarted (don’t do it before user clicks)
   React.useEffect(() => {
     let cancelled = false
+
     async function run() {
       if (paymentMethod !== 'bank') return
       if (!bankStarted) return
       if (!spayd) return
+
       try {
         const url = await QRCode.toDataURL(spayd, { errorCorrectionLevel: 'M', margin: 1, scale: 6 })
         if (!cancelled) setQrDataUrl(url)
@@ -120,16 +131,19 @@ export default function AdoptionStart() {
         if (!cancelled) setQrDataUrl('')
       }
     }
+
     run()
     return () => {
       cancelled = true
     }
   }, [paymentMethod, bankStarted, spayd])
 
-  // when switching payment method, reset bankStarted
+  // when switching payment method, reset bank state
   React.useEffect(() => {
     setErr(null)
     setLoading(false)
+    setBankBusy(false)
+
     if (paymentMethod !== 'bank') {
       setBankStarted(false)
       setQrDataUrl('')
@@ -146,7 +160,7 @@ export default function AdoptionStart() {
     return null
   }
 
-  // ✅ unified “I WANT TO PAY” action (Stripe or Bank)
+  // ✅ unified “CHCI ZAPLATIT” action (Stripe or Bank)
   const onPay = async () => {
     const v = validateInputs()
     if (v) {
@@ -161,8 +175,8 @@ export default function AdoptionStart() {
       stashPendingEmail(email)
 
       if (paymentMethod === 'bank') {
-        // 1) call backend to start bank adoption + send PDF
-        const resp = await startBankAdoptionAndSendPdf({
+        // STEP 1: start bank adoption (NO email here)
+        const resp = await startBankAdoption({
           animalId: id as string,
           amountCZK,
           name: firstName,
@@ -171,15 +185,13 @@ export default function AdoptionStart() {
           vs: bankVS,
         })
 
-        // optional: if backend returns token in future, store it
         if ((resp as any)?.token) setToken((resp as any).token)
 
-        // 2) show the bank instructions block
-        setBankStarted(true)
+        setBankStarted(true) // show instructions below
         return
       }
 
-      // Stripe (card / apple / google): your existing checkout session
+      // Stripe (card / apple / google)
       const session = await createCheckoutSession({
         animalId: id as string,
         amountCZK,
@@ -191,11 +203,38 @@ export default function AdoptionStart() {
       if (!session || !session.url) throw new Error('Server nevrátil odkaz na platbu.')
       window.location.href = session.url
     } catch (e: any) {
-      const msg =
-        (e?.response?.data?.error || e?.message || '').toString() || 'Nepodařilo se spustit platbu.'
-      setErr(msg)
+      const msg = (e?.response?.data?.error || e?.message || '').toString()
+      setErr(msg || 'Nepodařilo se spustit platbu.')
     } finally {
       setLoading(false)
+    }
+  }
+
+  // ✅ STEP 2a: user confirms they paid -> forward to adopted animal
+  const onIHavePaid = () => {
+    if (!id) return
+    navigate(`/zvire/${id}?bank=paid`)
+  }
+
+  // ✅ STEP 2b: send details by email -> forward to adopted animal
+  const onSendEmail = async () => {
+    if (!id) return
+
+    setErr(null)
+    setBankBusy(true)
+    try {
+      await sendBankPaymentEmail({
+        animalId: id,
+        amountCZK,
+        email,
+        vs: bankVS,
+      })
+      navigate(`/zvire/${id}?bank=email`)
+    } catch (e: any) {
+      const msg = (e?.response?.data?.error || e?.message || '').toString()
+      setErr(msg || 'Nepodařilo se odeslat e-mail.')
+    } finally {
+      setBankBusy(false)
     }
   }
 
@@ -243,6 +282,7 @@ export default function AdoptionStart() {
           required
           value={email}
           onChange={(e) => setEmail(e.target.value)}
+          disabled={loading || bankStarted} // ✅ lock after start
         />
         <TextField
           label="Jméno"
@@ -250,6 +290,7 @@ export default function AdoptionStart() {
           required
           value={firstName}
           onChange={(e) => setFirstName(e.target.value)}
+          disabled={loading || bankStarted}
         />
         <TextField
           label="Heslo pro účet"
@@ -259,6 +300,7 @@ export default function AdoptionStart() {
           helperText="Minimálně 6 znaků. Po platbě se s tímto heslem přihlásíš."
           value={password}
           onChange={(e) => setPassword(e.target.value)}
+          disabled={loading || bankStarted}
         />
       </Stack>
 
@@ -268,7 +310,7 @@ export default function AdoptionStart() {
 
       {/* ✅ Primary CTA always visible (Stripe-style) */}
       <Stack spacing={2} sx={{ mt: 2 }}>
-        <Button variant="contained" disabled={loading} onClick={onPay}>
+        <Button variant="contained" disabled={loading || (showBank && bankStarted)} onClick={onPay}>
           {loading ? 'Zpracovávám…' : 'CHCI ZAPLATIT'}
         </Button>
 
@@ -348,7 +390,12 @@ export default function AdoptionStart() {
 
             {qrDataUrl && (
               <Box sx={{ mt: 1, display: 'flex', justifyContent: 'center' }}>
-                <Box component="img" src={qrDataUrl} alt="QR SPAYD" sx={{ width: 220, height: 220, borderRadius: 2 }} />
+                <Box
+                  component="img"
+                  src={qrDataUrl}
+                  alt="QR SPAYD"
+                  sx={{ width: 220, height: 220, borderRadius: 2 }}
+                />
               </Box>
             )}
           </Stack>
@@ -356,6 +403,17 @@ export default function AdoptionStart() {
           <Alert severity="info" sx={{ mt: 2 }}>
             Tip: Po zaplacení převodem se adopce spáruje automaticky (import z Fio).
           </Alert>
+
+          {/* ✅ END: exactly 2 buttons */}
+          <Stack spacing={1.5} sx={{ mt: 2 }}>
+            <Button variant="contained" onClick={onIHavePaid}>
+              I PAID
+            </Button>
+
+            <Button variant="outlined" disabled={bankBusy} onClick={onSendEmail}>
+              {bankBusy ? 'Odesílám…' : 'Send me the payment details by E-mail'}
+            </Button>
+          </Stack>
         </Paper>
       )}
     </Container>

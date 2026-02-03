@@ -321,14 +321,46 @@ export async function createCheckoutSession(params: {
 }
 
 /* =========================================================
-   Bank transfer: send PDF + start 30 days access
+   Bank transfer: 2-step flow
 ========================================================= */
 
 /**
- * Starts adoption (bank transfer) and sends PDF instructions by email.
- * Backend endpoint should exist: POST /api/adoption/bank/start
- *
- * NOTE: Uses postJSON (fetch-based), NOT axios.
+ * STEP 1: starts bank adoption WITHOUT sending email.
+ * Backend should accept sendEmail=false and return { token }.
+ */
+export async function startBankAdoption(payload: {
+  animalId: string
+  amountCZK: number
+  name: string
+  email: string
+  password: string
+  vs: string
+}) {
+  return postJSON<{ ok: boolean; token?: string; userId?: string; subscriptionId?: string; accessUntil?: string }>(
+    '/api/adoption-bank/start',
+    { ...payload, sendEmail: false }
+  )
+}
+
+/**
+ * STEP 2: send payment details by email (PDF).
+ * Backend endpoint: POST /api/adoption-bank/send-email
+ */
+export async function sendBankPaymentEmail(payload: {
+  animalId: string
+  amountCZK: number
+  email: string
+  vs: string
+}) {
+  return postJSON<{ ok: boolean }>(
+    '/api/adoption-bank/send-email',
+    payload
+  )
+}
+
+/**
+ * Back-compat: starts adoption and sends PDF in one call (older flow).
+ * (kept unchanged)
  */
 export async function startBankAdoptionAndSendPdf(payload: {
   animalId: string
@@ -412,10 +444,6 @@ export type MyAdoptedItem = {
   status?: 'ACTIVE' | 'PENDING' | 'CANCELED'
 }
 
-/**
- * Normalize subscription/adoption objects coming from backend.
- * We accept many shapes because backend may evolve.
- */
 function normalizeToMyAdoptedItem(x: any): MyAdoptedItem | null {
   if (!x) return null
 
@@ -445,12 +473,6 @@ function normalizeToMyAdoptedItem(x: any): MyAdoptedItem | null {
   }
 }
 
-/**
- * ✅ REPAIRED:
- * - Do not trust only /api/adoption/my (it may filter ACTIVE/active=true too hard).
- * - Merge with /api/auth/me subscriptions.
- * - Dedupe by animalId and keep best status.
- */
 export async function myAdoptedAnimals(): Promise<MyAdoptedItem[]> {
   const byAnimal = new Map<string, MyAdoptedItem>()
 
@@ -468,11 +490,9 @@ export async function myAdoptedAnimals(): Promise<MyAdoptedItem[]> {
       byAnimal.set(it.animalId, it)
       return
     }
-    // keep the "best" status + prefer richer data
     const best = rank(it.status) > rank(prev.status) ? it : prev
     byAnimal.set(it.animalId, {
       ...best,
-      // merge missing fields from the other
       title: best.title || (best === it ? prev.title : it.title),
       main: best.main || (best === it ? prev.main : it.main),
       since: best.since || (best === it ? prev.since : it.since),
@@ -481,37 +501,30 @@ export async function myAdoptedAnimals(): Promise<MyAdoptedItem[]> {
     })
   }
 
-  // 1) Try adoption endpoint (may be filtered hard)
   try {
     const raw = await getJSON<any[]>('/api/adoption/my')
     for (const x of raw || []) put(normalizeToMyAdoptedItem(x))
   } catch (e: any) {
-    // ignore; we’ll still use /me below
     const msg = String(e?.message || '')
-    // If it is something other than 404, still continue with /me (don’t throw yet)
     if (!/404/.test(msg)) {
       // no-op
     }
   }
 
-  // 2) Always merge with /me subscriptions (usually less filtered)
   try {
     const m = await me()
     const subs = (m.subscriptions || []) as any[]
     for (const s of subs) {
-      // only keep relevant statuses
       const st = (s.status || 'ACTIVE') as string
       if (st === 'CANCELED') continue
       if (!(st === 'ACTIVE' || st === 'PENDING')) continue
       put(normalizeToMyAdoptedItem(s))
     }
   } catch {
-    // ignore; if both fail, we’ll return []
+    // ignore
   }
 
-  // 3) Final list: remove canceled, sort by status (ACTIVE first)
   const out = Array.from(byAnimal.values()).filter((it) => it.status !== 'CANCELED')
-
   out.sort((a, b) => rank(b.status) - rank(a.status))
   return out
 }
@@ -670,8 +683,12 @@ const api = {
   claimPaid,
   confirmStripeSession,
   createCheckoutSession,
-  // ✅ include new helper in default export as well (optional)
+
+  // ✅ bank: both flows available
+  startBankAdoption,
+  sendBankPaymentEmail,
   startBankAdoptionAndSendPdf,
+
   stashPendingEmail,
   popPendingEmail,
   fetchAnimal,
