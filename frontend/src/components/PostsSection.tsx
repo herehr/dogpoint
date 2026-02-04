@@ -24,6 +24,7 @@ import DeleteIcon from '@mui/icons-material/Delete'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import CloseIcon from '@mui/icons-material/Close'
+import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline'
 
 import { useAccess } from '../context/AccessContext'
 import { useAuth } from '../context/AuthContext'
@@ -96,6 +97,111 @@ type LightboxItem = {
   title?: string
 }
 
+// ─────────────────────────────────────────────────────────────
+// Shape detection + caching (portrait/landscape/square)
+// ─────────────────────────────────────────────────────────────
+type Shape = 'portrait' | 'landscape' | 'square'
+const SHAPE_STORAGE_KEY = 'dogpoint_posts_media_shapes_v1'
+
+function safeLoadShapes(): Record<string, Shape> {
+  try {
+    if (typeof window === 'undefined') return {}
+    const raw = window.localStorage.getItem(SHAPE_STORAGE_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as Record<string, Shape>
+    if (!parsed || typeof parsed !== 'object') return {}
+    return parsed
+  } catch {
+    return {}
+  }
+}
+
+function safeSaveShapes(map: Record<string, Shape>) {
+  try {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem(SHAPE_STORAGE_KEY, JSON.stringify(map))
+  } catch {
+    // ignore
+  }
+}
+
+function shapeFromWH(w: number, h: number): Shape {
+  if (!w || !h) return 'landscape'
+  const r = w / h
+  if (r > 1.15) return 'landscape'
+  if (r < 0.87) return 'portrait'
+  return 'square'
+}
+
+function stripCacheBuster(u: string): string {
+  // keep URL stable for caching shapes (ignore ?v=123)
+  try {
+    const url = new URL(u, typeof window !== 'undefined' ? window.location.href : 'https://x.local')
+    url.searchParams.delete('v')
+    return url.toString()
+  } catch {
+    // fallback
+    return String(u || '').replace(/[?&]v=\d+/, '')
+  }
+}
+
+function detectImageShape(url: string, timeoutMs = 8000): Promise<Shape> {
+  return new Promise((resolve) => {
+    const img = new Image()
+    let done = false
+
+    const finish = (s: Shape) => {
+      if (done) return
+      done = true
+      resolve(s)
+    }
+
+    const t = window.setTimeout(() => finish('landscape'), timeoutMs)
+
+    img.onload = () => {
+      window.clearTimeout(t)
+      finish(shapeFromWH((img as any).naturalWidth || 0, (img as any).naturalHeight || 0))
+    }
+    img.onerror = () => {
+      window.clearTimeout(t)
+      finish('landscape')
+    }
+
+    img.src = url
+  })
+}
+
+function detectVideoShape(url: string, timeoutMs = 9000): Promise<Shape> {
+  return new Promise((resolve) => {
+    const v = document.createElement('video')
+    let done = false
+
+    const finish = (s: Shape) => {
+      if (done) return
+      done = true
+      resolve(s)
+    }
+
+    const t = window.setTimeout(() => finish('landscape'), timeoutMs)
+
+    v.preload = 'metadata'
+    v.muted = true
+    ;(v as any).playsInline = true
+
+    v.onloadedmetadata = () => {
+      window.clearTimeout(t)
+      finish(shapeFromWH(v.videoWidth || 0, v.videoHeight || 0))
+    }
+    v.onerror = () => {
+      window.clearTimeout(t)
+      finish('landscape')
+    }
+
+    // use direct src to work in Safari/iOS
+    v.src = url
+  })
+}
+
 export default function PostsSection({ animalId }: { animalId: string }) {
   const { hasAccess } = useAccess()
   const { role } = useAuth()
@@ -155,6 +261,60 @@ export default function PostsSection({ animalId }: { animalId: string }) {
   function closeLightbox() {
     setLb(null)
   }
+
+  // ─────────────────────────────────────────────────────────────
+  // Shape cache
+  // ─────────────────────────────────────────────────────────────
+  const [shapeByUrl, setShapeByUrl] = useState<Record<string, Shape>>(() => safeLoadShapes())
+
+  useEffect(() => {
+    safeSaveShapes(shapeByUrl)
+  }, [shapeByUrl])
+
+  async function ensureShape(url: string, isVid: boolean) {
+    if (typeof window === 'undefined') return
+    const stable = stripCacheBuster(url)
+    if (!stable) return
+    if (shapeByUrl[stable]) return
+
+    try {
+      const s = isVid ? await detectVideoShape(stable) : await detectImageShape(stable)
+      setShapeByUrl((prev) => (prev[stable] ? prev : { ...prev, [stable]: s }))
+    } catch {
+      setShapeByUrl((prev) => (prev[stable] ? prev : { ...prev, [stable]: 'landscape' }))
+    }
+  }
+
+  // detect shapes for visible media (posts + composer + edit)
+  useEffect(() => {
+    const urls: Array<{ url: string; isVideo: boolean }> = []
+
+    // posts
+    for (const p of posts || []) {
+      for (const m of p.media || []) {
+        const isVid = isVideoMedia(m)
+        if (m.url) urls.push({ url: m.url, isVideo: isVid })
+      }
+    }
+
+    // composer
+    for (const m of media || []) {
+      const isVid = isVideoUrl(m.url) || m.type === 'video'
+      urls.push({ url: m.url, isVideo: isVid })
+    }
+
+    // edit new media
+    for (const m of editNewMedia || []) {
+      const isVid = isVideoUrl(m.url) || m.type === 'video'
+      urls.push({ url: m.url, isVideo: isVid })
+    }
+
+    // fire and forget
+    urls.forEach((x) => {
+      void ensureShape(x.url, x.isVideo)
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [posts, media, editNewMedia])
 
   // ─────────────────────────────────────────────────────────────
   // Load posts (public)
@@ -234,6 +394,10 @@ export default function PostsSection({ animalId }: { animalId: string }) {
           type: json?.type || guessTypeFromUrl(url),
           poster: poster ? `${poster}${poster.includes('?') ? '&' : '?'}v=${now}` : null,
         }
+
+        // prime shape cache immediately (stable url without ?v)
+        const isVid = item.type === 'video' || isVideoUrl(item.url)
+        void ensureShape(item.url, isVid)
 
         if (into === 'new') setMedia((m) => [...m, item])
         else setEditNewMedia((m) => [...m, item])
@@ -464,75 +628,113 @@ export default function PostsSection({ animalId }: { animalId: string }) {
   }
 
   // ─────────────────────────────────────────────────────────────
-  // Media thumb component (portrait-safe)
+  // Media thumb component (auto portrait/landscape + blurred bg + play overlay)
   // ─────────────────────────────────────────────────────────────
-   function MediaThumb({
-  url,
-  isVideo,
-  poster,
-  onOpen,
-}: {
-  url: string
-  isVideo: boolean
-  poster?: string
-  onOpen: () => void
-}) {
-  const isXs = useMediaQuery('(max-width:600px)')
+  function MediaThumb({
+    url,
+    isVideo,
+    poster,
+    onOpen,
+  }: {
+    url: string
+    isVideo: boolean
+    poster?: string
+    onOpen: () => void
+  }) {
+    const stable = stripCacheBuster(url)
+    const shape = shapeByUrl[stable] || 'landscape'
+    const aspectRatio =
+      shape === 'portrait' ? '3 / 4' : shape === 'square' ? '1 / 1' : '4 / 3'
 
-  return (
-    <Box
-      onClick={onOpen}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') onOpen()
-      }}
-      sx={{
-        width: '100%',
-        // ✅ portrait-friendly: use aspect ratio instead of fixed height
-        aspectRatio: isXs ? '3 / 4' : '4 / 3',
-        bgcolor: '#000',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        cursor: 'pointer',
-        userSelect: 'none',
-        overflow: 'hidden',
-        borderRadius: 2,
-      }}
-    >
-      {isVideo ? (
+    const bgSrc = (isVideo ? poster : url) || url
+    const fit = shape === 'portrait' ? 'contain' : 'cover'
+
+    return (
+      <Box
+        onClick={onOpen}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') onOpen()
+        }}
+        sx={{
+          position: 'relative',
+          width: '100%',
+          aspectRatio,
+          bgcolor: '#000',
+          cursor: 'pointer',
+          userSelect: 'none',
+          overflow: 'hidden',
+        }}
+      >
+        {/* Blurred background (helps portrait media look great) */}
         <Box
-          component="video"
-          muted
-          playsInline
-          preload="metadata"
-          poster={poster}
           sx={{
-            width: '100%',
-            height: '100%',
-            // ✅ fills the portrait frame nicely
-            objectFit: 'cover',
-            display: 'block',
+            position: 'absolute',
+            inset: 0,
+            backgroundImage: `url(${bgSrc})`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            filter: 'blur(14px)',
+            transform: 'scale(1.15)',
+            opacity: 0.55,
           }}
         />
-      ) : (
-        <Box
-          component="img"
-          src={url}
-          alt=""
-          sx={{
-            width: '100%',
-            height: '100%',
-            // ✅ fills the portrait frame nicely
-            objectFit: 'cover',
-            display: 'block',
-          }}
-        />
-      )}
-    </Box>
-  )
-}
+
+        {/* Foreground media */}
+        {isVideo ? (
+          <Box
+            component="video"
+            // best compatibility across iOS/Android/Desktop:
+            src={url}
+            muted
+            playsInline
+            preload="metadata"
+            poster={poster}
+            controls={false}
+            sx={{
+              position: 'absolute',
+              inset: 0,
+              width: '100%',
+              height: '100%',
+              objectFit: fit,
+              display: 'block',
+            }}
+          />
+        ) : (
+          <Box
+            component="img"
+            src={url}
+            alt=""
+            sx={{
+              position: 'absolute',
+              inset: 0,
+              width: '100%',
+              height: '100%',
+              objectFit: fit,
+              display: 'block',
+            }}
+          />
+        )}
+
+        {/* Video play overlay */}
+        {isVideo && (
+          <Box
+            sx={{
+              position: 'absolute',
+              inset: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              pointerEvents: 'none',
+            }}
+          >
+            <PlayCircleOutlineIcon sx={{ fontSize: 58, color: 'rgba(255,255,255,0.92)' }} />
+          </Box>
+        )}
+      </Box>
+    )
+  }
 
   // ─────────────────────────────────────────────────────────────
   // Render
@@ -826,15 +1028,14 @@ export default function PostsSection({ animalId }: { animalId: string }) {
               playsInline
               preload="metadata"
               poster={lb.poster}
+              src={lb.url}
               sx={{
                 width: '100%',
                 maxHeight: isMdUp ? '70vh' : '60vh',
                 objectFit: 'contain',
                 display: 'block',
               }}
-            >
-              <source src={lb.url} type={guessVideoMime(lb.url)} />
-            </Box>
+            />
           ) : (
             <Box
               component="img"
