@@ -436,7 +436,7 @@ router.get('/animals', async (_req: Request, res: Response) => {
 })
 
 // ───────────────────────────────────────────────────────────────
-// 5) OPTIONAL: ADOPTIONS OVERVIEW (promised vs cashed)
+// 5) ADOPTIONS OVERVIEW (promised vs cashed)
 // GET /api/admin/stats/adoptions/overview
 // ───────────────────────────────────────────────────────────────
 router.get('/adoptions/overview', async (_req: Request, res: Response) => {
@@ -470,7 +470,78 @@ router.get('/adoptions/overview', async (_req: Request, res: Response) => {
 })
 
 // ───────────────────────────────────────────────────────────────
-// 6) CSV EXPORT (UTF-8) users + address + adopted animals
+// 6) CSV EXPORT (frontend expects this exact endpoint)
+// GET /api/admin/stats/adoptions/export.csv
+// ───────────────────────────────────────────────────────────────
+router.get('/adoptions/export.csv', async (_req: Request, res: Response) => {
+  try {
+    const subs = await prisma.subscription.findMany({
+      where: {
+        status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.PENDING] },
+      },
+      include: {
+        user: true,
+        animal: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    })
+
+    const header = [
+      'email',
+      'firstName',
+      'lastName',
+      'street',
+      'streetNo',
+      'zip',
+      'city',
+      'animal',
+      'status',
+      'monthlyAmount',
+      'currency',
+      'provider',
+      'variableSymbol',
+      'createdAt',
+    ].join(';')
+
+    const lines: string[] = [header]
+
+    for (const r of subs) {
+      const animalName = r.animal?.jmeno || r.animal?.name || r.animal?.id || ''
+      lines.push(
+        [
+          csvEscape(r.user?.email),
+          csvEscape(r.user?.firstName),
+          csvEscape(r.user?.lastName),
+          csvEscape(r.user?.street),
+          csvEscape(r.user?.streetNo),
+          csvEscape(r.user?.zip),
+          csvEscape(r.user?.city),
+          csvEscape(animalName),
+          csvEscape(r.status),
+          csvEscape(r.monthlyAmount),
+          csvEscape(r.currency),
+          csvEscape(r.provider),
+          csvEscape(r.variableSymbol),
+          csvEscape(r.createdAt?.toISOString?.() ? r.createdAt.toISOString() : r.createdAt),
+        ].join(';')
+      )
+    }
+
+    // ✅ UTF-8 with BOM for Excel compatibility
+    const csv = '\uFEFF' + lines.join('\n')
+    const today = new Date().toISOString().slice(0, 10)
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8')
+    res.setHeader('Content-Disposition', `attachment; filename="dogpoint-adopce-${today}.csv"`)
+    return res.status(200).send(csv)
+  } catch (e: any) {
+    console.error('GET /api/admin/stats/adoptions/export.csv error', e)
+    return res.status(500).json({ error: 'internal error' })
+  }
+})
+
+// ───────────────────────────────────────────────────────────────
+// 7) OPTIONAL LEGACY CSV EXPORT (keep if you still use it somewhere)
 // GET /api/admin/stats/adopters.csv
 // ───────────────────────────────────────────────────────────────
 router.get('/adopters.csv', async (_req: Request, res: Response) => {
