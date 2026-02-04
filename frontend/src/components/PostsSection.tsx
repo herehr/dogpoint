@@ -541,12 +541,148 @@ export default function PostsSection({ animalId }: { animalId: string }) {
         </Alert>
       )}
 
+      {/* ✅ Composer FIRST (Admin/Moderator) */}
+      {canWrite && (
+        <Box
+          component="form"
+          onSubmit={onSubmit}
+          sx={{
+            mb: 2,
+            p: 1.5,
+            border: '1px solid',
+            borderColor: 'divider',
+            borderRadius: 2,
+          }}
+        >
+          <Stack spacing={2}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>
+              Nový příspěvek
+            </Typography>
+
+            {/* Upload */}
+            <Stack spacing={1}>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center">
+                <Button onClick={() => fileInputRef.current?.click()} startIcon={<UploadIcon />} variant="outlined">
+                  Vybrat soubory
+                </Button>
+                <input ref={fileInputRef} type="file" hidden multiple accept="image/*,video/*" onChange={onPickFiles} />
+
+                <Button onClick={() => cameraInputRef.current?.click()} startIcon={<PhotoCameraIcon />} variant="outlined">
+                  Vyfotit (telefon)
+                </Button>
+                <input
+                  ref={cameraInputRef}
+                  type="file"
+                  hidden
+                  accept="image/*"
+                  {...(isMobile ? ({ capture: 'environment' } as any) : {})}
+                  onChange={onPickCamera}
+                />
+              </Stack>
+
+              <Box
+                onDrop={onDrop}
+                onDragOver={onDragOver}
+                sx={{
+                  mt: 1,
+                  p: 2,
+                  border: '2px dashed',
+                  borderColor: 'divider',
+                  borderRadius: 2,
+                  textAlign: 'center',
+                  color: 'text.secondary',
+                  cursor: 'copy',
+                  userSelect: 'none',
+                }}
+              >
+                Přetáhněte sem fotografie nebo videa
+              </Box>
+
+              {uploading && (
+                <Stack spacing={1} sx={{ mt: 1 }}>
+                  <LinearProgress />
+                  <Typography variant="caption" color="text.secondary">
+                    {uploadNote}
+                  </Typography>
+                </Stack>
+              )}
+
+              {media.length > 0 && (
+                <Grid container spacing={1.5} sx={{ mt: 1 }}>
+                  {media.map((m, i) => {
+                    const isVideo = isVideoMedia(m)
+                    return (
+                      <Grid item xs={6} sm={4} md={3} key={`${m.url}-${i}`}>
+                        <Box
+                          sx={{
+                            position: 'relative',
+                            border: '1px solid',
+                            borderColor: 'divider',
+                            borderRadius: 2,
+                            overflow: 'hidden',
+                          }}
+                        >
+                          <MediaThumb
+                            url={m.url}
+                            isVideo={isVideo}
+                            poster={m.poster || undefined}
+                            onOpen={() =>
+                              openLightbox({
+                                url: m.url,
+                                isVideo,
+                                poster: m.poster || undefined,
+                                title: title || 'Média',
+                              })
+                            }
+                          />
+
+                          <Tooltip title="Odebrat">
+                            <IconButton
+                              size="small"
+                              onClick={() => removeMediaIndex(i)}
+                              sx={{
+                                position: 'absolute',
+                                top: 6,
+                                right: 6,
+                                bgcolor: 'rgba(255,255,255,0.9)',
+                              }}
+                            >
+                              <DeleteOutlineIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        </Box>
+                      </Grid>
+                    )
+                  })}
+                </Grid>
+              )}
+            </Stack>
+
+            <TextField label="Titulek" value={title} onChange={(e) => setTitle(e.target.value)} fullWidth />
+            <RichTextEditor label="Text" value={body} onChange={setBody} />
+
+            <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+              {EMOJIS.map((emo) => (
+                <Button key={emo} size="small" variant="text" onClick={() => addEmoji(emo)} sx={{ minWidth: 36 }}>
+                  {emo}
+                </Button>
+              ))}
+            </Stack>
+
+            <Button type="submit" variant="contained" disabled={saving || uploading}>
+              {saving ? 'Ukládám…' : 'Přidat příspěvek'}
+            </Button>
+          </Stack>
+        </Box>
+      )}
+
       {!unlocked && (
         <Alert severity="info" sx={{ mb: 2 }}>
           Příspěvky jsou viditelné po adopci. Dokončete adopci pro přístup k novinkám.
         </Alert>
       )}
 
+      {/* Posts list AFTER composer */}
       {loading ? (
         <Typography color="text.secondary">Načítám…</Typography>
       ) : posts.length === 0 ? (
@@ -878,131 +1014,6 @@ export default function PostsSection({ animalId }: { animalId: string }) {
           </Button>
         </DialogActions>
       </Dialog>
-
-      {/* ───────────── Staff composer ───────────── */}
-      {canWrite && (
-        <Box component="form" onSubmit={onSubmit} sx={{ mt: 2 }}>
-          <Stack spacing={2}>
-            <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>
-              Nový příspěvek
-            </Typography>
-
-            {/* Upload */}
-            <Stack spacing={1}>
-              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center">
-                <Button onClick={() => fileInputRef.current?.click()} startIcon={<UploadIcon />} variant="outlined">
-                  Vybrat soubory
-                </Button>
-                <input ref={fileInputRef} type="file" hidden multiple accept="image/*,video/*" onChange={onPickFiles} />
-
-                <Button onClick={() => cameraInputRef.current?.click()} startIcon={<PhotoCameraIcon />} variant="outlined">
-                  Vyfotit (telefon)
-                </Button>
-                <input
-                  ref={cameraInputRef}
-                  type="file"
-                  hidden
-                  accept="image/*"
-                  {...(isMobile ? ({ capture: 'environment' } as any) : {})}
-                  onChange={onPickCamera}
-                />
-              </Stack>
-
-              <Box
-                onDrop={onDrop}
-                onDragOver={onDragOver}
-                sx={{
-                  mt: 1,
-                  p: 2,
-                  border: '2px dashed',
-                  borderColor: 'divider',
-                  borderRadius: 2,
-                  textAlign: 'center',
-                  color: 'text.secondary',
-                  cursor: 'copy',
-                  userSelect: 'none',
-                }}
-              >
-                Přetáhněte sem fotografie nebo videa
-              </Box>
-
-              {uploading && (
-                <Stack spacing={1} sx={{ mt: 1 }}>
-                  <LinearProgress />
-                  <Typography variant="caption" color="text.secondary">
-                    {uploadNote}
-                  </Typography>
-                </Stack>
-              )}
-
-              {media.length > 0 && (
-                <Grid container spacing={1.5} sx={{ mt: 1 }}>
-                  {media.map((m, i) => {
-                    const isVideo = isVideoMedia(m)
-                    return (
-                      <Grid item xs={6} sm={4} md={3} key={`${m.url}-${i}`}>
-                        <Box
-                          sx={{
-                            position: 'relative',
-                            border: '1px solid',
-                            borderColor: 'divider',
-                            borderRadius: 2,
-                            overflow: 'hidden',
-                          }}
-                        >
-                          <MediaThumb
-                            url={m.url}
-                            isVideo={isVideo}
-                            poster={m.poster || undefined}
-                            onOpen={() =>
-                              openLightbox({
-                                url: m.url,
-                                isVideo,
-                                poster: m.poster || undefined,
-                                title: title || 'Média',
-                              })
-                            }
-                          />
-
-                          <Tooltip title="Odebrat">
-                            <IconButton
-                              size="small"
-                              onClick={() => removeMediaIndex(i)}
-                              sx={{
-                                position: 'absolute',
-                                top: 6,
-                                right: 6,
-                                bgcolor: 'rgba(255,255,255,0.9)',
-                              }}
-                            >
-                              <DeleteOutlineIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                        </Box>
-                      </Grid>
-                    )
-                  })}
-                </Grid>
-              )}
-            </Stack>
-
-            <TextField label="Titulek" value={title} onChange={(e) => setTitle(e.target.value)} fullWidth />
-            <RichTextEditor label="Text" value={body} onChange={setBody} />
-
-            <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-              {EMOJIS.map((emo) => (
-                <Button key={emo} size="small" variant="text" onClick={() => addEmoji(emo)} sx={{ minWidth: 36 }}>
-                  {emo}
-                </Button>
-              ))}
-            </Stack>
-
-            <Button type="submit" variant="contained" disabled={saving || uploading}>
-              {saving ? 'Ukládám…' : 'Přidat příspěvek'}
-            </Button>
-          </Stack>
-        </Box>
-      )}
     </Box>
   )
 }
