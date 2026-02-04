@@ -111,8 +111,7 @@ export default function PostsSection({ animalId }: { animalId: string }) {
 
   // ✅ mobile hint (safe even if navigator is not available)
   const isMobile =
-    typeof navigator !== 'undefined' &&
-    /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+    typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
 
   const [posts, setPosts] = useState<Post[]>([])
   const [loading, setLoading] = useState(true)
@@ -223,14 +222,17 @@ export default function PostsSection({ animalId }: { animalId: string }) {
           body: fd,
         })
 
-        const json = await readJson<{ url: string }>(res)
+        // ✅ accept poster from backend if provided
+        const json = await readJson<{ url: string; type?: 'image' | 'video'; poster?: string | null }>(res)
         const url = String(json?.url || '')
+        const poster = json?.poster ? String(json.poster) : null
 
         if (!url) throw new Error('Upload vrátil prázdnou URL.')
 
         const item: NewMedia = {
           url: `${url}${url.includes('?') ? '&' : '?'}v=${now}`,
-          type: guessTypeFromUrl(url),
+          type: json?.type || guessTypeFromUrl(url),
+          poster: poster ? `${poster}${poster.includes('?') ? '&' : '?'}v=${now}` : null,
         }
 
         if (into === 'new') setMedia((m) => [...m, item])
@@ -275,6 +277,7 @@ export default function PostsSection({ animalId }: { animalId: string }) {
           ? media.map((m) => ({
               url: m.url,
               typ: m.type || guessTypeFromUrl(m.url) || 'image',
+              poster: m.poster || undefined,
             }))
           : undefined,
       }
@@ -375,6 +378,7 @@ export default function PostsSection({ animalId }: { animalId: string }) {
             media: editNewMedia.map((m) => ({
               url: m.url,
               typ: m.type || guessTypeFromUrl(m.url) || 'image',
+              poster: m.poster || undefined,
             })),
           }),
         })
@@ -670,11 +674,7 @@ export default function PostsSection({ animalId }: { animalId: string }) {
       >
         <DialogTitle sx={{ pr: 5 }}>
           {lb?.title || 'Média'}
-          <IconButton
-            onClick={closeLightbox}
-            sx={{ position: 'absolute', right: 8, top: 8 }}
-            aria-label="Zavřít"
-          >
+          <IconButton onClick={closeLightbox} sx={{ position: 'absolute', right: 8, top: 8 }} aria-label="Zavřít">
             <CloseIcon />
           </IconButton>
         </DialogTitle>
@@ -711,12 +711,7 @@ export default function PostsSection({ animalId }: { animalId: string }) {
         </DialogContent>
         <DialogActions>
           {lb?.url ? (
-            <Button
-              href={lb.url}
-              target="_blank"
-              rel="noreferrer"
-              variant="outlined"
-            >
+            <Button href={lb.url} target="_blank" rel="noreferrer" variant="outlined">
               Otevřít v nové záložce
             </Button>
           ) : null}
@@ -732,7 +727,6 @@ export default function PostsSection({ animalId }: { animalId: string }) {
             <TextField label="Titulek" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
             <RichTextEditor label="Text" value={editBody} onChange={setEditBody} />
 
-            {/* Existing media (admin can delete) */}
             {editPost?.media && editPost.media.length > 0 && (
               <Box>
                 <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 1 }}>
@@ -796,47 +790,22 @@ export default function PostsSection({ animalId }: { animalId: string }) {
               </Typography>
 
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center" sx={{ mt: 1 }}>
-                <Button
-                  onClick={() => editFileInputRef.current?.click()}
-                  startIcon={<UploadIcon />}
-                  variant="outlined"
-                >
+                <Button onClick={() => editFileInputRef.current?.click()} startIcon={<UploadIcon />} variant="outlined">
                   Vybrat soubory
                 </Button>
+                <input ref={editFileInputRef} type="file" hidden multiple accept="image/*,video/*" onChange={onEditPickFiles} />
+
+                <Button onClick={() => editCameraInputRef.current?.click()} startIcon={<PhotoCameraIcon />} variant="outlined">
+                  Vyfotit (telefon)
+                </Button>
                 <input
-                  ref={editFileInputRef}
+                  ref={editCameraInputRef}
                   type="file"
                   hidden
-                  multiple
-                  accept="image/*,video/*"
-                  onChange={onEditPickFiles}
+                  accept="image/*"
+                  {...(isMobile ? ({ capture: 'environment' } as any) : {})}
+                  onChange={onEditPickCamera}
                 />
-
-<Button
-  onClick={() => editCameraInputRef.current?.click()}
-  startIcon={<PhotoCameraIcon />}
-  variant="outlined"
->
-  Vyfotit (telefon)
-</Button>
-
-<input
-  ref={cameraInputRef}
-  type="file"
-  hidden
-  accept="image/*"
-  {...(isMobile ? { capture: 'environment' as any } : {})}
-  onChange={onPickCamera}
-/>
-
-<input
-  ref={editCameraInputRef}
-  type="file"
-  hidden
-  accept="image/*"
-  {...(isMobile ? { capture: 'environment' as any } : {})}
-  onChange={onEditPickCamera}
-/>
               </Stack>
 
               {editUploading && (
@@ -866,10 +835,12 @@ export default function PostsSection({ animalId }: { animalId: string }) {
                           <MediaThumb
                             url={m.url}
                             isVideo={isVideo}
+                            poster={m.poster || undefined}
                             onOpen={() =>
                               openLightbox({
                                 url: m.url,
                                 isVideo,
+                                poster: m.poster || undefined,
                                 title: editTitle || 'Média',
                               })
                             }
@@ -919,37 +890,22 @@ export default function PostsSection({ animalId }: { animalId: string }) {
             {/* Upload */}
             <Stack spacing={1}>
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center">
-                <Button
-                  onClick={() => fileInputRef.current?.click()}
-                  startIcon={<UploadIcon />}
-                  variant="outlined"
-                >
+                <Button onClick={() => fileInputRef.current?.click()} startIcon={<UploadIcon />} variant="outlined">
                   Vybrat soubory
                 </Button>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  hidden
-                  multiple
-                  accept="image/*,video/*"
-                  onChange={onPickFiles}
-                />
+                <input ref={fileInputRef} type="file" hidden multiple accept="image/*,video/*" onChange={onPickFiles} />
 
-                <Button
-                  onClick={() => cameraInputRef.current?.click()}
-                  startIcon={<PhotoCameraIcon />}
-                  variant="outlined"
-                >
+                <Button onClick={() => cameraInputRef.current?.click()} startIcon={<PhotoCameraIcon />} variant="outlined">
                   Vyfotit (telefon)
                 </Button>
                 <input
-  ref={cameraInputRef}
-  type="file"
-  hidden
-  accept="image/*"
-  {...(isMobile ? { capture: 'environment' as any } : {})}
-  onChange={onPickCamera}
-/>
+                  ref={cameraInputRef}
+                  type="file"
+                  hidden
+                  accept="image/*"
+                  {...(isMobile ? ({ capture: 'environment' } as any) : {})}
+                  onChange={onPickCamera}
+                />
               </Stack>
 
               <Box
@@ -997,10 +953,12 @@ export default function PostsSection({ animalId }: { animalId: string }) {
                           <MediaThumb
                             url={m.url}
                             isVideo={isVideo}
+                            poster={m.poster || undefined}
                             onOpen={() =>
                               openLightbox({
                                 url: m.url,
                                 isVideo,
+                                poster: m.poster || undefined,
                                 title: title || 'Média',
                               })
                             }
