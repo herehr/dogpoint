@@ -53,6 +53,18 @@ type AdoptionOverviewResp = {
   cashed?: { count: number; sumCZK: number }
 }
 
+// ✅ IMPORTANT: export needs ADMIN token, but getToken() might return user/moderator token
+function getAnyAdminLikeToken(): string | null {
+  return (
+    sessionStorage.getItem('adminToken') ||
+    localStorage.getItem('adminToken') ||
+    sessionStorage.getItem('moderatorToken') ||
+    localStorage.getItem('moderatorToken') ||
+    getToken() ||
+    null
+  )
+}
+
 export default function AdminStats({ embedded = false }: Props) {
   const [tab, setTab] = useState<'payments' | 'pledges' | 'expected' | 'animals'>('payments')
   const [range, setRange] = useState<{ from?: string; to?: string }>(ymRangeOf())
@@ -133,12 +145,14 @@ export default function AdminStats({ embedded = false }: Props) {
   async function downloadAdoptersCsv() {
     setErr(null)
     try {
-      const token = getToken()
+      const token = getAnyAdminLikeToken()
+
       const res = await fetch(apiUrl('/api/admin/stats/adoptions/export.csv'), {
         method: 'GET',
         headers: token ? { Authorization: `Bearer ${token}` } : {},
         credentials: 'include',
       })
+
       if (!res.ok) {
         const txt = await res.text().catch(() => '')
         throw new Error(txt || `Export selhal (HTTP ${res.status})`)
@@ -191,11 +205,7 @@ export default function AdminStats({ embedded = false }: Props) {
               />
               <Stat
                 label="Uhrazeno (PAID)"
-                value={
-                  adoptLoading
-                    ? 'Načítám…'
-                    : `${adopt?.cashed?.count ?? 0} / ${adopt?.cashed?.sumCZK ?? 0} Kč`
-                }
+                value={adoptLoading ? 'Načítám…' : `${adopt?.cashed?.count ?? 0} / ${adopt?.cashed?.sumCZK ?? 0} Kč`}
               />
             </Stack>
           </Box>
