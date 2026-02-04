@@ -14,15 +14,7 @@ ffmpeg.setFfmpegPath(ffmpegInstaller.path)
 
 const router = Router()
 
-/**
- * Multer typings differ between versions.
- * This callback signature is compatible with both:
- *  - older: (error: Error | null, acceptFile: boolean) => void
- *  - newer: (error: unknown, acceptFile: boolean) => void
- */
-type MulterFileFilterCb = (error: unknown, acceptFile: boolean) => void
-
-/** Accept only images/videos (typing-safe across multer versions) */
+/** Accept only images/videos */
 const fileFilter = (_req: any, file: any, cb: any) => {
   const original = String(file?.originalname || '')
   const ext = (original.split('.').pop() || '').toLowerCase()
@@ -34,15 +26,13 @@ const fileFilter = (_req: any, file: any, cb: any) => {
     ['jpg', 'jpeg', 'png', 'gif', 'webp', 'mp4', 'mov', 'm4v', 'webm'].includes(ext)
 
   if (!ok) return cb(new Error('Unsupported file type'), false)
-
-  // multer expects cb(null, true) in most versions
   return cb(null, true)
 }
 
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 200 * 1024 * 1024 }, // 200 MB
-  fileFilter: fileFilter as any, // ✅ avoid TS incompatibilities between multer type versions
+  fileFilter: fileFilter as any,
 })
 
 /** DigitalOcean Spaces S3 client */
@@ -70,7 +60,17 @@ function trimSlash(s: string): string {
 
 /**
  * Build a correct public URL for DigitalOcean Spaces.
- * Best: DO_SPACE_PUBLIC_BASE = https://<bucket>.fra1.digitaloceanspaces.com
+ *
+ * Supports BOTH:
+ *  A) bucket subdomain:
+ *     https://dogpoint.fra1.digitaloceanspaces.com/uploads/...
+ *     https://dogpoint.fra1.cdn.digitaloceanspaces.com/uploads/...
+ *
+ *  B) path style:
+ *     https://fra1.digitaloceanspaces.com/dogpoint/uploads/...
+ *
+ * IMPORTANT:
+ * If DO_SPACE_PUBLIC_BASE is bucket-subdomain, we MUST NOT append "/bucket" again.
  */
 function buildPublicUrl(bucket: string, key: string): string {
   const pub = trimSlash(process.env.DO_SPACE_PUBLIC_BASE || '')
@@ -78,30 +78,46 @@ function buildPublicUrl(bucket: string, key: string): string {
 
   const b = String(bucket || '').trim()
   const k = String(key || '').replace(/^\/+/, '')
+  const bb = b.toLowerCase()
 
-  if (pub) {
+  const fromBase = (base: string): string | null => {
     try {
-      const u = new URL(pub)
+      const u = new URL(base)
       const host = u.hostname.toLowerCase()
-      const bb = b.toLowerCase()
-      const pn = u.pathname.replace(/\/+$/, '')
+      const pn = u.pathname.replace(/\/+$/, '') // "" or "/dogpoint"
 
-      // ✅ bucket as subdomain (recommended): https://dogpoint.fra1.digitaloceanspaces.com
-      // -> return pub + /key (NO bucket appended)
-      if (bb && host === `${bb}.fra1.digitaloceanspaces.com`) return `${pub}/${k}`
-      if (bb && host.startsWith(`${bb}.`)) return `${pub}/${k}`
+      // ✅ bucket as subdomain (including CDN): ignore any pathname
+      // e.g. host = dogpoint.fra1.digitaloceanspaces.com
+      // e.g. host = dogpoint.fra1.cdn.digitaloceanspaces.com
+      if (bb && (host === `${bb}.fra1.digitaloceanspaces.com` || host === `${bb}.fra1.cdn.digitaloceanspaces.com`)) {
+        return `${u.origin}/${k}`
+      }
+      if (bb && host.startsWith(`${bb}.`)) {
+        // covers custom region subdomains too
+        return `${u.origin}/${k}`
+      }
 
-      // ✅ base already includes /bucket: https://fra1.digitaloceanspaces.com/dogpoint
-      if (bb && pn === `/${bb}`) return `${pub}/${k}`
+      // ✅ base already includes /bucket (path style)
+      if (bb && pn === `/${bb}`) return `${u.origin}${pn}/${k}`
 
-      // ✅ endpoint style base: https://fra1.digitaloceanspaces.com
-      return `${pub}/${bb}/${k}`
+      // ✅ endpoint style base (no bucket in path) → append /bucket
+      if (bb) return `${u.origin}${pn}/${bb}/${k}`
+
+      // fallback
+      return `${u.origin}${pn}/${k}`
     } catch {
-      // fall through to endpoint below
+      return null
     }
   }
 
-  // ✅ fallback: endpoint-style
+  if (pub) {
+    const out = fromBase(pub)
+    if (out) return out
+  }
+
+  const out2 = fromBase(endpoint)
+  if (out2) return out2
+
   return `${endpoint}/${b}/${k}`
 }
 
@@ -182,7 +198,7 @@ router.post('/', upload.single('file'), async (req: Request, res: Response): Pro
 
         const scale = `scale='if(gt(ih,${MAX_VIDEO_HEIGHT}),-2,iw)':'if(gt(ih,${MAX_VIDEO_HEIGHT}),${MAX_VIDEO_HEIGHT},ih)'`
 
-        // TRANSCODE MP4 (H264 + AAC) + faststart (critical for browser playback)
+        // TRANSCODE MP4 (H264 + AAC) + faststart
         await new Promise<void>((resolve, reject) => {
           ffmpeg(tmpIn)
             .outputOptions([
@@ -200,20 +216,23 @@ router.post('/', upload.single('file'), async (req: Request, res: Response): Pro
             .save(tmpOut)
         })
 
-        // POSTER at 1s (fallback to 0 if very short video)
-        await new Promise<void>((resolve, reject) => {
-          const folder = path.dirname(tmpPoster)
-          const filename = path.basename(tmpPoster)
+        // POSTER: try 1s, fallback to 0s for short videos
+        const makePosterAt = async (ts: string) => {
+          await new Promise<void>((resolve, reject) => {
+            const folder = path.dirname(tmpPoster)
+            const filename = path.basename(tmpPoster)
+            ffmpeg(tmpOut) // ✅ use transcoded file
+              .on('error', (err: Error) => reject(err))
+              .on('end', () => resolve())
+              .screenshots({ timestamps: [ts], filename, folder })
+          })
+        }
 
-          ffmpeg(tmpIn)
-            .on('error', (err: Error) => reject(err))
-            .on('end', () => resolve())
-            .screenshots({
-              timestamps: ['1'],
-              filename,
-              folder,
-            })
-        })
+        try {
+          await makePosterAt('1')
+        } catch {
+          await makePosterAt('0')
+        }
 
         const videoBuffer = fs.readFileSync(tmpOut)
         const posterBuffer = fs.readFileSync(tmpPoster)
