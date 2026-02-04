@@ -466,69 +466,73 @@ export default function PostsSection({ animalId }: { animalId: string }) {
   // ─────────────────────────────────────────────────────────────
   // Media thumb component (portrait-safe)
   // ─────────────────────────────────────────────────────────────
-  function MediaThumb({
-    url,
-    isVideo,
-    poster,
-    onOpen,
-  }: {
-    url: string
-    isVideo: boolean
-    poster?: string
-    onOpen: () => void
-  }) {
-    return (
-      <Box
-        onClick={onOpen}
-        role="button"
-        tabIndex={0}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') onOpen()
-        }}
-        sx={{
-          width: '100%',
-          height: 160,
-          bgcolor: '#000',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          cursor: 'pointer',
-          userSelect: 'none',
-        }}
-      >
-        {isVideo ? (
-          <Box
-            component="video"
-            controls={false}
-            muted
-            playsInline
-            preload="metadata"
-            poster={poster}
-            sx={{
-              width: '100%',
-              height: '100%',
-              objectFit: 'contain',
-              display: 'block',
-            }}
-          >
-            <source src={url} type={guessVideoMime(url)} />
-          </Box>
-        ) : (
-          <Box
-            component="img"
-            src={url}
-            alt=""
-            sx={{
-              width: '100%',
-              height: '100%',
-              objectFit: 'contain',
-              display: 'block',
-            }}
-          />
-        )}
-      </Box>
-    )
-  }
+   function MediaThumb({
+  url,
+  isVideo,
+  poster,
+  onOpen,
+}: {
+  url: string
+  isVideo: boolean
+  poster?: string
+  onOpen: () => void
+}) {
+  const isXs = useMediaQuery('(max-width:600px)')
+
+  return (
+    <Box
+      onClick={onOpen}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') onOpen()
+      }}
+      sx={{
+        width: '100%',
+        // ✅ portrait-friendly: use aspect ratio instead of fixed height
+        aspectRatio: isXs ? '3 / 4' : '4 / 3',
+        bgcolor: '#000',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        cursor: 'pointer',
+        userSelect: 'none',
+        overflow: 'hidden',
+        borderRadius: 2,
+      }}
+    >
+      {isVideo ? (
+        <Box
+          component="video"
+          muted
+          playsInline
+          preload="metadata"
+          poster={poster}
+          sx={{
+            width: '100%',
+            height: '100%',
+            // ✅ fills the portrait frame nicely
+            objectFit: 'cover',
+            display: 'block',
+          }}
+        />
+      ) : (
+        <Box
+          component="img"
+          src={url}
+          alt=""
+          sx={{
+            width: '100%',
+            height: '100%',
+            // ✅ fills the portrait frame nicely
+            objectFit: 'cover',
+            display: 'block',
+          }}
+        />
+      )}
+    </Box>
+  )
+}
 
   // ─────────────────────────────────────────────────────────────
   // Render
