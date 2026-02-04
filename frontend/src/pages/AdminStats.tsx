@@ -18,7 +18,7 @@ import {
   TableBody,
   Box,
 } from '@mui/material'
-import { getJSON, qs } from '../services/api'
+import { getJSON, qs, apiUrl, getToken } from '../services/api'
 
 function ymRangeOf(date = new Date()) {
   const y = date.getFullYear()
@@ -37,8 +37,36 @@ function yRangeOf(date = new Date()) {
 
 type Props = { embedded?: boolean }
 
+type AnimalAggRow = {
+  animalId: string
+  animalName: string | null
+  donorsActive: number
+  monthlyActiveSum: number
+  paidSumSubscriptions: number
+  paidSumPledges: number
+  paidSumTotal: number
+}
+
+type AdoptionOverviewResp = {
+  ok: boolean
+  promised?: { count: number; monthlySumCZK: number }
+  cashed?: { count: number; sumCZK: number }
+}
+
+// ✅ IMPORTANT: export needs ADMIN token, but getToken() might return user/moderator token
+function getAnyAdminLikeToken(): string | null {
+  return (
+    sessionStorage.getItem('adminToken') ||
+    localStorage.getItem('adminToken') ||
+    sessionStorage.getItem('moderatorToken') ||
+    localStorage.getItem('moderatorToken') ||
+    getToken() ||
+    null
+  )
+}
+
 export default function AdminStats({ embedded = false }: Props) {
-  const [tab, setTab] = useState<'payments' | 'pledges' | 'expected'>('payments')
+  const [tab, setTab] = useState<'payments' | 'pledges' | 'expected' | 'animals'>('payments')
   const [range, setRange] = useState<{ from?: string; to?: string }>(ymRangeOf())
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState<string | null>(null)
@@ -46,18 +74,27 @@ export default function AdminStats({ embedded = false }: Props) {
   const [payments, setPayments] = useState<any>(null)
   const [pledges, setPledges] = useState<any>(null)
   const [expected, setExpected] = useState<any>(null)
+  const [animals, setAnimals] = useState<{ count: number; rows: AnimalAggRow[] } | null>(null)
+
+  // ✅ NEW: adoption overview from backend
+  const [adopt, setAdopt] = useState<AdoptionOverviewResp | null>(null)
+  const [adoptErr, setAdoptErr] = useState<string | null>(null)
+  const [adoptLoading, setAdoptLoading] = useState(false)
 
   const params = useMemo(() => {
     const p: Record<string, string> = {}
-    if (range?.from) p.from = range.from
-    if (range?.to) p.to = range.to
+    if (tab !== 'animals') {
+      if (range?.from) p.from = range.from
+      if (range?.to) p.to = range.to
+    }
     return p
-  }, [range])
+  }, [range, tab])
 
   const endpoint = useMemo(() => {
     if (tab === 'payments') return '/api/admin/stats/payments'
     if (tab === 'pledges') return '/api/admin/stats/pledges'
-    return '/api/admin/stats/expected'
+    if (tab === 'expected') return '/api/admin/stats/expected'
+    return '/api/admin/stats/animals'
   }, [tab])
 
   async function load() {
@@ -69,7 +106,8 @@ export default function AdminStats({ embedded = false }: Props) {
 
       if (tab === 'payments') setPayments(data)
       else if (tab === 'pledges') setPledges(data)
-      else setExpected(data)
+      else if (tab === 'expected') setExpected(data)
+      else setAnimals(data)
     } catch (e: any) {
       setErr(e?.message || 'Chyba načítání statistik')
     } finally {
@@ -77,12 +115,62 @@ export default function AdminStats({ embedded = false }: Props) {
     }
   }
 
-  // Reload when tab or date-range changes
   useEffect(() => {
     const t = setTimeout(load, 150)
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, params.from, params.to])
+
+  const showDateRange = tab !== 'animals'
+
+  async function loadAdoptionOverview() {
+    setAdoptErr(null)
+    setAdoptLoading(true)
+    try {
+      const r = await getJSON<AdoptionOverviewResp>('/api/admin/stats/adoptions/overview')
+      setAdopt(r)
+    } catch (e: any) {
+      setAdopt(null)
+      setAdoptErr(e?.message || 'Chyba načítání přehledu adopcí')
+    } finally {
+      setAdoptLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    const t = setTimeout(loadAdoptionOverview, 150)
+    return () => clearTimeout(t)
+  }, [])
+
+  async function downloadAdoptersCsv() {
+    setErr(null)
+    try {
+      const token = getAnyAdminLikeToken()
+
+      const res = await fetch(apiUrl('/api/admin/stats/adoptions/export.csv'), {
+        method: 'GET',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: 'include',
+      })
+
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '')
+        throw new Error(txt || `Export selhal (HTTP ${res.status})`)
+      }
+
+      const blob = await res.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `dogpoint-adopce-${new Date().toISOString().slice(0, 10)}.csv`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (e: any) {
+      setErr(e?.message || 'Export CSV selhal')
+    }
+  }
 
   const content = (
     <>
@@ -92,55 +180,94 @@ export default function AdminStats({ embedded = false }: Props) {
         </Typography>
       )}
 
+      {/* ✅ NEW: promised vs cashed + export */}
+      <Paper sx={{ p: 2, mb: 2, borderRadius: 3 }} variant="outlined">
+        <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems="stretch">
+          <Box sx={{ flex: 1 }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 1 }}>
+              Adopce – přehled
+            </Typography>
+
+            {adoptErr && (
+              <Alert severity="warning" sx={{ mb: 1 }}>
+                {String(adoptErr)}
+              </Alert>
+            )}
+
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+              <Stat
+                label="Přísliby (ACTIVE + PENDING)"
+                value={
+                  adoptLoading
+                    ? 'Načítám…'
+                    : `${adopt?.promised?.count ?? 0} / ${adopt?.promised?.monthlySumCZK ?? 0} Kč / měsíc`
+                }
+              />
+              <Stat
+                label="Uhrazeno (PAID)"
+                value={adoptLoading ? 'Načítám…' : `${adopt?.cashed?.count ?? 0} / ${adopt?.cashed?.sumCZK ?? 0} Kč`}
+              />
+            </Stack>
+          </Box>
+
+          <Divider flexItem orientation="vertical" sx={{ display: { xs: 'none', md: 'block' } }} />
+
+          <Box sx={{ minWidth: { xs: '100%', md: 320 } }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 1 }}>
+              Export
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+              E-maily + adresy + adoptovaná zvířata (CSV / UTF-8).
+            </Typography>
+            <Button variant="contained" onClick={downloadAdoptersCsv}>
+              Stáhnout CSV
+            </Button>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+              Endpoint: <code>/api/admin/stats/adoptions/export.csv</code>
+            </Typography>
+          </Box>
+        </Stack>
+      </Paper>
+
       <Paper sx={{ p: 2, mb: 2, borderRadius: 3 }}>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center">
-          <ToggleButtonGroup
-  exclusive
-  value={tab}
-  onChange={(_, v) => v && setTab(v)}
-  size="small"
->
-  <ToggleButton value="payments">
-    Předplatné (uhrazené)
-  </ToggleButton>
+          <ToggleButtonGroup exclusive value={tab} onChange={(_, v) => v && setTab(v)} size="small">
+            <ToggleButton value="payments">Předplatné (uhrazené)</ToggleButton>
+            <ToggleButton value="pledges">Neuhrazené přísliby</ToggleButton>
+            <ToggleButton value="expected">Očekávaný měsíční příjem</ToggleButton>
+            <ToggleButton value="animals">Zvířata</ToggleButton>
+          </ToggleButtonGroup>
 
-  <ToggleButton value="pledges">
-    Neuhrazené přísliby
-  </ToggleButton>
+          {showDateRange && (
+            <>
+              <Divider orientation="vertical" flexItem sx={{ display: { xs: 'none', sm: 'block' } }} />
 
-  <ToggleButton value="expected">
-    Očekávaný měsíční příjem
-  </ToggleButton>
-</ToggleButtonGroup>
+              <TextField
+                type="date"
+                label="Od"
+                size="small"
+                value={range?.from || ''}
+                onChange={(e) => setRange((r) => ({ ...(r || {}), from: e.target.value || undefined }))}
+                InputLabelProps={{ shrink: true }}
+              />
+              <TextField
+                type="date"
+                label="Do"
+                size="small"
+                value={range?.to || ''}
+                onChange={(e) => setRange((r) => ({ ...(r || {}), to: e.target.value || undefined }))}
+                InputLabelProps={{ shrink: true }}
+              />
 
-          <Divider orientation="vertical" flexItem sx={{ display: { xs: 'none', sm: 'block' } }} />
+              <Box sx={{ flex: 1 }} />
 
-          <TextField
-            type="date"
-            label="Od"
-            size="small"
-            value={range?.from || ''}
-            onChange={(e) =>
-              setRange((r) => ({ ...(r || {}), from: e.target.value || undefined }))
-            }
-            InputLabelProps={{ shrink: true }}
-          />
-          <TextField
-            type="date"
-            label="Do"
-            size="small"
-            value={range?.to || ''}
-            onChange={(e) =>
-              setRange((r) => ({ ...(r || {}), to: e.target.value || undefined }))
-            }
-            InputLabelProps={{ shrink: true }}
-          />
+              <Button onClick={() => setRange(ymRangeOf())}>Tento měsíc</Button>
+              <Button onClick={() => setRange(yRangeOf())}>Tento rok</Button>
+              <Button onClick={() => setRange({})}>Vymazat</Button>
+            </>
+          )}
 
-          <Box sx={{ flex: 1 }} />
-
-          <Button onClick={() => setRange(ymRangeOf())}>Tento měsíc</Button>
-          <Button onClick={() => setRange(yRangeOf())}>Tento rok</Button>
-          <Button onClick={() => setRange({})}>Vymazat</Button>
+          {!showDateRange && <Box sx={{ flex: 1 }} />}
         </Stack>
       </Paper>
 
@@ -214,6 +341,27 @@ export default function AdminStats({ embedded = false }: Props) {
           />
         </Paper>
       )}
+
+      {tab === 'animals' && (
+        <Paper sx={{ p: 2, borderRadius: 3 }}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mb: 2 }}>
+            <Stat label="Počet zvířat" value={animals?.count ?? '—'} />
+          </Stack>
+
+          <DataTable
+            loading={loading}
+            rows={animals?.rows || []}
+            columns={[
+              { key: 'animalName', label: 'Zvíře' },
+              { key: 'donorsActive', label: 'Aktivní dárci' },
+              { key: 'monthlyActiveSum', label: 'Měsíčně aktivní (CZK)' },
+              { key: 'paidSumSubscriptions', label: 'Uhrazeno (předplatné)' },
+              { key: 'paidSumPledges', label: 'Uhrazeno (přísliby)' },
+              { key: 'paidSumTotal', label: 'Uhrazeno celkem' },
+            ]}
+          />
+        </Paper>
+      )}
     </>
   )
 
@@ -266,11 +414,13 @@ function DataTable(props: any) {
             </TableRow>
           ) : (
             rows.map((r: any, idx: number) => (
-              <TableRow key={r?.id || `${r?.createdAt || ''}-${r?.email || ''}-${idx}`}>
+              <TableRow key={r?.id || r?.animalId || `${r?.createdAt || ''}-${r?.email || ''}-${idx}`}>
                 {columns.map((c: any) => (
                   <TableCell key={c.key}>
                     {c.key === 'createdAt'
-                      ? (r?.[c.key] ? new Date(r[c.key]).toLocaleString() : '')
+                      ? r?.[c.key]
+                        ? new Date(r[c.key]).toLocaleString()
+                        : ''
                       : String(r?.[c.key] ?? '')}
                   </TableCell>
                 ))}

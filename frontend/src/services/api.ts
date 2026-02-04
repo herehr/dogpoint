@@ -72,24 +72,47 @@ export function setModeratorToken(token: string) {
   } catch {}
 }
 
+/** ✅ optional helper (non-breaking) */
+export function getAdminToken(): string | null {
+  return (
+    safeGet('adminToken') ||
+    safeGet('admin_accessToken') ||
+    safeGet('adminTokenLegacy') ||
+    null
+  )
+}
+
 /**
- * ✅ FIX:
+ * ✅ FIX (kept + extended safely):
  * Prefer adminToken BEFORE accessToken.
+ * Also tolerate legacy keys without changing current behavior.
  */
 export function getToken(): string | null {
   try {
-    const admin = safeGet('adminToken')
+    // 1) Admin first (most important for protected CSV / stats)
+    const admin =
+      safeGet('adminToken') ||
+      safeGet('admin_accessToken') ||
+      safeGet('adminTokenLegacy')
     if (admin) return admin
 
+    // 2) Current primary token key
     const t = safeGet(tokenKey)
     if (t) return t
 
+    // 3) Moderator / legacy fallbacks
     return (
       safeGet('moderatorToken') ||
       safeGet('token') ||
       (() => {
         try {
-          return localStorage.getItem('dp:token') || localStorage.getItem('token')
+          return (
+            localStorage.getItem('dp:token') ||
+            sessionStorage.getItem('dp:token') ||
+            localStorage.getItem('token') ||
+            sessionStorage.getItem('token') ||
+            null
+          )
         } catch {
           return null
         }
@@ -104,11 +127,15 @@ export function clearToken() {
   try {
     safeRemove(tokenKey)
     safeRemove('adminToken')
+    safeRemove('admin_accessToken')
+    safeRemove('adminTokenLegacy')
     safeRemove('moderatorToken')
     safeRemove('token')
     try {
       localStorage.removeItem('dp:token')
+      sessionStorage.removeItem('dp:token')
       localStorage.removeItem('token')
+      sessionStorage.removeItem('token')
     } catch {}
   } catch {}
 }
@@ -321,6 +348,86 @@ export async function createCheckoutSession(params: {
 }
 
 /* =========================================================
+   Bank transfer: 2-step flow
+========================================================= */
+
+/**
+ * STEP 1: starts bank adoption WITHOUT sending email.
+ * Backend should accept sendEmail=false and return { token }.
+ */
+export async function startBankAdoption(payload: {
+  animalId: string
+  amountCZK: number
+  name: string
+  email: string
+  password: string
+  vs: string
+}) {
+  return postJSON<{ ok: boolean; token?: string; userId?: string; subscriptionId?: string; accessUntil?: string }>(
+    '/api/adoption-bank/start',
+    { ...payload, sendEmail: false }
+  )
+}
+
+/**
+ * STEP 2: send payment details by email (PDF).
+ * Backend endpoint: POST /api/adoption-bank/send-email
+ */
+export async function sendBankPaymentDetailsEmail(payload: {
+  animalId: string
+  amountCZK: number
+  name: string
+  email: string
+  password: string
+  vs: string
+}) {
+  return postJSON<{ ok: boolean; token?: string }>('/api/adoption-bank/send-email', payload)
+}
+// ✅ Alias to match AdoptionStart.tsx import
+export const sendBankPaymentEmail = sendBankPaymentDetailsEmail
+
+/**
+ * ✅ NEW: "I paid" -> send thanks email + PDF
+ * Backend endpoint: POST /api/adoption-bank/paid
+ */
+export async function sendBankPaidEmail(payload: {
+  animalId: string
+  amountCZK: number
+  name: string
+  email: string
+  password: string
+  vs: string
+}) {
+  return postJSON<{ ok: boolean; token?: string }>('/api/adoption-bank/paid', payload)
+}
+
+/**
+ * Back-compat: starts adoption and sends PDF in one call (older flow).
+ * (kept unchanged)
+ */
+export async function startBankAdoptionAndSendPdf(payload: {
+  animalId: string
+  amountCZK: number
+  name: string
+  email: string
+  password: string
+  vs: string
+  sendEmail?: boolean
+}) {
+  return postJSON<{
+    ok: boolean
+    token?: string
+    userId?: string
+    subscriptionId?: string
+    bankIban?: string
+    bankName?: string
+    vs?: string
+    amountCZK?: number
+    sendEmail?: boolean
+  }>('/api/adoption-bank/start', payload)
+}
+
+/* =========================================================
    Stash helpers (after payment)
 ========================================================= */
 
@@ -388,10 +495,6 @@ export type MyAdoptedItem = {
   status?: 'ACTIVE' | 'PENDING' | 'CANCELED'
 }
 
-/**
- * Normalize subscription/adoption objects coming from backend.
- * We accept many shapes because backend may evolve.
- */
 function normalizeToMyAdoptedItem(x: any): MyAdoptedItem | null {
   if (!x) return null
 
@@ -421,12 +524,6 @@ function normalizeToMyAdoptedItem(x: any): MyAdoptedItem | null {
   }
 }
 
-/**
- * ✅ REPAIRED:
- * - Do not trust only /api/adoption/my (it may filter ACTIVE/active=true too hard).
- * - Merge with /api/auth/me subscriptions.
- * - Dedupe by animalId and keep best status.
- */
 export async function myAdoptedAnimals(): Promise<MyAdoptedItem[]> {
   const byAnimal = new Map<string, MyAdoptedItem>()
 
@@ -444,11 +541,9 @@ export async function myAdoptedAnimals(): Promise<MyAdoptedItem[]> {
       byAnimal.set(it.animalId, it)
       return
     }
-    // keep the "best" status + prefer richer data
     const best = rank(it.status) > rank(prev.status) ? it : prev
     byAnimal.set(it.animalId, {
       ...best,
-      // merge missing fields from the other
       title: best.title || (best === it ? prev.title : it.title),
       main: best.main || (best === it ? prev.main : it.main),
       since: best.since || (best === it ? prev.since : it.since),
@@ -457,37 +552,30 @@ export async function myAdoptedAnimals(): Promise<MyAdoptedItem[]> {
     })
   }
 
-  // 1) Try adoption endpoint (may be filtered hard)
   try {
     const raw = await getJSON<any[]>('/api/adoption/my')
     for (const x of raw || []) put(normalizeToMyAdoptedItem(x))
   } catch (e: any) {
-    // ignore; we’ll still use /me below
     const msg = String(e?.message || '')
-    // If it is something other than 404, still continue with /me (don’t throw yet)
     if (!/404/.test(msg)) {
       // no-op
     }
   }
 
-  // 2) Always merge with /me subscriptions (usually less filtered)
   try {
     const m = await me()
     const subs = (m.subscriptions || []) as any[]
     for (const s of subs) {
-      // only keep relevant statuses
       const st = (s.status || 'ACTIVE') as string
       if (st === 'CANCELED') continue
       if (!(st === 'ACTIVE' || st === 'PENDING')) continue
       put(normalizeToMyAdoptedItem(s))
     }
   } catch {
-    // ignore; if both fail, we’ll return []
+    // ignore
   }
 
-  // 3) Final list: remove canceled, sort by status (ACTIVE first)
   const out = Array.from(byAnimal.values()).filter((it) => it.status !== 'CANCELED')
-
   out.sort((a, b) => rank(b.status) - rank(a.status))
   return out
 }
@@ -631,6 +719,7 @@ const api = {
   setToken,
   setAdminToken,
   setModeratorToken,
+  getAdminToken, // ✅ added (non-breaking)
   getToken,
   clearToken,
   authHeader,
@@ -646,6 +735,13 @@ const api = {
   claimPaid,
   confirmStripeSession,
   createCheckoutSession,
+
+  // ✅ bank: both flows available
+  startBankAdoption,
+  sendBankPaymentEmail,
+  sendBankPaidEmail, // ✅ NEW
+  startBankAdoptionAndSendPdf,
+
   stashPendingEmail,
   popPendingEmail,
   fetchAnimal,

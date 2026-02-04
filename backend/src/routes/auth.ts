@@ -65,7 +65,18 @@ router.get('/me', async (req: Request, res: Response) => {
 
     const subs = await prisma.subscription.findMany({
       where: { userId: user.id, status: { in: ['ACTIVE', 'PENDING'] } },
-      select: { animalId: true },
+      select: {
+        animalId: true,
+        status: true,
+
+        // ✅ timeline fields for Fix 2 (bank PENDING access window)
+        startedAt: true,
+        pendingSince: true,
+        tempAccessUntil: true,
+        graceUntil: true,
+        reminderSentAt: true,
+        reminderCount: true,
+      },
     })
 
     res.json({

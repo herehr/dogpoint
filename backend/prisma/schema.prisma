@@ -190,10 +190,10 @@ model Subscription {
 
   status SubscriptionStatus @default(PENDING)
 
-  // ✅ TIMELINE FOR BANK ACCESS
-  pendingSince    DateTime  @default(now()) // created PENDING (BANK)
-  tempAccessUntil DateTime? // free access until (now + 30 days)
-  graceUntil      DateTime? // after reminder: (reminder + 7 days)
+  // created PENDING (BANK) / access tracking
+  pendingSince    DateTime  @default(now())
+  tempAccessUntil DateTime?
+  graceUntil      DateTime?
   reminderSentAt  DateTime?
   reminderCount   Int       @default(0)
 
@@ -207,11 +207,10 @@ model Subscription {
   animal   Animal    @relation(fields: [animalId], references: [id], onDelete: Cascade)
   user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, animalId, status])
+  @@unique([userId, animalId])
   @@index([userId])
   @@index([animalId])
   @@index([status])
-  // ✅ indices for fast checks
   @@index([pendingSince])
   @@index([tempAccessUntil])
   @@index([graceUntil])
@@ -230,7 +229,6 @@ model Payment {
   createdAt      DateTime        @default(now())
   subscription   Subscription    @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
 
-  // ✅ prevent duplicate imports (Stripe/Fio)
   @@unique([provider, providerRef])
   @@index([subscriptionId])
   @@index([status])
@@ -246,9 +244,10 @@ model Notification {
   createdAt DateTime  @default(now())
   animalId  String?
   postId    String?
-  animal    Animal?   @relation(fields: [animalId], references: [id])
-  post      Post?     @relation(fields: [postId], references: [id])
-  user      User      @relation(fields: [userId], references: [id])
+
+  animal Animal? @relation(fields: [animalId], references: [id])
+  post   Post?   @relation(fields: [postId], references: [id])
+  user   User    @relation(fields: [userId], references: [id])
 
   @@unique([userId, postId])
   @@index([userId, readAt])
@@ -281,15 +280,16 @@ model Pledge {
   providerId String?
   note       String?
 
-  // ✅ Link pledge to logged user/subscription (important for BANK)
   userId         String?
   subscriptionId String?
-  variableSymbol String? // optional convenience (BANK)
+  variableSymbol String?
 
-  createdAt DateTime        @default(now())
-  updatedAt DateTime        @updatedAt
-  payments  PledgePayment[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
+  payments PledgePayment[]
+
+  @@index([variableSymbol])
   @@index([email, animalId])
   @@index([status, method])
   @@index([subscriptionId])

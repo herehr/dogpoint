@@ -13,6 +13,7 @@ import adoptionRouter from './routes/adoption'
 import emailTestRoutes from './routes/emailTest'
 import adminModeratorsRoutes from './routes/adminModerators'
 import adminStatsRoutes from './routes/adminStats'
+import adminAnimalStatsRoutes from './routes/adminAnimalStats'
 import adminDashboardRoutes from './routes/adminDashboard'
 import subscriptionRoutes from './routes/subscriptionRoutes'
 import paymentRouter from './routes/paymentRoutes'
@@ -22,61 +23,53 @@ import moderationRoutes from './routes/moderation'
 import notificationTestRoutes from './routes/notificationsTest'
 import taxRoutes from './routes/tax'
 import taxCertificatesRoutes from './routes/taxCertificates'
+import fioRoutes from './routes/fio'
+import adoptionBankRoutes from './routes/adoptionBank'
 
+import { startFioCron } from './jobs/fioCron'
+import { startAdoptionBankCron } from './jobs/adoptionBankCron' // ✅ BANK TRANSFER CRON
 import { prisma } from './prisma'
 
 /* ──────────────────────────────────────────────
  * CORS
  * ──────────────────────────────────────────── */
 
-// Support both env names, use whichever is set
 const allowedOrigins: string[] =
   (process.env.CORS_ORIGIN || process.env.CORS_ALLOWED_ORIGINS || '')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean)
 
-// Use the same type Express uses for cors() options
 const corsOptions: Parameters<typeof cors>[0] = {
-  origin(
-    origin: string | undefined,
-    callback: (err: Error | null, allow?: boolean) => void,
-  ): void {
-    // No origin (e.g. curl, health checks) -> allow
-    if (!origin) {
-      callback(null, true)
-      return
-    }
+  origin(origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void): void {
+    if (!origin) return callback(null, true)
 
-    // If nothing configured, allow all (dev fallback)
     if (allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
-      callback(null, true)
-      return
+      return callback(null, true)
     }
 
     console.warn('[CORS] blocked origin:', origin)
-    // Do NOT throw – this avoids 500 in preflight
-    callback(null, false)
+    return callback(null, false)
   },
   credentials: true,
 }
 
-// ----- App -----
+/* ──────────────────────────────────────────────
+ * App
+ * ──────────────────────────────────────────── */
+
 const app = express()
 app.set('trust proxy', 1)
 
-// CORS (and preflight)
 app.use(cors(corsOptions))
 app.options('*', cors(corsOptions))
 
 /* ──────────────────────────────────────────────
- * Stripe
- * IMPORTANT: raw webhook MUST be mounted BEFORE express.json()
- * This mounts POST /api/stripe/webhook with express.raw() inside rawRouter.
+ * Stripe (RAW webhook FIRST)
  * ──────────────────────────────────────────── */
 app.use('/api/stripe', stripeRawRouter)
 
-// JSON parser for the rest
+// JSON parser for everything else
 app.use(express.json({ limit: '2mb' }))
 
 // Request logger
@@ -85,30 +78,44 @@ app.use((req, _res, next) => {
   next()
 })
 
-// ----- Routes -----
+/* ──────────────────────────────────────────────
+ * Routes
+ * ──────────────────────────────────────────── */
+
 app.use('/api/auth', authRoutes)
 app.use('/api/animals', animalRoutes)
 
-// Stripe JSON routes AFTER express.json()
+// Stripe JSON routes AFTER body parser
 app.use('/api/stripe', stripeJsonRouter)
 
+// Adoption
 app.use('/api/adoption', adoptionRouter)
+app.use('/api/adoption-bank', adoptionBankRoutes)
+
 app.use('/api/upload', uploadRoutes)
 app.use('/api/posts', postsRoutes)
+
 app.use('/api/admin/stats', adminStatsRoutes)
+app.use('/api/admin/stats', adminAnimalStatsRoutes)
 app.use('/api/admin/dashboard', adminDashboardRoutes)
 app.use('/api/admin', adminModeratorsRoutes)
+
 app.use('/api/subscriptions', subscriptionRoutes)
 app.use('/api/payments', paymentRouter)
+
 app.use('/api/notifications', notificationRoutes)
+app.use('/api/notifications-test', notificationTestRoutes)
+
 app.use('/api/moderation', moderationRoutes)
 
 app.use('/api/email', emailTestRoutes)
-app.use('/api/notifications', notificationTestRoutes)
+
 app.use('/api/tax', taxRoutes)
 app.use('/api/tax-certificates', taxCertificatesRoutes)
 
-// GP webpay (feature flag)
+app.use('/api/fio', fioRoutes)
+
+// GP WebPay (feature-flagged)
 const gpEnabled =
   !!process.env.GP_MERCHANT_NUMBER &&
   !!process.env.GP_GATEWAY_BASE &&
@@ -122,80 +129,72 @@ if (gpEnabled) {
   console.log('⚠️ GP webpay disabled (missing env)')
 }
 
-// ----- Base -----
-app.get('/', (_req: Request, res: Response) => {
-  res.json({ ok: true, component: 'backend', root: '/' })
+/* ──────────────────────────────────────────────
+ * Base / Health
+ * ──────────────────────────────────────────── */
+
+app.get('/', (_req, res) => {
+  res.json({ ok: true, component: 'backend' })
 })
 
-app.get('/api/proto', (_req: Request, res: Response) => {
-  res.json({ ok: true, component: 'backend', route: '/api/proto' })
+app.get('/health', (_req, res) => {
+  res.status(200).json({ status: 'ok' })
 })
 
-// ----- Health -----
-app.get('/health', (_req: Request, res: Response) => {
-  res.status(200).json({ status: 'ok', server: true })
-})
-
-app.get('/health/db', async (_req: Request, res: Response) => {
+app.get('/health/db', async (_req, res) => {
   try {
     await prisma.$queryRaw`SELECT 1`
-    res.status(200).json({ status: 'ok', db: true })
+    res.json({ db: true })
   } catch (e: any) {
-    res.status(500).json({ status: 'error', db: false, error: e?.message })
+    res.status(500).json({ db: false, error: e?.message })
   }
 })
 
-app.get('/health/stripe', (_req, res) => {
-  const hasStripe = !!process.env.STRIPE_SECRET_KEY || !!process.env.STRIPE_SECRET
-  res.json({ stripe: hasStripe })
+/* ──────────────────────────────────────────────
+ * Errors
+ * ──────────────────────────────────────────── */
+
+app.use((_req, res) => {
+  res.status(404).json({ error: 'Not Found' })
 })
 
-// ----- 404 -----
-app.use((req: Request, res: Response) => {
-  res.status(404).json({ error: 'Not Found', path: req.originalUrl })
-})
-
-// ----- Error handler -----
 app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
-  console.error('[ERR]', {
-    route: req.originalUrl,
-    method: req.method,
-    message: err?.message,
-    code: err?.code,
-    meta: err?.meta,
-    stack: err?.stack,
-  })
+  console.error('[ERR]', req.method, req.originalUrl, err?.message)
   res.status(500).json({ error: 'Internal server error' })
 })
 
-// ----- Server -----
-const PORT = Number(process.env.PORT) || 3000
-const HOST = '0.0.0.0'
+/* ──────────────────────────────────────────────
+ * Server + CRONS
+ * ──────────────────────────────────────────── */
 
-const server = app.listen(PORT, HOST, () => {
-  console.log(`Server listening on http://${HOST}:${PORT}`)
+const PORT = Number(process.env.PORT) || 3000
+
+const server = app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Server listening on ${PORT}`)
+
+  // FIO import cron
+  try {
+    startFioCron()
+  } catch (e: any) {
+    console.error('[FIO CRON] failed to start', e?.message)
+  }
+
+  // ✅ BANK TRANSFER adoption cron (30d reminder / 40d deactivate)
+  try {
+    startAdoptionBankCron()
+  } catch (e: any) {
+    console.error('[ADOPTION-BANK CRON] failed to start', e?.message)
+  }
 })
 
 // Graceful shutdown
 const shutdown = async (signal: string) => {
   console.log(`[${signal}] shutting down...`)
   server.close(async () => {
-    try {
-      await prisma.$disconnect()
-    } finally {
-      process.exit(0)
-    }
+    await prisma.$disconnect()
+    process.exit(0)
   })
 }
+
 process.on('SIGTERM', () => shutdown('SIGTERM'))
 process.on('SIGINT', () => shutdown('SIGINT'))
-
-// ----- DB probe -----
-;(async () => {
-  try {
-    const animals = await prisma.animal.count()
-    console.log('[DB] connected. animals:', animals)
-  } catch (e: any) {
-    console.error('[DB probe error]', e?.message)
-  }
-})()

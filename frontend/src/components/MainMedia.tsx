@@ -63,23 +63,18 @@ export default function MainMedia({
         height,
         borderRadius: rounded,
         overflow: 'hidden',
-        background: '#000',
+        bgcolor: '#000',
       }}
     >
-      <video
-        // ✅ must be muted for autoplay to work reliably on mobile browsers
+      <Box
+        component="video"
         muted
-        // ✅ always autoplay so there is no "preview" state
         autoPlay
         playsInline
-        // cards loop forever; detail can loop too (feels nicer for hero videos)
         loop={isCard || variant === 'detail'}
-        // no preview / no poster
-        poster={undefined}
-        // no controls by default (you can pass controls={true} if you want)
         controls={controls}
         preload="auto"
-        style={{
+        sx={{
           width: '100%',
           height: '100%',
           objectFit: mode,
@@ -87,7 +82,7 @@ export default function MainMedia({
         }}
       >
         <source src={url} type={guessVideoMime(url)} />
-      </video>
+      </Box>
     </Box>
   )
 }

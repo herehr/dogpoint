@@ -8,15 +8,23 @@ import {
   Chip,
   Container,
   Divider,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Grid,
+  IconButton,
   Skeleton,
   Stack,
   TextField,
   Typography,
+  useMediaQuery,
 } from '@mui/material'
+import { useTheme } from '@mui/material/styles'
 import NotificationsIcon from '@mui/icons-material/Notifications'
+import CloseIcon from '@mui/icons-material/Close'
 
-import { fetchAnimal } from '../api'
+import { fetchAnimal } from '../services/api'
 import { useAccess } from '../context/AccessContext'
 import PostsSection from '../components/PostsSection'
 import BlurBox from '../components/BlurBox'
@@ -58,6 +66,13 @@ interface AnimalPost {
   createdAt: string
   active?: boolean
   media?: { id: string; url: string; typ?: string }[]
+}
+
+type LightboxItem = {
+  url: string
+  isVideo: boolean
+  poster?: string
+  title?: string
 }
 
 /* ─────────────────────────────────────────────── */
@@ -134,7 +149,6 @@ function triggerBrowserNotification(title: string, options?: NotificationOptions
 }
 
 function withLockBust(url: string, unlocked: boolean): string {
-  // stable per lock state (prevents stale cache, but won't re-bust every render)
   const tag = unlocked ? 'u1' : 'l1'
   return url.includes('?') ? `${url}&v=${tag}` : `${url}?v=${tag}`
 }
@@ -160,33 +174,33 @@ function MediaView(props: {
   const video = isVideoUrl(url)
 
   if (video) {
-    // DETAIL: autoplay (muted) so it "just plays" on open in all major browsers
     if (variant === 'detail') {
       return (
-        <video
+        <Box
+          component="video"
           muted
           autoPlay
           loop
           playsInline
           controls={false}
           preload="auto"
-          style={{
+          sx={{
             width: '100%',
             height,
             objectFit: 'cover',
             display: 'block',
-            background: '#000',
+            bgcolor: '#000',
           }}
         >
           <source src={url} type={guessVideoMime(url)} />
-        </video>
+        </Box>
       )
     }
 
-    // THUMB: muted autoplay loop works on most browsers (incl. iOS) when muted+playsInline
     return (
       <Box sx={{ position: 'relative', width: '100%', height, bgcolor: '#000' }}>
-        <video
+        <Box
+          component="video"
           muted
           playsInline
           autoPlay
@@ -194,7 +208,7 @@ function MediaView(props: {
           preload="metadata"
           poster={poster}
           controls={false}
-          style={{
+          sx={{
             width: '100%',
             height,
             objectFit: 'cover',
@@ -202,7 +216,7 @@ function MediaView(props: {
           }}
         >
           <source src={url} type={guessVideoMime(url)} />
-        </video>
+        </Box>
 
         <Box
           sx={{
@@ -237,16 +251,17 @@ function MediaView(props: {
   }
 
   return (
-    <img
+    <Box
+      component="img"
       src={url}
       alt={alt}
-      style={{
+      sx={{
         width: '100%',
         height,
         objectFit: 'cover',
         display: 'block',
       }}
-      onError={(ev) => {
+      onError={(ev: any) => {
         ;(ev.currentTarget as HTMLImageElement).style.opacity = '0.35'
       }}
     />
@@ -281,6 +296,11 @@ export default function AnimalDetail() {
   const [hasNewPosts, setHasNewPosts] = useState(false)
   const lastPostCountRef = useRef<number>(0)
 
+  // Lightbox
+  const [lb, setLb] = useState<LightboxItem | null>(null)
+  const theme = useTheme()
+  const isMdUp = useMediaQuery(theme.breakpoints.up('md'))
+
   const { paid, sid } = useMemo(() => {
     const p = new URLSearchParams(location.search)
     return { paid: p.get('paid'), sid: p.get('sid') || undefined }
@@ -290,6 +310,28 @@ export default function AnimalDetail() {
     if (isStaff) return true
     return !!(id && hasAccess(id)) && !forceLocked
   }, [isStaff, id, hasAccess, forceLocked])
+
+  function openLightbox(item: LightboxItem) {
+    setLb(item)
+  }
+  function closeLightbox() {
+    setLb(null)
+  }
+
+  // ✅ BANK return handler: if user arrived from AdoptionStart (?bank=paid|email),
+  // unlock immediately and clean the URL
+  useEffect(() => {
+    if (!id) return
+    const p = new URLSearchParams(location.search)
+    const bank = p.get('bank')
+    if (bank === 'paid' || bank === 'email') {
+      grantAccess(id)
+
+      p.delete('bank')
+      const clean = `${window.location.pathname}${p.toString() ? `?${p}` : ''}`
+      window.history.replaceState({}, '', clean)
+    }
+  }, [id, location.search, grantAccess])
 
   // load animal
   useEffect(() => {
@@ -379,17 +421,17 @@ export default function AnimalDetail() {
   }, [id, isUnlocked, loadPosts])
 
   const prefillEmail = useMemo(() => {
-  try {
-    const stash = localStorage.getItem('dp:pendingUser')
-    if (stash) {
-      const parsed = JSON.parse(stash)
-      if (parsed?.email) return String(parsed.email)
-    }
-    const fallback = localStorage.getItem('dp:pendingEmail')
-    if (fallback) return String(fallback)
-  } catch {}
-  return ''
-}, [])
+    try {
+      const stash = localStorage.getItem('dp:pendingUser')
+      if (stash) {
+        const parsed = JSON.parse(stash)
+        if (parsed?.email) return String(parsed.email)
+      }
+      const fallback = localStorage.getItem('dp:pendingEmail')
+      if (fallback) return String(fallback)
+    } catch {}
+    return ''
+  }, [])
 
   // after payment return handler (keep your finalized logic)
   useEffect(() => {
@@ -517,7 +559,6 @@ export default function AnimalDetail() {
   const mainPoster = findPosterForUrl(merged, mainUrl)
 
   const extras = merged.filter((m) => stripCache(m.url) !== stripCache(mainUrl))
-
   const mainSrc = withLockBust(mainUrl, isUnlocked)
 
   return (
@@ -549,20 +590,21 @@ export default function AnimalDetail() {
         </Stack>
 
         {animal.charakteristik && (
-          <div
-            style={{
+          <Box
+            component="div"
+            sx={{
               fontWeight: 700,
-              padding: '6px 10px',
+              p: '6px 10px',
               borderRadius: 12,
               display: 'inline-block',
-              background: '#e0f7fa',
+              bgcolor: '#e0f7fa',
               boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
               maxWidth: '100%',
               wordBreak: 'break-word',
             }}
           >
             <SafeHTML>{animal.charakteristik}</SafeHTML>
-          </div>
+          </Box>
         )}
 
         <Stack direction="row" spacing={1} alignItems="center">
@@ -595,9 +637,10 @@ export default function AnimalDetail() {
             <Typography variant="h6" sx={{ fontWeight: 800, mb: 1 }}>
               Popis
             </Typography>
-            <div style={{ lineHeight: 1.6 }}>
+
+            <Box component="div" sx={{ lineHeight: 1.6 }}>
               <SafeHTML>{desc}</SafeHTML>
-            </div>
+            </Box>
 
             <Divider sx={{ my: 2 }} />
 
@@ -659,9 +702,34 @@ export default function AnimalDetail() {
               {extras.map((m, i) => {
                 const src = withLockBust(m.url, isUnlocked)
                 const poster = findPosterForUrl(merged, m.url)
+                const isVid = isVideoMedia(m)
+
                 return (
                   <Grid item xs={6} sm={4} md={3} key={`${m.url}-${i}`}>
                     <Box
+                      onClick={() => {
+                        if (!isUnlocked) return
+                        openLightbox({
+                          url: withLockBust(m.url, true),
+                          isVideo: isVid,
+                          poster: poster || undefined,
+                          title: 'Další fotografie a videa',
+                        })
+                      }}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (!isUnlocked) return
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          openLightbox({
+                            url: withLockBust(m.url, true),
+                            isVideo: isVid,
+                            poster: poster || undefined,
+                            title: 'Další fotografie a videa',
+                          })
+                        }
+                      }}
                       sx={{
                         width: '100%',
                         height: 160,
@@ -670,6 +738,8 @@ export default function AnimalDetail() {
                         border: '1px solid',
                         borderColor: 'divider',
                         bgcolor: '#000',
+                        cursor: isUnlocked ? 'pointer' : 'default',
+                        userSelect: 'none',
                       }}
                       className={!isUnlocked ? 'lockedMedia' : undefined}
                     >
@@ -705,15 +775,76 @@ export default function AnimalDetail() {
         )}
       </Box>
 
+      {/* ───────────── Lightbox ───────────── */}
+      <Dialog
+        open={!!lb}
+        onClose={closeLightbox}
+        fullWidth
+        maxWidth="md"
+        PaperProps={{
+          sx: {
+            width: isMdUp ? '33vw' : '95vw',
+            maxWidth: isMdUp ? '33vw' : '95vw',
+            borderRadius: 3,
+          },
+        }}
+      >
+        <DialogTitle sx={{ pr: 5 }}>
+          {lb?.title || 'Média'}
+          <IconButton onClick={closeLightbox} sx={{ position: 'absolute', right: 8, top: 8 }} aria-label="Zavřít">
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent dividers sx={{ bgcolor: '#000', p: 1.5 }}>
+          {lb?.isVideo ? (
+            <Box
+              component="video"
+              controls
+              playsInline
+              preload="metadata"
+              poster={lb.poster}
+              sx={{
+                width: '100%',
+                maxHeight: isMdUp ? '70vh' : '60vh',
+                objectFit: 'contain',
+                display: 'block',
+              }}
+            >
+              <source src={lb.url} type={guessVideoMime(lb.url)} />
+            </Box>
+          ) : (
+            <Box
+              component="img"
+              src={lb?.url || ''}
+              alt=""
+              sx={{
+                width: '100%',
+                maxHeight: isMdUp ? '70vh' : '60vh',
+                objectFit: 'contain',
+                display: 'block',
+              }}
+            />
+          )}
+        </DialogContent>
+        <DialogActions>
+          {lb?.url ? (
+            <Button href={lb.url} target="_blank" rel="noreferrer" variant="outlined">
+              Otevřít v nové záložce
+            </Button>
+          ) : null}
+          <Button onClick={closeLightbox}>Zavřít</Button>
+        </DialogActions>
+      </Dialog>
+
       <AfterPaymentPasswordDialog
-  open={showAfterPay}
-  onClose={() => setShowAfterPay(false)}
-  defaultEmail={afterPayEmail || prefillEmail}
-  onLoggedIn={() => {
-    if (id) grantAccess(id)
-    navigate('/user', { replace: true })
-  }}
-/>
+        open={showAfterPay}
+        onClose={() => setShowAfterPay(false)}
+        defaultEmail={afterPayEmail || prefillEmail}
+        onLoggedIn={() => {
+          if (id) grantAccess(id)
+          navigate('/user', { replace: true })
+        }}
+      />
     </Container>
   )
 }

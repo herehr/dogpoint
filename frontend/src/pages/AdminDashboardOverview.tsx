@@ -1,11 +1,19 @@
 // frontend/src/pages/AdminDashboardOverview.tsx
 import React, { useEffect, useState } from 'react'
-import { Container, Typography, Grid, Paper, Alert } from '@mui/material'
+import { Container, Typography, Grid, Paper, Alert, Stack } from '@mui/material'
 import { getJSON } from '../services/api'
 
 type Props = { embedded?: boolean }
 
-function Card({ title, value, sub }: { title: string; value: React.ReactNode; sub?: React.ReactNode }) {
+function Card({
+  title,
+  value,
+  sub,
+}: {
+  title: string
+  value: React.ReactNode
+  sub?: React.ReactNode
+}) {
   return (
     <Paper variant="outlined" sx={{ p: 3, borderRadius: 4, height: '100%' }}>
       <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 700 }}>
@@ -23,12 +31,22 @@ function Card({ title, value, sub }: { title: string; value: React.ReactNode; su
   )
 }
 
+type AdoptionOverviewResp = {
+  ok: boolean
+  promised?: { count: number; monthlySumCZK: number }
+  cashed?: { count: number; sumCZK: number }
+}
+
 export default function AdminDashboardOverview({ embedded = false }: Props) {
   const [data, setData] = useState<any>(null)
   const [err, setErr] = useState<string | null>(null)
 
+  const [adopt, setAdopt] = useState<AdoptionOverviewResp | null>(null)
+  const [adoptErr, setAdoptErr] = useState<string | null>(null)
+
   useEffect(() => {
     let alive = true
+
     ;(async () => {
       try {
         setErr(null)
@@ -38,6 +56,17 @@ export default function AdminDashboardOverview({ embedded = false }: Props) {
         if (alive) setErr(e?.message || 'Chyba načítání dashboardu')
       }
     })()
+
+    ;(async () => {
+      try {
+        setAdoptErr(null)
+        const r = await getJSON<AdoptionOverviewResp>('/api/admin/stats/adoptions/overview')
+        if (alive) setAdopt(r)
+      } catch (e: any) {
+        if (alive) setAdoptErr(e?.message || 'Chyba načítání přehledu adopcí')
+      }
+    })()
+
     return () => {
       alive = false
     }
@@ -56,15 +85,20 @@ export default function AdminDashboardOverview({ embedded = false }: Props) {
         </>
       )}
 
-      {err && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          {err}
-        </Alert>
+      {(err || adoptErr) && (
+        <Stack spacing={1} sx={{ mb: 2 }}>
+          {err && <Alert severity="error">{err}</Alert>}
+          {adoptErr && <Alert severity="warning">{adoptErr}</Alert>}
+        </Stack>
       )}
 
       <Grid container spacing={2}>
+        {/* EXISTING KPI */}
         <Grid item xs={12} md={4}>
-          <Card title="Očekávaný měsíční příjem (aktivní předplatné)" value={`${data?.expectedMonthlyCzk ?? '—'} Kč`} />
+          <Card
+            title="Očekávaný měsíční příjem (aktivní předplatné)"
+            value={`${data?.expectedMonthlyCzk ?? '—'} Kč`}
+          />
         </Grid>
 
         <Grid item xs={12} md={4}>
@@ -83,6 +117,24 @@ export default function AdminDashboardOverview({ embedded = false }: Props) {
           />
         </Grid>
 
+        {/* ✅ NEW: promised vs cashed */}
+        <Grid item xs={12} md={6}>
+          <Card
+            title="Adopce – přísliby (ACTIVE + PENDING)"
+            value={`${adopt?.promised?.count ?? '—'}`}
+            sub={`Součet měsíčně: ${adopt?.promised?.monthlySumCZK ?? '—'} Kč`}
+          />
+        </Grid>
+
+        <Grid item xs={12} md={6}>
+          <Card
+            title="Adopce – uhrazeno (PAID)"
+            value={`${adopt?.cashed?.count ?? '—'}`}
+            sub={`Součet: ${adopt?.cashed?.sumCZK ?? '—'} Kč`}
+          />
+        </Grid>
+
+        {/* REST */}
         <Grid item xs={12} sm={6} md={3}>
           <Card title="Uživatelé celkem" value={data?.usersTotal ?? '—'} />
         </Grid>

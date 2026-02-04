@@ -15,29 +15,29 @@ ffmpeg.setFfmpegPath(ffmpegInstaller.path)
 const router = Router()
 
 /** Accept only images/videos */
-const fileFilter = (
-  _req: Request,
-  file: Express.Multer.File,
-  cb: (error: Error | null, acceptFile: boolean) => void,
-) => {
-  const ext = (file.originalname.split('.').pop() || '').toLowerCase()
+const fileFilter = (_req: any, file: any, cb: any) => {
+  const original = String(file?.originalname || '')
+  const ext = (original.split('.').pop() || '').toLowerCase()
+  const mime = String(file?.mimetype || '')
+
   const ok =
-    file.mimetype?.startsWith('image/') ||
-    file.mimetype?.startsWith('video/') ||
+    mime.startsWith('image/') ||
+    mime.startsWith('video/') ||
     ['jpg', 'jpeg', 'png', 'gif', 'webp', 'mp4', 'mov', 'm4v', 'webm'].includes(ext)
 
-  cb(ok ? null : new Error('Unsupported file type'), ok)
+  if (!ok) return cb(new Error('Unsupported file type'), false)
+  return cb(null, true)
 }
 
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 200 * 1024 * 1024 }, // 200 MB
-  fileFilter,
+  fileFilter: fileFilter as any,
 })
 
 /** DigitalOcean Spaces S3 client */
 const s3 = new S3Client({
-  region: process.env.DO_SPACE_REGION || 'us-east-1',
+  region: process.env.DO_SPACE_REGION || 'fra1',
   endpoint: (process.env.DO_SPACE_ENDPOINT || 'https://fra1.digitaloceanspaces.com').replace(/\/+$/, ''),
   forcePathStyle: false,
   credentials: {
@@ -48,19 +48,88 @@ const s3 = new S3Client({
 
 /** Tunables */
 const MAX_IMG = { width: 1920, height: 1920 }
-const IMG_QUALITY = 80
+const IMG_QUALITY = 82
 const MAX_VIDEO_HEIGHT = 1080
 const VIDEO_PRESET = 'fast'
 const VIDEO_CRF = 23
 const VIDEO_AUDIO_BITRATE = '128k'
 
-function publicBaseUrl(): string {
-  // Prefer explicit public base (CDN / Space public base) if you have it
-  // Example: https://dogpoint.fra1.digitaloceanspaces.com
-  return (
-    (process.env.DO_SPACE_PUBLIC_BASE || process.env.DO_SPACE_ENDPOINT || 'https://fra1.digitaloceanspaces.com')
-      .replace(/\/+$/, '')
-  )
+function trimSlash(s: string): string {
+  return (s || '').replace(/\/+$/, '')
+}
+
+/**
+ * Build a correct public URL for DigitalOcean Spaces.
+ *
+ * Supports BOTH:
+ *  A) bucket subdomain:
+ *     https://dogpoint.fra1.digitaloceanspaces.com/uploads/...
+ *     https://dogpoint.fra1.cdn.digitaloceanspaces.com/uploads/...
+ *
+ *  B) path style:
+ *     https://fra1.digitaloceanspaces.com/dogpoint/uploads/...
+ *
+ * IMPORTANT:
+ * If DO_SPACE_PUBLIC_BASE is bucket-subdomain, we MUST NOT append "/bucket" again.
+ */
+function buildPublicUrl(bucket: string, key: string): string {
+  const pub = trimSlash(process.env.DO_SPACE_PUBLIC_BASE || '')
+  const endpoint = trimSlash(process.env.DO_SPACE_ENDPOINT || 'https://fra1.digitaloceanspaces.com')
+
+  const b = String(bucket || '').trim()
+  const k = String(key || '').replace(/^\/+/, '')
+  const bb = b.toLowerCase()
+
+  const fromBase = (base: string): string | null => {
+    try {
+      const u = new URL(base)
+      const host = u.hostname.toLowerCase()
+      const pn = u.pathname.replace(/\/+$/, '') // "" or "/dogpoint"
+
+      // ✅ bucket as subdomain (including CDN): ignore any pathname
+      // e.g. host = dogpoint.fra1.digitaloceanspaces.com
+      // e.g. host = dogpoint.fra1.cdn.digitaloceanspaces.com
+      if (bb && (host === `${bb}.fra1.digitaloceanspaces.com` || host === `${bb}.fra1.cdn.digitaloceanspaces.com`)) {
+        return `${u.origin}/${k}`
+      }
+      if (bb && host.startsWith(`${bb}.`)) {
+        // covers custom region subdomains too
+        return `${u.origin}/${k}`
+      }
+
+      // ✅ base already includes /bucket (path style)
+      if (bb && pn === `/${bb}`) return `${u.origin}${pn}/${k}`
+
+      // ✅ endpoint style base (no bucket in path) → append /bucket
+      if (bb) return `${u.origin}${pn}/${bb}/${k}`
+
+      // fallback
+      return `${u.origin}${pn}/${k}`
+    } catch {
+      return null
+    }
+  }
+
+  if (pub) {
+    const out = fromBase(pub)
+    if (out) return out
+  }
+
+  const out2 = fromBase(endpoint)
+  if (out2) return out2
+
+  return `${endpoint}/${b}/${k}`
+}
+
+function guessExtFromMime(mime: string, originalName: string): string {
+  const ext = (originalName.split('.').pop() || '').toLowerCase()
+  if (ext) return ext
+  if (mime.includes('mp4')) return 'mp4'
+  if (mime.includes('quicktime')) return 'mov'
+  if (mime.includes('webm')) return 'webm'
+  if (mime.includes('png')) return 'png'
+  if (mime.includes('jpeg')) return 'jpg'
+  return 'bin'
 }
 
 router.post('/', upload.single('file'), async (req: Request, res: Response): Promise<void> => {
@@ -83,7 +152,7 @@ router.post('/', upload.single('file'), async (req: Request, res: Response): Pro
     const baseKey = `uploads/${new Date().toISOString().slice(0, 10)}/${crypto.randomUUID()}`
 
     // =========================
-    // IMAGE
+    // IMAGE -> normalize to JPEG
     // =========================
     if (isImage) {
       const buffer = await sharp(req.file.buffer)
@@ -106,20 +175,21 @@ router.post('/', upload.single('file'), async (req: Request, res: Response): Pro
           Body: buffer,
           ACL: 'public-read',
           ContentType: 'image/jpeg',
+          ContentDisposition: 'inline',
           CacheControl: 'public, max-age=31536000, immutable',
         }),
       )
 
-      const base = publicBaseUrl()
-      res.json({ type: 'image', url: `${base}/${bucket}/${key}`, key })
+      res.json({ type: 'image', url: buildPublicUrl(bucket, key), key })
       return
     }
 
     // =========================
-    // VIDEO (TRANSCODE + POSTER)
+    // VIDEO -> transcode to MP4 + poster
     // =========================
     if (isVideo) {
-      const { path: tmpIn, cleanup: cleanupIn } = await tmpFile()
+      const inExt = guessExtFromMime(mime, req.file.originalname)
+      const { path: tmpIn, cleanup: cleanupIn } = await tmpFile({ postfix: `.${inExt}` })
       const { path: tmpOut, cleanup: cleanupOut } = await tmpFile({ postfix: '.mp4' })
       const { path: tmpPoster, cleanup: cleanupPoster } = await tmpFile({ postfix: '.jpg' })
 
@@ -128,7 +198,7 @@ router.post('/', upload.single('file'), async (req: Request, res: Response): Pro
 
         const scale = `scale='if(gt(ih,${MAX_VIDEO_HEIGHT}),-2,iw)':'if(gt(ih,${MAX_VIDEO_HEIGHT}),${MAX_VIDEO_HEIGHT},ih)'`
 
-        // 🎬 TRANSCODE
+        // TRANSCODE MP4 (H264 + AAC) + faststart
         await new Promise<void>((resolve, reject) => {
           ffmpeg(tmpIn)
             .outputOptions([
@@ -141,25 +211,28 @@ router.post('/', upload.single('file'), async (req: Request, res: Response): Pro
               '-c:a aac',
               `-b:a ${VIDEO_AUDIO_BITRATE}`,
             ])
-            .on('error', (err: Error) => reject(err)) // ✅ typed
+            .on('error', (err: Error) => reject(err))
             .on('end', () => resolve())
             .save(tmpOut)
         })
 
-        // 🖼 POSTER (1s) — write EXACTLY into tmpPoster path
-        await new Promise<void>((resolve, reject) => {
-          const folder = path.dirname(tmpPoster)
-          const filename = path.basename(tmpPoster)
+        // POSTER: try 1s, fallback to 0s for short videos
+        const makePosterAt = async (ts: string) => {
+          await new Promise<void>((resolve, reject) => {
+            const folder = path.dirname(tmpPoster)
+            const filename = path.basename(tmpPoster)
+            ffmpeg(tmpOut) // ✅ use transcoded file
+              .on('error', (err: Error) => reject(err))
+              .on('end', () => resolve())
+              .screenshots({ timestamps: [ts], filename, folder })
+          })
+        }
 
-          ffmpeg(tmpIn)
-            .on('error', (err: Error) => reject(err)) // ✅ typed
-            .on('end', () => resolve())
-            .screenshots({
-              timestamps: ['1'],
-              filename,
-              folder,
-            })
-        })
+        try {
+          await makePosterAt('1')
+        } catch {
+          await makePosterAt('0')
+        }
 
         const videoBuffer = fs.readFileSync(tmpOut)
         const posterBuffer = fs.readFileSync(tmpPoster)
@@ -174,6 +247,7 @@ router.post('/', upload.single('file'), async (req: Request, res: Response): Pro
             Body: videoBuffer,
             ACL: 'public-read',
             ContentType: 'video/mp4',
+            ContentDisposition: 'inline',
             CacheControl: 'public, max-age=31536000, immutable',
           }),
         )
@@ -185,16 +259,16 @@ router.post('/', upload.single('file'), async (req: Request, res: Response): Pro
             Body: posterBuffer,
             ACL: 'public-read',
             ContentType: 'image/jpeg',
+            ContentDisposition: 'inline',
             CacheControl: 'public, max-age=31536000, immutable',
           }),
         )
 
-        const base = publicBaseUrl()
         res.json({
           type: 'video',
-          url: `${base}/${bucket}/${videoKey}`,
+          url: buildPublicUrl(bucket, videoKey),
           key: videoKey,
-          poster: `${base}/${bucket}/${posterKey}`,
+          poster: buildPublicUrl(bucket, posterKey),
           posterKey,
         })
         return
