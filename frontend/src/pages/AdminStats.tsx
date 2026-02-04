@@ -18,7 +18,7 @@ import {
   TableBody,
   Box,
 } from '@mui/material'
-import { getJSON, qs, apiUrl, getToken } from '../services/api'
+import { getJSON, qs, apiUrl } from '../services/api'
 
 function ymRangeOf(date = new Date()) {
   const y = date.getFullYear()
@@ -53,16 +53,9 @@ type AdoptionOverviewResp = {
   cashed?: { count: number; sumCZK: number }
 }
 
-// ✅ IMPORTANT: export needs ADMIN token, but getToken() might return user/moderator token
-function getAnyAdminLikeToken(): string | null {
-  return (
-    sessionStorage.getItem('adminToken') ||
-    localStorage.getItem('adminToken') ||
-    sessionStorage.getItem('moderatorToken') ||
-    localStorage.getItem('moderatorToken') ||
-    getToken() ||
-    null
-  )
+// ✅ Only ADMIN token for admin endpoints
+function getAdminToken(): string | null {
+  return sessionStorage.getItem('adminToken') || localStorage.getItem('adminToken')
 }
 
 export default function AdminStats({ embedded = false }: Props) {
@@ -76,7 +69,6 @@ export default function AdminStats({ embedded = false }: Props) {
   const [expected, setExpected] = useState<any>(null)
   const [animals, setAnimals] = useState<{ count: number; rows: AnimalAggRow[] } | null>(null)
 
-  // ✅ NEW: adoption overview from backend
   const [adopt, setAdopt] = useState<AdoptionOverviewResp | null>(null)
   const [adoptErr, setAdoptErr] = useState<string | null>(null)
   const [adoptLoading, setAdoptLoading] = useState(false)
@@ -145,13 +137,23 @@ export default function AdminStats({ embedded = false }: Props) {
   async function downloadAdoptersCsv() {
     setErr(null)
     try {
-      const token = getAnyAdminLikeToken()
+      const token = getAdminToken()
+      if (!token) {
+        throw new Error('Chybí adminToken. Přihlas se jako ADMIN (Admin login) a zkus export znovu.')
+      }
 
       const res = await fetch(apiUrl('/api/admin/stats/adoptions/export.csv'), {
         method: 'GET',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        credentials: 'include',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'text/csv',
+        },
       })
+
+      if (res.status === 401 || res.status === 403) {
+        const txt = await res.text().catch(() => '')
+        throw new Error(txt || `Nemáš oprávnění (HTTP ${res.status}). Přihlas se jako ADMIN.`)
+      }
 
       if (!res.ok) {
         const txt = await res.text().catch(() => '')
@@ -180,7 +182,6 @@ export default function AdminStats({ embedded = false }: Props) {
         </Typography>
       )}
 
-      {/* ✅ NEW: promised vs cashed + export */}
       <Paper sx={{ p: 2, mb: 2, borderRadius: 3 }} variant="outlined">
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems="stretch">
           <Box sx={{ flex: 1 }}>
