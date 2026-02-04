@@ -76,18 +76,33 @@ function buildPublicUrl(bucket: string, key: string): string {
   const pub = trimSlash(process.env.DO_SPACE_PUBLIC_BASE || '')
   const endpoint = trimSlash(process.env.DO_SPACE_ENDPOINT || 'https://fra1.digitaloceanspaces.com')
 
+  const b = String(bucket || '').trim()
+  const k = String(key || '').replace(/^\/+/, '')
+
   if (pub) {
     try {
       const u = new URL(pub)
-      if (u.hostname.startsWith(`${bucket}.`)) return `${pub}/${key}` // bucket-as-subdomain
-      if (u.pathname.replace(/\/+$/, '') === `/${bucket}`) return `${pub}/${key}` // base already includes /bucket
-      return `${pub}/${bucket}/${key}`
+      const host = u.hostname.toLowerCase()
+      const bb = b.toLowerCase()
+      const pn = u.pathname.replace(/\/+$/, '')
+
+      // ✅ bucket as subdomain (recommended): https://dogpoint.fra1.digitaloceanspaces.com
+      // -> return pub + /key (NO bucket appended)
+      if (bb && host === `${bb}.fra1.digitaloceanspaces.com`) return `${pub}/${k}`
+      if (bb && host.startsWith(`${bb}.`)) return `${pub}/${k}`
+
+      // ✅ base already includes /bucket: https://fra1.digitaloceanspaces.com/dogpoint
+      if (bb && pn === `/${bb}`) return `${pub}/${k}`
+
+      // ✅ endpoint style base: https://fra1.digitaloceanspaces.com
+      return `${pub}/${bb}/${k}`
     } catch {
-      return `${endpoint}/${bucket}/${key}`
+      // fall through to endpoint below
     }
   }
 
-  return `${endpoint}/${bucket}/${key}`
+  // ✅ fallback: endpoint-style
+  return `${endpoint}/${b}/${k}`
 }
 
 function guessExtFromMime(mime: string, originalName: string): string {

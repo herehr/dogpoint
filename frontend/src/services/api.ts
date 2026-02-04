@@ -72,24 +72,47 @@ export function setModeratorToken(token: string) {
   } catch {}
 }
 
+/** ✅ optional helper (non-breaking) */
+export function getAdminToken(): string | null {
+  return (
+    safeGet('adminToken') ||
+    safeGet('admin_accessToken') ||
+    safeGet('adminTokenLegacy') ||
+    null
+  )
+}
+
 /**
- * ✅ FIX:
+ * ✅ FIX (kept + extended safely):
  * Prefer adminToken BEFORE accessToken.
+ * Also tolerate legacy keys without changing current behavior.
  */
 export function getToken(): string | null {
   try {
-    const admin = safeGet('adminToken')
+    // 1) Admin first (most important for protected CSV / stats)
+    const admin =
+      safeGet('adminToken') ||
+      safeGet('admin_accessToken') ||
+      safeGet('adminTokenLegacy')
     if (admin) return admin
 
+    // 2) Current primary token key
     const t = safeGet(tokenKey)
     if (t) return t
 
+    // 3) Moderator / legacy fallbacks
     return (
       safeGet('moderatorToken') ||
       safeGet('token') ||
       (() => {
         try {
-          return localStorage.getItem('dp:token') || localStorage.getItem('token')
+          return (
+            localStorage.getItem('dp:token') ||
+            sessionStorage.getItem('dp:token') ||
+            localStorage.getItem('token') ||
+            sessionStorage.getItem('token') ||
+            null
+          )
         } catch {
           return null
         }
@@ -104,11 +127,15 @@ export function clearToken() {
   try {
     safeRemove(tokenKey)
     safeRemove('adminToken')
+    safeRemove('admin_accessToken')
+    safeRemove('adminTokenLegacy')
     safeRemove('moderatorToken')
     safeRemove('token')
     try {
       localStorage.removeItem('dp:token')
+      sessionStorage.removeItem('dp:token')
       localStorage.removeItem('token')
+      sessionStorage.removeItem('token')
     } catch {}
   } catch {}
 }
@@ -692,6 +719,7 @@ const api = {
   setToken,
   setAdminToken,
   setModeratorToken,
+  getAdminToken, // ✅ added (non-breaking)
   getToken,
   clearToken,
   authHeader,

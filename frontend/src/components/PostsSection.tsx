@@ -15,12 +15,15 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  useMediaQuery,
 } from '@mui/material'
+import { useTheme } from '@mui/material/styles'
 import UploadIcon from '@mui/icons-material/UploadFile'
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera'
 import DeleteIcon from '@mui/icons-material/Delete'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
+import CloseIcon from '@mui/icons-material/Close'
 
 import { useAccess } from '../context/AccessContext'
 import { useAuth } from '../context/AuthContext'
@@ -86,6 +89,13 @@ async function readJson<T>(res: Response): Promise<T> {
   }
 }
 
+type LightboxItem = {
+  url: string
+  isVideo: boolean
+  poster?: string
+  title?: string
+}
+
 export default function PostsSection({ animalId }: { animalId: string }) {
   const { hasAccess } = useAccess()
   const { role } = useAuth()
@@ -98,6 +108,11 @@ export default function PostsSection({ animalId }: { animalId: string }) {
 
   // ONLY ADMIN can edit + manage post media
   const canEdit = role === 'ADMIN'
+
+  // ✅ mobile hint (safe even if navigator is not available)
+  const isMobile =
+    typeof navigator !== 'undefined' &&
+    /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
 
   const [posts, setPosts] = useState<Post[]>([])
   const [loading, setLoading] = useState(true)
@@ -130,16 +145,27 @@ export default function PostsSection({ animalId }: { animalId: string }) {
 
   const editPost = useMemo(() => posts.find((p) => p.id === editId) || null, [posts, editId])
 
+  // Lightbox (desktop limited width)
+  const [lb, setLb] = useState<LightboxItem | null>(null)
+  const theme = useTheme()
+  const isMdUp = useMediaQuery(theme.breakpoints.up('md'))
+
+  function openLightbox(item: LightboxItem) {
+    setLb(item)
+  }
+  function closeLightbox() {
+    setLb(null)
+  }
+
   // ─────────────────────────────────────────────────────────────
   // Load posts (public)
   // ─────────────────────────────────────────────────────────────
   async function refresh() {
     setErr(null)
     try {
-      const res = await fetch(
-        apiUrl(`/api/posts/public?animalId=${encodeURIComponent(animalId)}`),
-        { method: 'GET' },
-      )
+      const res = await fetch(apiUrl(`/api/posts/public?animalId=${encodeURIComponent(animalId)}`), {
+        method: 'GET',
+      })
       const list = await readJson<Post[]>(res)
       setPosts(list || [])
     } catch (e: any) {
@@ -378,9 +404,7 @@ export default function PostsSection({ animalId }: { animalId: string }) {
 
     try {
       const res = await fetch(
-        apiUrl(
-          `/api/posts/${encodeURIComponent(postId)}/media/${encodeURIComponent(mediaId)}`,
-        ),
+        apiUrl(`/api/posts/${encodeURIComponent(postId)}/media/${encodeURIComponent(mediaId)}`),
         {
           method: 'DELETE',
           headers: { ...authHeader() },
@@ -433,6 +457,73 @@ export default function PostsSection({ animalId }: { animalId: string }) {
   }
   function removeEditNewMediaIndex(i: number) {
     setEditNewMedia((list) => list.filter((_, idx) => idx !== i))
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // Media thumb component (portrait-safe)
+  // ─────────────────────────────────────────────────────────────
+  function MediaThumb({
+    url,
+    isVideo,
+    poster,
+    onOpen,
+  }: {
+    url: string
+    isVideo: boolean
+    poster?: string
+    onOpen: () => void
+  }) {
+    return (
+      <Box
+        onClick={onOpen}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') onOpen()
+        }}
+        sx={{
+          width: '100%',
+          height: 160,
+          bgcolor: '#000',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          cursor: 'pointer',
+          userSelect: 'none',
+        }}
+      >
+        {isVideo ? (
+          <Box
+            component="video"
+            controls={false}
+            muted
+            playsInline
+            preload="metadata"
+            poster={poster}
+            sx={{
+              width: '100%',
+              height: '100%',
+              objectFit: 'contain',
+              display: 'block',
+            }}
+          >
+            <source src={url} type={guessVideoMime(url)} />
+          </Box>
+        ) : (
+          <Box
+            component="img"
+            src={url}
+            alt=""
+            sx={{
+              width: '100%',
+              height: '100%',
+              objectFit: 'contain',
+              display: 'block',
+            }}
+          />
+        )}
+      </Box>
+    )
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -496,11 +587,7 @@ export default function PostsSection({ animalId }: { animalId: string }) {
               )}
 
               <Typography sx={{ fontWeight: 800 }}>{p.title}</Typography>
-              <Typography
-                variant="caption"
-                color="text.secondary"
-                sx={{ display: 'block', mb: 1 }}
-              >
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
                 {new Date(p.createdAt).toLocaleString()}
               </Typography>
 
@@ -520,36 +607,19 @@ export default function PostsSection({ animalId }: { animalId: string }) {
                             overflow: 'hidden',
                           }}
                         >
-                          {isVideo ? (
-                            <video
-                              controls
-                              preload="metadata"
-                              playsInline
-                              poster={poster}
-                              style={{ width: '100%', height: 140, objectFit: 'cover', display: 'block' }}
-                            >
-                              <source src={m.url} type={guessVideoMime(m.url)} />
-                            </video>
-                          ) : (
-                            <Box
-                              component="a"
-                              href={m.url}
-                              target="_blank"
-                              rel="noreferrer"
-                              sx={{ display: 'block' }}
-                            >
-                              <img
-                                src={m.url}
-                                alt=""
-                                style={{
-                                  width: '100%',
-                                  height: 140,
-                                  objectFit: 'cover',
-                                  display: 'block',
-                                }}
-                              />
-                            </Box>
-                          )}
+                          <MediaThumb
+                            url={m.url}
+                            isVideo={isVideo}
+                            poster={poster}
+                            onOpen={() =>
+                              openLightbox({
+                                url: m.url,
+                                isVideo,
+                                poster,
+                                title: p.title,
+                              })
+                            }
+                          />
 
                           {canEdit && (
                             <Tooltip title="Smazat médium">
@@ -584,6 +654,76 @@ export default function PostsSection({ animalId }: { animalId: string }) {
         </Stack>
       )}
 
+      {/* ───────────── Lightbox (desktop 1/3 width) ───────────── */}
+      <Dialog
+        open={!!lb}
+        onClose={closeLightbox}
+        fullWidth
+        maxWidth="md"
+        PaperProps={{
+          sx: {
+            width: isMdUp ? '33vw' : '95vw',
+            maxWidth: isMdUp ? '33vw' : '95vw',
+            borderRadius: 3,
+          },
+        }}
+      >
+        <DialogTitle sx={{ pr: 5 }}>
+          {lb?.title || 'Média'}
+          <IconButton
+            onClick={closeLightbox}
+            sx={{ position: 'absolute', right: 8, top: 8 }}
+            aria-label="Zavřít"
+          >
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent dividers sx={{ bgcolor: '#000', p: 1.5 }}>
+          {lb?.isVideo ? (
+            <Box
+              component="video"
+              controls
+              playsInline
+              preload="metadata"
+              poster={lb.poster}
+              sx={{
+                width: '100%',
+                maxHeight: isMdUp ? '70vh' : '60vh',
+                objectFit: 'contain',
+                display: 'block',
+              }}
+            >
+              <source src={lb.url} type={guessVideoMime(lb.url)} />
+            </Box>
+          ) : (
+            <Box
+              component="img"
+              src={lb?.url || ''}
+              alt=""
+              sx={{
+                width: '100%',
+                maxHeight: isMdUp ? '70vh' : '60vh',
+                objectFit: 'contain',
+                display: 'block',
+              }}
+            />
+          )}
+        </DialogContent>
+        <DialogActions>
+          {lb?.url ? (
+            <Button
+              href={lb.url}
+              target="_blank"
+              rel="noreferrer"
+              variant="outlined"
+            >
+              Otevřít v nové záložce
+            </Button>
+          ) : null}
+          <Button onClick={closeLightbox}>Zavřít</Button>
+        </DialogActions>
+      </Dialog>
+
       {/* ───────────── Admin edit dialog ───────────── */}
       <Dialog open={editOpen} onClose={closeEdit} fullWidth maxWidth="md">
         <DialogTitle>Upravit příspěvek</DialogTitle>
@@ -613,23 +753,19 @@ export default function PostsSection({ animalId }: { animalId: string }) {
                             overflow: 'hidden',
                           }}
                         >
-                          {isVideo ? (
-                            <video
-                              controls
-                              preload="metadata"
-                              playsInline
-                              poster={poster}
-                              style={{ width: '100%', height: 140, objectFit: 'cover', display: 'block' }}
-                            >
-                              <source src={m.url} type={guessVideoMime(m.url)} />
-                            </video>
-                          ) : (
-                            <img
-                              src={m.url}
-                              alt=""
-                              style={{ width: '100%', height: 140, objectFit: 'cover', display: 'block' }}
-                            />
-                          )}
+                          <MediaThumb
+                            url={m.url}
+                            isVideo={isVideo}
+                            poster={poster}
+                            onOpen={() =>
+                              openLightbox({
+                                url: m.url,
+                                isVideo,
+                                poster,
+                                title: editTitle || 'Média',
+                              })
+                            }
+                          />
 
                           <Tooltip title="Smazat médium">
                             <IconButton
@@ -660,7 +796,11 @@ export default function PostsSection({ animalId }: { animalId: string }) {
               </Typography>
 
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center" sx={{ mt: 1 }}>
-                <Button onClick={() => editFileInputRef.current?.click()} startIcon={<UploadIcon />} variant="outlined">
+                <Button
+                  onClick={() => editFileInputRef.current?.click()}
+                  startIcon={<UploadIcon />}
+                  variant="outlined"
+                >
                   Vybrat soubory
                 </Button>
                 <input
@@ -672,17 +812,31 @@ export default function PostsSection({ animalId }: { animalId: string }) {
                   onChange={onEditPickFiles}
                 />
 
-                <Button onClick={() => editCameraInputRef.current?.click()} startIcon={<PhotoCameraIcon />} variant="outlined">
-                  Vyfotit (telefon)
-                </Button>
-                <input
-                  ref={editCameraInputRef}
-                  type="file"
-                  hidden
-                  accept="image/*"
-                  capture="environment"
-                  onChange={onEditPickCamera}
-                />
+<Button
+  onClick={() => editCameraInputRef.current?.click()}
+  startIcon={<PhotoCameraIcon />}
+  variant="outlined"
+>
+  Vyfotit (telefon)
+</Button>
+
+<input
+  ref={cameraInputRef}
+  type="file"
+  hidden
+  accept="image/*"
+  {...(isMobile ? { capture: 'environment' as any } : {})}
+  onChange={onPickCamera}
+/>
+
+<input
+  ref={editCameraInputRef}
+  type="file"
+  hidden
+  accept="image/*"
+  {...(isMobile ? { capture: 'environment' as any } : {})}
+  onChange={onEditPickCamera}
+/>
               </Stack>
 
               {editUploading && (
@@ -709,22 +863,17 @@ export default function PostsSection({ animalId }: { animalId: string }) {
                             overflow: 'hidden',
                           }}
                         >
-                          {isVideo ? (
-                            <video
-                              controls
-                              preload="metadata"
-                              playsInline
-                              style={{ width: '100%', height: 140, objectFit: 'cover', display: 'block' }}
-                            >
-                              <source src={m.url} type={guessVideoMime(m.url)} />
-                            </video>
-                          ) : (
-                            <img
-                              src={m.url}
-                              alt=""
-                              style={{ width: '100%', height: 140, objectFit: 'cover', display: 'block' }}
-                            />
-                          )}
+                          <MediaThumb
+                            url={m.url}
+                            isVideo={isVideo}
+                            onOpen={() =>
+                              openLightbox({
+                                url: m.url,
+                                isVideo,
+                                title: editTitle || 'Média',
+                              })
+                            }
+                          />
 
                           <Tooltip title="Odebrat">
                             <IconButton
@@ -770,7 +919,11 @@ export default function PostsSection({ animalId }: { animalId: string }) {
             {/* Upload */}
             <Stack spacing={1}>
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center">
-                <Button onClick={() => fileInputRef.current?.click()} startIcon={<UploadIcon />} variant="outlined">
+                <Button
+                  onClick={() => fileInputRef.current?.click()}
+                  startIcon={<UploadIcon />}
+                  variant="outlined"
+                >
                   Vybrat soubory
                 </Button>
                 <input
@@ -782,17 +935,21 @@ export default function PostsSection({ animalId }: { animalId: string }) {
                   onChange={onPickFiles}
                 />
 
-                <Button onClick={() => cameraInputRef.current?.click()} startIcon={<PhotoCameraIcon />} variant="outlined">
+                <Button
+                  onClick={() => cameraInputRef.current?.click()}
+                  startIcon={<PhotoCameraIcon />}
+                  variant="outlined"
+                >
                   Vyfotit (telefon)
                 </Button>
                 <input
-                  ref={cameraInputRef}
-                  type="file"
-                  hidden
-                  accept="image/*"
-                  capture="environment"
-                  onChange={onPickCamera}
-                />
+  ref={cameraInputRef}
+  type="file"
+  hidden
+  accept="image/*"
+  {...(isMobile ? { capture: 'environment' as any } : {})}
+  onChange={onPickCamera}
+/>
               </Stack>
 
               <Box
@@ -837,22 +994,17 @@ export default function PostsSection({ animalId }: { animalId: string }) {
                             overflow: 'hidden',
                           }}
                         >
-                          {isVideo ? (
-                            <video
-                              controls
-                              preload="metadata"
-                              playsInline
-                              style={{ width: '100%', height: 140, objectFit: 'cover', display: 'block' }}
-                            >
-                              <source src={m.url} type={guessVideoMime(m.url)} />
-                            </video>
-                          ) : (
-                            <img
-                              src={m.url}
-                              alt=""
-                              style={{ width: '100%', height: 140, objectFit: 'cover', display: 'block' }}
-                            />
-                          )}
+                          <MediaThumb
+                            url={m.url}
+                            isVideo={isVideo}
+                            onOpen={() =>
+                              openLightbox({
+                                url: m.url,
+                                isVideo,
+                                title: title || 'Média',
+                              })
+                            }
+                          />
 
                           <Tooltip title="Odebrat">
                             <IconButton
