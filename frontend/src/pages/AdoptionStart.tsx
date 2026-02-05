@@ -21,13 +21,16 @@ import QRCode from 'qrcode'
 import {
   createCheckoutSession, // STRIPE (card / apple / google)
   stashPendingEmail,
-  startBankAdoption, // BANK step 1 (creates Subscription + temp access)
-  sendBankPaymentEmail, // BANK step 2 (optional: email with details)
+  startBankAdoption, // BANK step 1 (creates Subscription + temp access)  <-- kept but disabled in UI
+  sendBankPaymentEmail, // BANK step 2 (optional: email with details)      <-- kept but disabled in UI
   apiUrl,
 } from '../services/api'
 import { useAuth } from '../context/AuthContext'
 
 type PaymentMethod = 'card' | 'applepay' | 'googlepay' | 'bank'
+
+// ✅ Feature flag: temporarily disable internetbanking everywhere
+const BANK_ENABLED = false
 
 function generateVS(): string {
   const rnd = Math.floor(Math.random() * 10_000_000)
@@ -101,9 +104,7 @@ export default function AdoptionStart() {
   }, [search])
 
   // -------------------------
-  // BANK FLOW (2-step)
-  // Step 1: create Subscription (PENDING + tempAccessUntil)
-  // Step 2: optionally email bank details
+  // BANK FLOW (2-step) - UI disabled via BANK_ENABLED
   // -------------------------
   const [bankVS, setBankVS] = React.useState<string>(() => generateVS())
   const [qrDataUrl, setQrDataUrl] = React.useState<string>('')
@@ -131,6 +132,11 @@ export default function AdoptionStart() {
     if (user?.email && !email) setEmail(user.email)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.email])
+
+  // ✅ Safety: if bank is disabled but somehow selected, snap back to card
+  React.useEffect(() => {
+    if (!BANK_ENABLED && paymentMethod === 'bank') setPaymentMethod('card')
+  }, [paymentMethod])
 
   // generate QR only when bankStarted
   React.useEffect(() => {
@@ -180,7 +186,7 @@ export default function AdoptionStart() {
   }
 
   const validationError = validateInputs()
-  const showBank = paymentMethod === 'bank'
+  const showBank = BANK_ENABLED && paymentMethod === 'bank'
   const showBankInstructions = showBank && bankStarted
 
   // disable main CTA until valid (and avoid double-click)
@@ -194,7 +200,7 @@ export default function AdoptionStart() {
   /**
    * Unified “CHCI ZAPLATIT”
    * - STRIPE: createCheckoutSession + redirect to Stripe
-   * - BANK: startBankAdoption creates Subscription immediately (PENDING + tempAccessUntil) and returns token/VS
+   * - BANK: disabled for now
    */
   const onPay = async () => {
     const v = validateInputs()
@@ -211,40 +217,21 @@ export default function AdoptionStart() {
       const em = normalizeEmail(email)
       stashPendingEmail(em)
 
+      // ✅ Hard stop: bank disabled
       if (paymentMethod === 'bank') {
-        // STEP 1 (BANK): create subscription row (this is what makes "My adoptions" work)
-        const resp = await startBankAdoption({
-          animalId: id,
-          amountCZK,
-          name: firstName.trim(),
-          email: em,
-          password,
-          vs: bankVS, // backend may override; we accept returned value below
-        })
-
-        // If backend returned a USER token, log the user in right away
-        if ((resp as any)?.token) {
-          login((resp as any).token, 'USER')
-        }
-
-        // Prefer backend-generated VS if present
-        if ((resp as any)?.variableSymbol) {
-          setBankVS(String((resp as any).variableSymbol))
-        }
-
-        setBankStarted(true)
-        setBankEmailSent(false)
+        setErr('Internetbanking je dočasně nedostupný. Zvolte prosím platbu kartou.')
+        setPaymentMethod('card')
         return
       }
 
-      // STRIPE (card / apple / google) -> same endpoint, but pass method hint
+      // STRIPE (card / apple / google)
       const session = await createCheckoutSession({
         animalId: id,
         amountCZK,
         name: firstName.trim(),
         email: em,
         password,
-        paymentMethod, // backend can ignore, but useful for analytics / future routing
+        paymentMethod, // optional hint
       } as any)
 
       if (!session || !session.url) throw new Error('Server nevrátil odkaz na platbu.')
@@ -257,20 +244,13 @@ export default function AdoptionStart() {
     }
   }
 
-  /**
-   * BANK: user confirms they paid (just UI)
-   * NOTE: This should NOT be the mechanism that "creates" the adoption in DB.
-   * The adoption must already exist from Step 1.
-   */
+  // (kept for later re-enable)
   const onIHavePaid = () => {
     if (!id) return
     navigate(`/zvire/${id}?bank=paid`)
   }
 
-  /**
-   * BANK: send details by email (optional Step 2)
-   * Should NOT create duplicates; it may return token too.
-   */
+  // (kept for later re-enable)
   const onSendEmail = async () => {
     const v = validateInputs()
     if (v) {
@@ -325,6 +305,12 @@ export default function AdoptionStart() {
         </Alert>
       )}
 
+      {!BANK_ENABLED && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Internetbanking (převod) je dočasně vypnutý. Použijte prosím platbu kartou / Apple Pay / Google Pay.
+        </Alert>
+      )}
+
       <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
         Způsob platby
       </Typography>
@@ -338,7 +324,13 @@ export default function AdoptionStart() {
         <FormControlLabel value="card" control={<Radio />} label="Platební karta" />
         <FormControlLabel value="applepay" control={<Radio />} label="Apple Pay" />
         <FormControlLabel value="googlepay" control={<Radio />} label="Google Pay" />
-        <FormControlLabel value="bank" control={<Radio />} label="Internetbanking (převod)" />
+
+        {/* ✅ Disabled option (visible but not selectable) */}
+        <FormControlLabel
+          value="bank"
+          control={<Radio disabled />}
+          label="Internetbanking (dočasně nedostupné)"
+        />
       </RadioGroup>
 
       <Stack spacing={2}>
@@ -386,7 +378,7 @@ export default function AdoptionStart() {
         </Button>
       </Stack>
 
-      {/* Bank instructions (only after Step 1 created Subscription) */}
+      {/* Bank instructions (only if enabled later) */}
       {showBankInstructions && (
         <Paper variant="outlined" sx={{ mt: 3, p: 2, borderRadius: 2 }}>
           <Typography variant="h6" sx={{ fontWeight: 800, mb: 1 }}>
@@ -478,16 +470,6 @@ export default function AdoptionStart() {
 
             <Button variant="outlined" disabled={bankBusy || bankEmailSent} onClick={onSendEmail}>
               {bankEmailSent ? 'E-mail odeslán ✅' : bankBusy ? 'Odesílám…' : 'Pošlete mi údaje e-mailem'}
-            </Button>
-
-            {/* quick debug link (optional) */}
-            <Button
-              variant="text"
-              onClick={() => navigate('/user')}
-              sx={{ opacity: 0.8 }}
-              title="Pokud máš token, uvidíš adopci v profilu"
-            >
-              Zobrazit moje adopce
             </Button>
           </Stack>
         </Paper>
