@@ -7,8 +7,32 @@ import fs from 'fs'
 import PDFDocument from 'pdfkit'
 import QRCode from 'qrcode'
 import { sendEmailSafe } from '../services/email'
+import jwt from 'jsonwebtoken' // ✅ added
 
 const router = Router()
+
+/* ────────────────────────────────────────────── */
+/* Optional auth (do NOT break guest flow)         */
+/* ────────────────────────────────────────────── */
+
+type AuthPayload = { id: string; role: 'USER' | 'MODERATOR' | 'ADMIN' } // ✅ added
+
+function getBearerToken(req: Request): string | null {
+  const h = String(req.headers.authorization || '')
+  return h.startsWith('Bearer ') ? h.slice(7) : null
+}
+
+function tryGetJwtUserId(req: Request): string | null {
+  const token = getBearerToken(req)
+  if (!token) return null
+  try {
+    const secret = process.env.JWT_SECRET || 'dev_secret_change_me'
+    const payload = jwt.verify(token, secret) as AuthPayload
+    return payload?.id || null
+  } catch {
+    return null
+  }
+}
 
 /* ────────────────────────────────────────────── */
 /* Assets                                         */
@@ -273,10 +297,17 @@ router.post('/start', async (req: Request, res: Response) => {
     const monthlyAmount = Math.round(amount)
     const provider = PaymentProvider.FIO
 
+    const jwtUserId = tryGetJwtUserId(req) // ✅ added (optional)
+
     if (!animalId) return res.status(400).json({ error: 'Missing animalId' })
-    if (!email) return res.status(400).json({ error: 'Missing email' })
-    if (!name) return res.status(400).json({ error: 'Missing name' })
-    if (!password || password.length < 6) return res.status(400).json({ error: 'Password too short' })
+
+    // ✅ only require email+name+password for guest flow
+    if (!jwtUserId) {
+      if (!email) return res.status(400).json({ error: 'Missing email' })
+      if (!name) return res.status(400).json({ error: 'Missing name' })
+      if (!password || password.length < 6) return res.status(400).json({ error: 'Password too short' })
+    }
+
     if (!vs) return res.status(400).json({ error: 'Missing vs' })
     if (!Number.isFinite(amount) || amount <= 0) return res.status(400).json({ error: 'Invalid amountCZK' })
 
@@ -286,7 +317,18 @@ router.post('/start', async (req: Request, res: Response) => {
     })
     if (!animal) return res.status(404).json({ error: 'Animal not found' })
 
-    const { userId, token } = await ensureUserAndGetToken({ email, password, name })
+    // ✅ if logged in -> use JWT userId; else keep existing behavior
+    let userId: string
+    let token: string
+
+    if (jwtUserId) {
+      userId = jwtUserId
+      token = getBearerToken(req) || '' // keep existing session token
+    } else {
+      const r = await ensureUserAndGetToken({ email, password, name })
+      userId = r.userId
+      token = r.token
+    }
 
     const bankIban = process.env.BANK_IBAN || process.env.DOGPOINT_IBAN || 'CZ6508000000001234567899'
     const bankName = process.env.BANK_NAME || 'Dogpoint o.p.s.'
@@ -338,6 +380,7 @@ router.post('/start', async (req: Request, res: Response) => {
     }
 
     if (sendEmail) {
+      // ✅ keep old behavior untouched
       const pdf = await generateNicePdf({
         animalId,
         animalName: animal.jmeno || animal.name || 'Zvíře',
@@ -345,18 +388,22 @@ router.post('/start', async (req: Request, res: Response) => {
         bankIban,
         bankName,
         vs,
-        email,
+        email: jwtUserId ? (await prisma.user.findUnique({ where: { id: userId }, select: { email: true } }))?.email || email : email,
         password,
         loginUrl,
       })
 
       await sendPdfEmail({
-        to: email,
+        to: jwtUserId
+          ? (await prisma.user.findUnique({ where: { id: userId }, select: { email: true } }))?.email || email
+          : email,
         subject: 'Adopce – údaje k platbě',
         filename: `dogpoint-adopce-${animalId}.pdf`,
         pdfBuffer: pdf,
         loginUrl,
-        email,
+        email: jwtUserId
+          ? (await prisma.user.findUnique({ where: { id: userId }, select: { email: true } }))?.email || email
+          : email,
         password,
       })
     }
@@ -390,10 +437,17 @@ router.post('/send-email', async (req: Request, res: Response) => {
     const amount = Number(req.body?.amountCZK || 0)
     const monthlyAmount = Math.round(amount)
 
+    const jwtUserId = tryGetJwtUserId(req) // ✅ added (optional)
+
     if (!animalId) return res.status(400).json({ error: 'Missing animalId' })
-    if (!email) return res.status(400).json({ error: 'Missing email' })
-    if (!name) return res.status(400).json({ error: 'Missing name' })
-    if (!password || password.length < 6) return res.status(400).json({ error: 'Password too short' })
+
+    // ✅ only require email+name+password for guest flow
+    if (!jwtUserId) {
+      if (!email) return res.status(400).json({ error: 'Missing email' })
+      if (!name) return res.status(400).json({ error: 'Missing name' })
+      if (!password || password.length < 6) return res.status(400).json({ error: 'Password too short' })
+    }
+
     if (!vs) return res.status(400).json({ error: 'Missing vs' })
     if (!Number.isFinite(amount) || amount <= 0) return res.status(400).json({ error: 'Invalid amountCZK' })
 
@@ -403,7 +457,18 @@ router.post('/send-email', async (req: Request, res: Response) => {
     })
     if (!animal) return res.status(404).json({ error: 'Animal not found' })
 
-    const { userId, token } = await ensureUserAndGetToken({ email, password, name })
+    // ✅ if logged in -> use JWT userId; else keep existing behavior
+    let userId: string
+    let token: string
+
+    if (jwtUserId) {
+      userId = jwtUserId
+      token = getBearerToken(req) || ''
+    } else {
+      const r = await ensureUserAndGetToken({ email, password, name })
+      userId = r.userId
+      token = r.token
+    }
 
     // Ensure subscription exists (idempotent: if exists, don’t reset)
     const existing = await findSubscriptionByUserAnimal(userId, animalId)
@@ -437,6 +502,10 @@ router.post('/send-email', async (req: Request, res: Response) => {
     const bankName = process.env.BANK_NAME || 'Dogpoint o.p.s.'
     const loginUrl = process.env.PATRON_LOGIN_URL || 'https://patron.dog-point.cz'
 
+    const effectiveEmail = jwtUserId
+      ? (await prisma.user.findUnique({ where: { id: userId }, select: { email: true } }))?.email || email
+      : email
+
     const pdf = await generateNicePdf({
       animalId,
       animalName: animal.jmeno || animal.name || 'Zvíře',
@@ -444,18 +513,18 @@ router.post('/send-email', async (req: Request, res: Response) => {
       bankIban,
       bankName,
       vs,
-      email,
+      email: effectiveEmail,
       password,
       loginUrl,
     })
 
     await sendPdfEmail({
-      to: email,
+      to: effectiveEmail,
       subject: 'Adopce – údaje k platbě',
       filename: `dogpoint-adopce-${animalId}.pdf`,
       pdfBuffer: pdf,
       loginUrl,
-      email,
+      email: effectiveEmail,
       password,
     })
 
@@ -481,10 +550,17 @@ router.post('/paid-email', async (req: Request, res: Response) => {
     const amount = Number(req.body?.amountCZK || 0)
     const monthlyAmount = Math.round(amount)
 
+    const jwtUserId = tryGetJwtUserId(req) // ✅ added (optional)
+
     if (!animalId) return res.status(400).json({ error: 'Missing animalId' })
-    if (!email) return res.status(400).json({ error: 'Missing email' })
-    if (!name) return res.status(400).json({ error: 'Missing name' })
-    if (!password || password.length < 6) return res.status(400).json({ error: 'Password too short' })
+
+    // ✅ only require email+name+password for guest flow
+    if (!jwtUserId) {
+      if (!email) return res.status(400).json({ error: 'Missing email' })
+      if (!name) return res.status(400).json({ error: 'Missing name' })
+      if (!password || password.length < 6) return res.status(400).json({ error: 'Password too short' })
+    }
+
     if (!vs) return res.status(400).json({ error: 'Missing vs' })
     if (!Number.isFinite(amount) || amount <= 0) return res.status(400).json({ error: 'Invalid amountCZK' })
 
@@ -494,7 +570,18 @@ router.post('/paid-email', async (req: Request, res: Response) => {
     })
     if (!animal) return res.status(404).json({ error: 'Animal not found' })
 
-    const { userId, token } = await ensureUserAndGetToken({ email, password, name })
+    // ✅ if logged in -> use JWT userId; else keep existing behavior
+    let userId: string
+    let token: string
+
+    if (jwtUserId) {
+      userId = jwtUserId
+      token = getBearerToken(req) || ''
+    } else {
+      const r = await ensureUserAndGetToken({ email, password, name })
+      userId = r.userId
+      token = r.token
+    }
 
     // Ensure subscription exists (do not reset)
     const existing = await findSubscriptionByUserAnimal(userId, animalId)
@@ -528,6 +615,10 @@ router.post('/paid-email', async (req: Request, res: Response) => {
     const bankName = process.env.BANK_NAME || 'Dogpoint o.p.s.'
     const loginUrl = process.env.PATRON_LOGIN_URL || 'https://patron.dog-point.cz'
 
+    const effectiveEmail = jwtUserId
+      ? (await prisma.user.findUnique({ where: { id: userId }, select: { email: true } }))?.email || email
+      : email
+
     const pdf = await generateNicePdf({
       animalId,
       animalName: animal.jmeno || animal.name || 'Zvíře',
@@ -535,18 +626,18 @@ router.post('/paid-email', async (req: Request, res: Response) => {
       bankIban,
       bankName,
       vs,
-      email,
+      email: effectiveEmail,
       password,
       loginUrl,
     })
 
     await sendPdfEmail({
-      to: email,
+      to: effectiveEmail,
       subject: 'Děkujeme za adopci ❤️',
       filename: `dogpoint-dekujeme-za-adopci-${animalId}.pdf`,
       pdfBuffer: pdf,
       loginUrl,
-      email,
+      email: effectiveEmail,
       password,
     })
 
