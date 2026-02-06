@@ -21,16 +21,17 @@ import QRCode from 'qrcode'
 import {
   createCheckoutSession, // STRIPE (card / apple / google)
   stashPendingEmail,
-  startBankAdoption, // BANK step 1 (creates Subscription + temp access)  <-- kept but disabled in UI
-  sendBankPaymentEmail, // BANK step 2 (optional: email with details)      <-- kept but disabled in UI
-  apiUrl,
+  startBankAdoption, // BANK step 1 (creates Subscription + temp access)
+  sendBankPaymentEmail, // BANK step 2 (optional: email with details)
 } from '../services/api'
 import { useAuth } from '../context/AuthContext'
 
 type PaymentMethod = 'card' | 'applepay' | 'googlepay' | 'bank'
 
-// ✅ Feature flag: temporarily disable internetbanking everywhere
-const BANK_ENABLED = false
+// ✅ Feature flag via env (DEV can enable, PROD can keep off)
+// usage (frontend/.env.development):
+// VITE_BANK_ENABLED=true
+const BANK_ENABLED = String((import.meta as any).env?.VITE_BANK_ENABLED || '').toLowerCase() === 'true'
 
 function generateVS(): string {
   const rnd = Math.floor(Math.random() * 10_000_000)
@@ -104,7 +105,9 @@ export default function AdoptionStart() {
   }, [search])
 
   // -------------------------
-  // BANK FLOW (2-step) - UI disabled via BANK_ENABLED
+  // BANK FLOW (2-step)
+  // step 1: startBankAdoption() -> creates subscription + returns JWT + VS (usually)
+  // step 2: optional sendBankPaymentEmail()
   // -------------------------
   const [bankVS, setBankVS] = React.useState<string>(() => generateVS())
   const [qrDataUrl, setQrDataUrl] = React.useState<string>('')
@@ -133,7 +136,7 @@ export default function AdoptionStart() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.email])
 
-  // ✅ Safety: if bank is disabled but somehow selected, snap back to card
+  // ✅ If bank is disabled but somehow selected, snap back to card
   React.useEffect(() => {
     if (!BANK_ENABLED && paymentMethod === 'bank') setPaymentMethod('card')
   }, [paymentMethod])
@@ -200,7 +203,7 @@ export default function AdoptionStart() {
   /**
    * Unified “CHCI ZAPLATIT”
    * - STRIPE: createCheckoutSession + redirect to Stripe
-   * - BANK: disabled for now
+   * - BANK: startBankAdoption -> show QR + details
    */
   const onPay = async () => {
     const v = validateInputs()
@@ -217,14 +220,39 @@ export default function AdoptionStart() {
       const em = normalizeEmail(email)
       stashPendingEmail(em)
 
-      // ✅ Hard stop: bank disabled
+      // ✅ BANK (internetbanking)
       if (paymentMethod === 'bank') {
-        setErr('Internetbanking je dočasně nedostupný. Zvolte prosím platbu kartou.')
-        setPaymentMethod('card')
+        if (!BANK_ENABLED) {
+          setErr('Internetbanking je dočasně nedostupný. Zvolte prosím platbu kartou.')
+          setPaymentMethod('card')
+          return
+        }
+
+        // Step 1: create subscription + temp access token
+        const resp = await startBankAdoption({
+          animalId: id,
+          amountCZK,
+          name: firstName.trim(),
+          email: em,
+          password,
+          vs: bankVS, // send suggested VS; backend may overwrite with canonical VS
+        } as any)
+
+        // If backend returns token -> immediately log user in
+        if ((resp as any)?.token) {
+          login((resp as any).token, 'USER')
+        }
+
+        // If backend returns canonical VS -> store it
+        if ((resp as any)?.variableSymbol) {
+          setBankVS(String((resp as any).variableSymbol))
+        }
+
+        setBankStarted(true)
         return
       }
 
-      // STRIPE (card / apple / google)
+      // ✅ STRIPE (card / apple / google)
       const session = await createCheckoutSession({
         animalId: id,
         amountCZK,
@@ -244,13 +272,11 @@ export default function AdoptionStart() {
     }
   }
 
-  // (kept for later re-enable)
   const onIHavePaid = () => {
     if (!id) return
     navigate(`/zvire/${id}?bank=paid`)
   }
 
-  // (kept for later re-enable)
   const onSendEmail = async () => {
     const v = validateInputs()
     if (v) {
@@ -270,7 +296,7 @@ export default function AdoptionStart() {
         email: em,
         password,
         vs: bankVS,
-      })
+      } as any)
 
       if ((resp as any)?.token) {
         login((resp as any).token, 'USER')
@@ -307,7 +333,7 @@ export default function AdoptionStart() {
 
       {!BANK_ENABLED && (
         <Alert severity="info" sx={{ mb: 2 }}>
-          Internetbanking (převod) je dočasně vypnutý. Použijte prosím platbu kartou / Apple Pay / Google Pay.
+          Internetbanking (převod) je momentálně vypnutý. Použijte prosím platbu kartou / Apple Pay / Google Pay.
         </Alert>
       )}
 
@@ -325,12 +351,11 @@ export default function AdoptionStart() {
         <FormControlLabel value="applepay" control={<Radio />} label="Apple Pay" />
         <FormControlLabel value="googlepay" control={<Radio />} label="Google Pay" />
 
-        {/* ✅ Disabled option (visible but not selectable) */}
-        <FormControlLabel
-          value="bank"
-          control={<Radio disabled />}
-          label="Internetbanking (dočasně nedostupné)"
-        />
+        {BANK_ENABLED ? (
+          <FormControlLabel value="bank" control={<Radio />} label="Internetbanking (převod)" />
+        ) : (
+          <FormControlLabel value="bank" control={<Radio disabled />} label="Internetbanking (vypnuto)" />
+        )}
       </RadioGroup>
 
       <Stack spacing={2}>
@@ -370,7 +395,7 @@ export default function AdoptionStart() {
       {/* Primary CTA */}
       <Stack spacing={2} sx={{ mt: 2 }}>
         <Button variant="contained" disabled={mainDisabled} onClick={onPay}>
-          {loading ? 'Zpracovávám…' : 'CHCI ZAPLATIT'}
+          {loading ? 'Zpracovávám…' : showBank ? 'Vygenerovat pokyny k platbě' : 'CHCI ZAPLATIT'}
         </Button>
 
         <Button variant="text" component={RouterLink} to={id ? `/zvire/${id}` : '/'}>
@@ -378,7 +403,7 @@ export default function AdoptionStart() {
         </Button>
       </Stack>
 
-      {/* Bank instructions (only if enabled later) */}
+      {/* Bank instructions */}
       {showBankInstructions && (
         <Paper variant="outlined" sx={{ mt: 3, p: 2, borderRadius: 2 }}>
           <Typography variant="h6" sx={{ fontWeight: 800, mb: 1 }}>
