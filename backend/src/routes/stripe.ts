@@ -73,6 +73,74 @@ async function getOrCreateCustomerId(email: string): Promise<string> {
 }
 
 /**
+ * ✅ NEW (minimal, idempotent):
+ * Create/ensure a DB Subscription exists + is PENDING immediately when checkout session is created,
+ * so the adoption is visible right away (like internetbanking).
+ *
+ * This does NOT change any existing payment-confirmation logic.
+ */
+async function ensureDbSubscriptionPending(opts: {
+  userId: string
+  animalId: string
+  monthlyAmountCZK: number
+  providerRef?: string | null
+}) {
+  const monthlyAmount = Math.round(Number(opts.monthlyAmountCZK))
+  if (!Number.isFinite(monthlyAmount) || monthlyAmount <= 0) {
+    throw new Error('[ensureDbSubscriptionPending] monthlyAmountCZK invalid/missing')
+  }
+
+  const existing = await prisma.subscription.findFirst({
+    where: { userId: opts.userId, animalId: opts.animalId } as any,
+    orderBy: { createdAt: 'desc' } as any,
+  })
+
+  if (existing) {
+    // If canceled, do NOT revive automatically
+    if (String((existing as any).status || '').toUpperCase() === 'CANCELED') return
+
+    const st = String((existing as any).status || '').toUpperCase()
+    if (st === 'ACTIVE' || st === 'PENDING') {
+      // optionally set providerRef if missing (no other changes)
+      if ((existing as any).providerRef == null && opts.providerRef) {
+        await prisma.subscription.update({
+          where: { id: (existing as any).id },
+          data: { providerRef: opts.providerRef ?? null } as any,
+        })
+      }
+      return
+    }
+
+    // Normalize odd state -> PENDING (without resetting meaningful fields)
+    await prisma.subscription.update({
+      where: { id: (existing as any).id },
+      data: {
+        status: 'PENDING' as any,
+        startedAt: (existing as any).startedAt ?? new Date(),
+        monthlyAmount: (existing as any).monthlyAmount ?? monthlyAmount,
+        currency: (existing as any).currency ?? 'CZK',
+        provider: (existing as any).provider ?? ('STRIPE' as any),
+        providerRef: (existing as any).providerRef ?? (opts.providerRef ?? null),
+      } as any,
+    })
+    return
+  }
+
+  await prisma.subscription.create({
+    data: {
+      userId: opts.userId,
+      animalId: opts.animalId,
+      monthlyAmount,
+      currency: 'CZK',
+      provider: 'STRIPE' as any,
+      providerRef: opts.providerRef ?? null,
+      status: 'PENDING' as any, // ✅ visible immediately
+      startedAt: new Date(),
+    } as any,
+  })
+}
+
+/**
  * ✅ When Stripe is paid, ensure a DB Subscription exists + is ACTIVE.
  * IMPORTANT: your Prisma model requires monthlyAmount + provider.
  */
@@ -263,6 +331,7 @@ jsonRouter.get('/ping', (_req: Request, res: Response) => {
  * body: { animalId, amountCZK, email, name, password }
  *
  * ✅ also writes amountCZK into Stripe metadata so webhook/confirm can create DB subscription
+ * ✅ NEW: creates PENDING Subscription immediately so it is visible right away
  */
 jsonRouter.post('/checkout-session', async (req: Request, res: Response) => {
   try {
@@ -304,6 +373,22 @@ jsonRouter.post('/checkout-session', async (req: Request, res: Response) => {
           await prisma.user.update({ where: { id: existing.id }, data: { passwordHash } as any })
         }
       }
+    }
+
+    // ✅ NEW: ensure user exists now + create PENDING subscription immediately
+    let userForToken: { id: string; role: string; email: string } | null = null
+    if (resolvedEmail && resolvedEmail !== 'pending+unknown@local') {
+      const clean = resolvedEmail
+      let u = await prisma.user.findUnique({ where: { email: clean } })
+      if (!u) u = await prisma.user.create({ data: { email: clean, role: 'USER' } as any })
+      userForToken = { id: u.id, role: u.role, email: u.email }
+
+      await ensureDbSubscriptionPending({
+        userId: u.id,
+        animalId,
+        monthlyAmountCZK: amt,
+        providerRef: null, // session id unknown yet
+      })
     }
 
     // create pledge (pending)
@@ -360,7 +445,20 @@ jsonRouter.post('/checkout-session', async (req: Request, res: Response) => {
 
     await prisma.pledge.update({ where: { id: pledge.id }, data: { providerId: session.id } as any })
 
-    res.json({ id: session.id, url: session.url })
+    // ✅ NEW: attach providerRef to the pending subscription (best-effort, idempotent)
+    if (userForToken) {
+      await ensureDbSubscriptionPending({
+        userId: userForToken.id,
+        animalId,
+        monthlyAmountCZK: amt,
+        providerRef: session.id,
+      })
+    }
+
+    // ✅ NEW: return token so frontend can immediately show "Moje adopce"
+    const token = userForToken ? signToken(userForToken) : undefined
+
+    res.json({ id: session.id, url: session.url, token })
   } catch (e: any) {
     console.error('[stripe checkout-session] error:', e)
     res.status(500).json({ error: 'Failed to create checkout session', detail: e?.message || String(e) })
