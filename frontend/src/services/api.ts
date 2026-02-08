@@ -112,7 +112,7 @@ export function getToken(): string | null {
             localStorage.getItem('token') ||
             sessionStorage.getItem('token') ||
             null
-          )
+        )
         } catch {
           return null
         }
@@ -351,10 +351,6 @@ export async function createCheckoutSession(params: {
    Bank transfer: 2-step flow
 ========================================================= */
 
-/**
- * STEP 1: starts bank adoption WITHOUT sending email.
- * Backend should accept sendEmail=false and return { token }.
- */
 export async function startBankAdoption(payload: {
   animalId: string
   amountCZK: number
@@ -369,10 +365,6 @@ export async function startBankAdoption(payload: {
   )
 }
 
-/**
- * STEP 2: send payment details by email (PDF).
- * Backend endpoint: POST /api/adoption-bank/send-email
- */
 export async function sendBankPaymentDetailsEmail(payload: {
   animalId: string
   amountCZK: number
@@ -383,12 +375,10 @@ export async function sendBankPaymentDetailsEmail(payload: {
 }) {
   return postJSON<{ ok: boolean; token?: string }>('/api/adoption-bank/send-email', payload)
 }
-// ✅ Alias to match AdoptionStart.tsx import
 export const sendBankPaymentEmail = sendBankPaymentDetailsEmail
 
 /**
- * ✅ NEW: "I paid" -> send thanks email + PDF
- * Backend endpoint: POST /api/adoption-bank/paid
+ * ✅ FIXED: backend route is /paid-email (not /paid)
  */
 export async function sendBankPaidEmail(payload: {
   animalId: string
@@ -398,13 +388,9 @@ export async function sendBankPaidEmail(payload: {
   password: string
   vs: string
 }) {
-  return postJSON<{ ok: boolean; token?: string }>('/api/adoption-bank/paid', payload)
+  return postJSON<{ ok: boolean; token?: string }>('/api/adoption-bank/paid-email', payload)
 }
 
-/**
- * Back-compat: starts adoption and sends PDF in one call (older flow).
- * (kept unchanged)
- */
 export async function startBankAdoptionAndSendPdf(payload: {
   animalId: string
   amountCZK: number
@@ -584,8 +570,6 @@ export async function cancelAdoption(animalId: string): Promise<{ ok: true }> {
   return postJSON<{ ok: true }>('/api/adoption/cancel', { animalId })
 }
 
-/* ---------- NEW: getAdoptionMe for AccessContext ---------- */
-
 export type AdoptionMeResponse = {
   ok: boolean
   user?: { id: string; email: string; role?: string }
@@ -719,7 +703,7 @@ const api = {
   setToken,
   setAdminToken,
   setModeratorToken,
-  getAdminToken, // ✅ added (non-breaking)
+  getAdminToken,
   getToken,
   clearToken,
   authHeader,
@@ -736,10 +720,9 @@ const api = {
   confirmStripeSession,
   createCheckoutSession,
 
-  // ✅ bank: both flows available
   startBankAdoption,
   sendBankPaymentEmail,
-  sendBankPaidEmail, // ✅ NEW
+  sendBankPaidEmail,
   startBankAdoptionAndSendPdf,
 
   stashPendingEmail,

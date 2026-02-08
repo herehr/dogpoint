@@ -23,14 +23,14 @@ import {
   stashPendingEmail,
   startBankAdoption, // BANK step 1 (creates Subscription + temp access)
   sendBankPaymentEmail, // BANK step 2 (optional: email with details)
+  sendBankPaidEmail, // ✅ BANK step 3 (Zaplatil jsem -> create subscription if missing + send "paid" email)
 } from '../services/api'
 import { useAuth } from '../context/AuthContext'
 
 type PaymentMethod = 'card' | 'applepay' | 'googlepay' | 'bank'
 
 // ✅ Feature flag via env (DEV can enable, PROD can keep off)
-// usage (frontend/.env.development):
-// VITE_BANK_ENABLED=true
+// frontend/.env.development: VITE_BANK_ENABLED=true
 const BANK_ENABLED = String((import.meta as any).env?.VITE_BANK_ENABLED || '').toLowerCase() === 'true'
 
 function generateVS(): string {
@@ -106,8 +106,6 @@ export default function AdoptionStart() {
 
   // -------------------------
   // BANK FLOW (2-step)
-  // step 1: startBankAdoption() -> creates subscription + returns JWT + VS (usually)
-  // step 2: optional sendBankPaymentEmail()
   // -------------------------
   const [bankVS, setBankVS] = React.useState<string>(() => generateVS())
   const [qrDataUrl, setQrDataUrl] = React.useState<string>('')
@@ -136,7 +134,7 @@ export default function AdoptionStart() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.email])
 
-  // ✅ If bank is disabled but somehow selected, snap back to card
+  // ✅ safety: if bank disabled, prevent selecting it
   React.useEffect(() => {
     if (!BANK_ENABLED && paymentMethod === 'bank') setPaymentMethod('card')
   }, [paymentMethod])
@@ -179,34 +177,38 @@ export default function AdoptionStart() {
     }
   }, [paymentMethod])
 
-  function validateInputs(): string | null {
-    if (!id) return 'Chybí ID zvířete.'
-    const em = normalizeEmail(email)
-    if (!em) return 'Vyplňte prosím e-mail.'
-    if (!firstName.trim()) return 'Vyplňte prosím jméno.'
-    if (!password || password.length < 6) return 'Heslo musí mít alespoň 6 znaků.'
-    return null
-  }
+  // ✅ Robust “active button” logic: compute validity directly
+  const emailNorm = normalizeEmail(email)
+  const nameNorm = firstName.trim()
+  const passOk = password.length >= 6
+  const hasAnimalId = Boolean(id)
 
-  const validationError = validateInputs()
-  const showBank = BANK_ENABLED && paymentMethod === 'bank'
+  const isFormValid = hasAnimalId && Boolean(emailNorm) && Boolean(nameNorm) && passOk
+
+  // ✅ show bank only if enabled
+  const showBankOption = BANK_ENABLED
+  const showBank = showBankOption && paymentMethod === 'bank'
   const showBankInstructions = showBank && bankStarted
 
   // disable main CTA until valid (and avoid double-click)
   const mainDisabled =
     loading ||
-    Boolean(validationError) ||
-    (showBank && bankStarted) // bank step 1 already done -> hide main CTA
+    !isFormValid ||
+    (showBank && bankStarted) // after bank step 1, we don't want to run it again
 
+  // disable inputs once bank is started (so VS etc stays stable), or while loading
   const inputsDisabled = loading || bankStarted
 
-  /**
-   * Unified “CHCI ZAPLATIT”
-   * - STRIPE: createCheckoutSession + redirect to Stripe
-   * - BANK: startBankAdoption -> show QR + details
-   */
+  function validateOnClick(): string | null {
+    if (!id) return 'Chybí ID zvířete. Otevři prosím adopci z detailu konkrétního zvířete.'
+    if (!emailNorm) return 'Vyplňte prosím e-mail.'
+    if (!nameNorm) return 'Vyplňte prosím jméno.'
+    if (!passOk) return 'Heslo musí mít alespoň 6 znaků.'
+    return null
+  }
+
   const onPay = async () => {
-    const v = validateInputs()
+    const v = validateOnClick()
     if (v) {
       setErr(v)
       return
@@ -217,10 +219,9 @@ export default function AdoptionStart() {
     setLoading(true)
 
     try {
-      const em = normalizeEmail(email)
-      stashPendingEmail(em)
+      stashPendingEmail(emailNorm)
 
-      // ✅ BANK (internetbanking)
+      // ✅ BANK
       if (paymentMethod === 'bank') {
         if (!BANK_ENABLED) {
           setErr('Internetbanking je dočasně nedostupný. Zvolte prosím platbu kartou.')
@@ -228,22 +229,18 @@ export default function AdoptionStart() {
           return
         }
 
-        // Step 1: create subscription + temp access token
         const resp = await startBankAdoption({
           animalId: id,
           amountCZK,
-          name: firstName.trim(),
-          email: em,
+          name: nameNorm,
+          email: emailNorm,
           password,
-          vs: bankVS, // send suggested VS; backend may overwrite with canonical VS
+          vs: bankVS,
         } as any)
 
-        // If backend returns token -> immediately log user in
         if ((resp as any)?.token) {
           login((resp as any).token, 'USER')
         }
-
-        // If backend returns canonical VS -> store it
         if ((resp as any)?.variableSymbol) {
           setBankVS(String((resp as any).variableSymbol))
         }
@@ -252,14 +249,14 @@ export default function AdoptionStart() {
         return
       }
 
-      // ✅ STRIPE (card / apple / google)
+      // ✅ STRIPE
       const session = await createCheckoutSession({
         animalId: id,
         amountCZK,
-        name: firstName.trim(),
-        email: em,
+        name: nameNorm,
+        email: emailNorm,
         password,
-        paymentMethod, // optional hint
+        paymentMethod,
       } as any)
 
       if (!session || !session.url) throw new Error('Server nevrátil odkaz na platbu.')
@@ -272,13 +269,10 @@ export default function AdoptionStart() {
     }
   }
 
-  const onIHavePaid = () => {
-    if (!id) return
-    navigate(`/zvire/${id}?bank=paid`)
-  }
-
-  const onSendEmail = async () => {
-    const v = validateInputs()
+  // ✅ ONLY CHANGE: Zaplatil jsem now calls backend "/api/adoption-bank/paid-email"
+  // to ensure subscription exists + send confirmation email + keep user logged in.
+  const onIHavePaid = async () => {
+    const v = validateOnClick()
     if (v) {
       setErr(v)
       return
@@ -288,12 +282,44 @@ export default function AdoptionStart() {
     setErr(null)
     setBankBusy(true)
     try {
-      const em = normalizeEmail(email)
+      const resp = await sendBankPaidEmail({
+        animalId: id,
+        amountCZK,
+        name: nameNorm,
+        email: emailNorm,
+        password,
+        vs: bankVS,
+      } as any)
+
+      if ((resp as any)?.token) {
+        login((resp as any).token, 'USER')
+      }
+
+      navigate(`/zvire/${id}?bank=paid`)
+    } catch (e: any) {
+      const msg = (e?.response?.data?.error || e?.message || '').toString()
+      setErr(msg || 'Nepodařilo se potvrdit platbu.')
+    } finally {
+      setBankBusy(false)
+    }
+  }
+
+  const onSendEmail = async () => {
+    const v = validateOnClick()
+    if (v) {
+      setErr(v)
+      return
+    }
+    if (!id) return
+
+    setErr(null)
+    setBankBusy(true)
+    try {
       const resp = await sendBankPaymentEmail({
         animalId: id,
         amountCZK,
-        name: firstName.trim(),
-        email: em,
+        name: nameNorm,
+        email: emailNorm,
         password,
         vs: bankVS,
       } as any)
@@ -325,6 +351,12 @@ export default function AdoptionStart() {
         příspěvky.
       </Typography>
 
+      {!hasAnimalId && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          Chybí ID zvířete. Otevři prosím adopci z detailu konkrétního zvířete.
+        </Alert>
+      )}
+
       {err && (
         <Alert severity="error" sx={{ mb: 2 }}>
           {err}
@@ -350,12 +382,7 @@ export default function AdoptionStart() {
         <FormControlLabel value="card" control={<Radio />} label="Platební karta" />
         <FormControlLabel value="applepay" control={<Radio />} label="Apple Pay" />
         <FormControlLabel value="googlepay" control={<Radio />} label="Google Pay" />
-
-        {BANK_ENABLED ? (
-          <FormControlLabel value="bank" control={<Radio />} label="Internetbanking (převod)" />
-        ) : (
-          <FormControlLabel value="bank" control={<Radio disabled />} label="Internetbanking (vypnuto)" />
-        )}
+        {showBankOption && <FormControlLabel value="bank" control={<Radio />} label="Internetbanking (převod)" />}
       </RadioGroup>
 
       <Stack spacing={2}>
@@ -367,6 +394,7 @@ export default function AdoptionStart() {
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           disabled={inputsDisabled}
+          error={Boolean(email) && !emailNorm}
         />
         <TextField
           label="Jméno"
@@ -375,6 +403,7 @@ export default function AdoptionStart() {
           value={firstName}
           onChange={(e) => setFirstName(e.target.value)}
           disabled={inputsDisabled}
+          error={Boolean(firstName) && !nameNorm}
         />
         <TextField
           label="Heslo pro účet"
@@ -385,6 +414,7 @@ export default function AdoptionStart() {
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           disabled={inputsDisabled}
+          error={Boolean(password) && !passOk}
         />
       </Stack>
 
@@ -392,7 +422,6 @@ export default function AdoptionStart() {
         Částka: <strong>{amountCZK} Kč / měsíc</strong>
       </Typography>
 
-      {/* Primary CTA */}
       <Stack spacing={2} sx={{ mt: 2 }}>
         <Button variant="contained" disabled={mainDisabled} onClick={onPay}>
           {loading ? 'Zpracovávám…' : showBank ? 'Vygenerovat pokyny k platbě' : 'CHCI ZAPLATIT'}
@@ -403,7 +432,6 @@ export default function AdoptionStart() {
         </Button>
       </Stack>
 
-      {/* Bank instructions */}
       {showBankInstructions && (
         <Paper variant="outlined" sx={{ mt: 3, p: 2, borderRadius: 2 }}>
           <Typography variant="h6" sx={{ fontWeight: 800, mb: 1 }}>
@@ -411,8 +439,8 @@ export default function AdoptionStart() {
           </Typography>
 
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Pro aktivaci adopce prosím nastav <strong>trvalý příkaz</strong> (měsíčně). Nejrychlejší je
-            naskenovat QR kód v bankovní aplikaci.
+            Pro aktivaci adopce prosím nastav <strong>trvalý příkaz</strong> (měsíčně). Nejrychlejší je naskenovat QR
+            kód v bankovní aplikaci.
           </Typography>
 
           {!bankIban && (
@@ -474,12 +502,7 @@ export default function AdoptionStart() {
 
             {qrDataUrl && (
               <Box sx={{ mt: 1, display: 'flex', justifyContent: 'center' }}>
-                <Box
-                  component="img"
-                  src={qrDataUrl}
-                  alt="QR SPAYD"
-                  sx={{ width: 220, height: 220, borderRadius: 2 }}
-                />
+                <Box component="img" src={qrDataUrl} alt="QR SPAYD" sx={{ width: 220, height: 220, borderRadius: 2 }} />
               </Box>
             )}
           </Stack>
@@ -489,8 +512,8 @@ export default function AdoptionStart() {
           </Alert>
 
           <Stack spacing={1.5} sx={{ mt: 2 }}>
-            <Button variant="contained" onClick={onIHavePaid}>
-              Zaplatil jsem
+            <Button variant="contained" onClick={onIHavePaid} disabled={bankBusy}>
+              {bankBusy ? 'Odesílám…' : 'Zaplatil jsem'}
             </Button>
 
             <Button variant="outlined" disabled={bankBusy || bankEmailSent} onClick={onSendEmail}>
