@@ -131,25 +131,49 @@ async function generateNicePdf(args: {
 
   if (logoPath) doc.image(logoPath, 48, 28, { width: 140 })
 
+// inside generateNicePdf(...) — replace only the shown block with this one
+
+  // Header
   doc.fontSize(20).text('Děkujeme za adopci ❤️', { align: 'right' })
-  doc.moveDown(2)
+  doc.moveDown(1.5)
 
-  doc.fontSize(12).text('Údaje k bankovnímu převodu')
-  doc.moveDown()
+  // Section title
+  doc.fontSize(13).text('Údaje k bankovnímu převodu')
+  doc.moveDown(0.5)
 
-  doc.text(`Zvíře: ${args.animalName}`)
+  // ✅ Monthly reminder (standing order)
+  doc
+    .fontSize(11)
+    .text('Naskenujte QR a v bankovní aplikaci nastavte trvalý příkaz 1× měsíčně.')
+  doc.moveDown(1)
+
+  // Payment details (clean, readable)
+  doc.fontSize(12).text(`Zvíře: ${args.animalName}`)
+  doc.moveDown(0.2)
   doc.text(`Částka: ${args.amountCZK} Kč / měsíc`)
   doc.text(`Příjemce: ${args.bankName}`)
   doc.text(`IBAN: ${args.bankIban}`)
-  doc.text(`VS: ${args.vs}`)
+  doc.text(`Variabilní symbol (VS): ${args.vs}`)
 
-  doc.moveDown()
-  doc.image(qr, { width: 140 })
+  // QR
+  doc.moveDown(1.2)
+  doc.fontSize(11).text('QR platba (SPAYD):')
+  doc.moveDown(0.4)
+  doc.image(qr, { width: 160 })
 
-  doc.moveDown()
-  doc.text(`Přihlášení: ${args.loginUrl}`)
+  // Login box (simple but nice)
+  doc.moveDown(1.2)
+  doc.fontSize(13).text('Přihlášení do účtu')
+  doc.moveDown(0.4)
+
+  doc.fontSize(11).text(`Přihlášení: ${args.loginUrl}`)
   doc.text(`E-mail: ${args.email}`)
   doc.text(`Heslo: ${args.password}`)
+
+  doc.moveDown(1.2)
+  doc
+    .fontSize(10)
+    .text('Poznámka: Platbu spárujeme automaticky po přijetí první platby (Fio import).')
 
   doc.end()
   await new Promise<void>((resolve) => doc.on('end', () => resolve()))
@@ -171,18 +195,67 @@ async function sendPdfEmail(args: {
 }) {
   // Matches your screenshot wording (simple + clean)
   const html = `
-<div style="font-family:Arial, sans-serif; max-width:640px; margin:0 auto; color:#111;">
-  <h2 style="margin:0 0 12px 0;">Děkujeme za adopci ❤️</h2>
-  <p style="margin:0 0 12px 0; line-height:1.5;">
-    V příloze najdete PDF s QR kódem a údaji k platbě.
-  </p>
-  <div style="background:#F6F8FF; border:1px solid #D9E2FF; border-radius:12px; padding:14px 16px; margin:14px 0;">
-    <div style="font-weight:700; margin-bottom:8px;">Přihlášení do účtu</div>
-    <div>Přihlášení: <a href="${args.loginUrl}" target="_blank" rel="noreferrer">${args.loginUrl}</a></div>
-    <div>E-mail: <b>${args.email}</b></div>
-    <div>Heslo: <b>${args.password}</b></div>
+<div style="font-family:Arial,Helvetica,sans-serif; background:#f6f7fb; padding:24px;">
+  <div style="max-width:640px; margin:0 auto; background:#ffffff; border-radius:12px; overflow:hidden;">
+
+    <!-- HEADER -->
+    <div style="padding:24px; display:flex; align-items:center; justify-content:space-between;">
+      <img src="https://patron.dog-point.cz/logo1.png" alt="Dogpoint" style="height:36px;" />
+      <a href="https://patron.dog-point.cz"
+         style="font-size:14px; color:#2563eb; text-decoration:none;">
+        patron.dog-point.cz
+      </a>
+    </div>
+
+    <div style="padding:0 24px 24px 24px; color:#111;">
+      <h1 style="font-size:24px; margin:0 0 12px 0;">
+        Děkujeme za adopci ❤️
+      </h1>
+
+      <p style="font-size:15px; line-height:1.6; margin:0 0 16px 0;">
+        V příloze tohoto e-mailu najdete PDF s QR kódem a údaji k platbě.
+      </p>
+
+      <div style="background:#f6f7fb; border-radius:10px; padding:16px; margin:16px 0;">
+        <strong>Důležité:</strong><br />
+        Naskenujte QR kód a ve své bankovní aplikaci nastavte
+        <strong>trvalý příkaz 1× měsíčně</strong>.
+      </div>
+
+      <!-- LOGIN BOX -->
+      <div style="border:1px solid #e5e7eb; border-radius:10px; padding:16px; margin:20px 0;">
+        <strong>Přihlášení do účtu</strong><br /><br />
+        Přihlášení:
+        <a href="${args.loginUrl}" target="_blank" rel="noreferrer">
+          ${args.loginUrl}
+        </a><br />
+        E-mail: <strong>${args.email}</strong><br />
+        Heslo: <strong>${args.password}</strong>
+      </div>
+
+      <p style="margin:24px 0 0 0;">
+        Tým Dogpoint ❤️
+      </p>
+    </div>
+
+    <!-- FOOTER -->
+    <div style="background:#f3f4f6; padding:20px; font-size:13px; color:#444;">
+      <strong>Kontakty</strong><br />
+      Telefon: +420 607 018 218<br />
+      E-mail: <a href="mailto:info@dog-point.cz">info@dog-point.cz</a><br /><br />
+
+      <strong>Adresa útulku</strong><br />
+      Lhotky 60, 281 63 Malotice<br /><br />
+
+      <strong>Sídlo organizace a korespondenční kontakt</strong><br />
+      Dogpoint o.p.s., Milánská 452, 109 00 Praha 15<br /><br />
+
+      <em>
+        Tento e-mail byl odeslán automaticky. Prosím neodpovídejte na něj.
+      </em>
+    </div>
+
   </div>
-  <p style="margin:0; color:#555;">Tým Dogpoint ❤️</p>
 </div>
 `.trim()
 
@@ -634,7 +707,7 @@ router.post('/paid-email', async (req: Request, res: Response) => {
     await sendPdfEmail({
       to: effectiveEmail,
       subject: 'Děkujeme za adopci ❤️',
-      filename: `dogpoint-dekujeme-za-adopci-${animalId}.pdf`,
+      filename: `dogpoint-adopce-${animalId}.pdf`,
       pdfBuffer: pdf,
       loginUrl,
       email: effectiveEmail,
