@@ -23,6 +23,7 @@ import {
   stashPendingEmail,
   startBankAdoption, // BANK step 1 (creates Subscription + temp access)
   sendBankPaymentEmail, // BANK step 2 (optional: email with details)
+  sendBankPaidEmail, // ✅ BANK step 3 (Zaplatil jsem -> create subscription if missing + send "paid" email)
 } from '../services/api'
 import { useAuth } from '../context/AuthContext'
 
@@ -268,9 +269,39 @@ export default function AdoptionStart() {
     }
   }
 
-  const onIHavePaid = () => {
+  // ✅ ONLY CHANGE: Zaplatil jsem now calls backend "/api/adoption-bank/paid-email"
+  // to ensure subscription exists + send confirmation email + keep user logged in.
+  const onIHavePaid = async () => {
+    const v = validateOnClick()
+    if (v) {
+      setErr(v)
+      return
+    }
     if (!id) return
-    navigate(`/zvire/${id}?bank=paid`)
+
+    setErr(null)
+    setBankBusy(true)
+    try {
+      const resp = await sendBankPaidEmail({
+        animalId: id,
+        amountCZK,
+        name: nameNorm,
+        email: emailNorm,
+        password,
+        vs: bankVS,
+      } as any)
+
+      if ((resp as any)?.token) {
+        login((resp as any).token, 'USER')
+      }
+
+      navigate(`/zvire/${id}?bank=paid`)
+    } catch (e: any) {
+      const msg = (e?.response?.data?.error || e?.message || '').toString()
+      setErr(msg || 'Nepodařilo se potvrdit platbu.')
+    } finally {
+      setBankBusy(false)
+    }
   }
 
   const onSendEmail = async () => {
@@ -481,8 +512,8 @@ export default function AdoptionStart() {
           </Alert>
 
           <Stack spacing={1.5} sx={{ mt: 2 }}>
-            <Button variant="contained" onClick={onIHavePaid}>
-              Zaplatil jsem
+            <Button variant="contained" onClick={onIHavePaid} disabled={bankBusy}>
+              {bankBusy ? 'Odesílám…' : 'Zaplatil jsem'}
             </Button>
 
             <Button variant="outlined" disabled={bankBusy || bankEmailSent} onClick={onSendEmail}>
