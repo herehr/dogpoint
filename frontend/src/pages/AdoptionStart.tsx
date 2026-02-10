@@ -177,6 +177,15 @@ export default function AdoptionStart() {
     }
   }, [paymentMethod])
 
+  // when changing animal: new VS so FIO import matches the right subscription
+  React.useEffect(() => {
+    if (!id) return
+    setBankVS(generateVS())
+    setBankStarted(false)
+    setBankEmailSent(false)
+    setQrDataUrl('')
+  }, [id])
+
   // ✅ Robust “active button” logic: compute validity directly
   const emailNorm = normalizeEmail(email)
   const nameNorm = firstName.trim()
