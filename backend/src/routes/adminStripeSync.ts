@@ -47,10 +47,8 @@ router.post('/stripe-sync-payments', async (_req: Request, res: Response) => {
           const raw = (session as any).subscription
           const resolved = typeof raw === 'string' ? raw : raw?.id ?? null
           if (resolved) {
-            await prisma.subscription.update({
-              where: { id: sub.id },
-              data: { providerRef: resolved } as any,
-            })
+            // Use raw SQL to avoid Prisma validating nullable columns (e.g. pendingSince) on old rows
+            await prisma.$executeRaw`UPDATE "Subscription" SET "providerRef" = ${resolved} WHERE id = ${sub.id}`
             stripeSubId = resolved
           } else {
             stripeSubId = null
