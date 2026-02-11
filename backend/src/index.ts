@@ -12,6 +12,7 @@ import postsRoutes from './routes/posts'
 import adoptionRouter from './routes/adoption'
 import emailTestRoutes from './routes/emailTest'
 import adminModeratorsRoutes from './routes/adminModerators'
+import adminStripeSyncRoutes from './routes/adminStripeSync'
 import adminStatsRoutes from './routes/adminStats'
 import adminAnimalStatsRoutes from './routes/adminAnimalStats'
 import adminDashboardRoutes from './routes/adminDashboard'
@@ -98,6 +99,7 @@ app.use('/api/posts', postsRoutes)
 app.use('/api/admin/stats', adminStatsRoutes)
 app.use('/api/admin/stats', adminAnimalStatsRoutes)
 app.use('/api/admin/dashboard', adminDashboardRoutes)
+app.use('/api/admin', adminStripeSyncRoutes)
 app.use('/api/admin', adminModeratorsRoutes)
 
 app.use('/api/subscriptions', subscriptionRoutes)

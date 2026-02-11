@@ -4,6 +4,7 @@ import Stripe from 'stripe'
 import jwt, { Secret } from 'jsonwebtoken'
 import bcrypt from 'bcryptjs'
 import { prisma } from '../prisma'
+import { PaymentStatus } from '@prisma/client'
 import { linkPaidOrRecentPledgesToUser } from '../controllers/authExtra'
 
 // ✅ Adoption notifications + e-mail
@@ -295,13 +296,59 @@ rawRouter.post('/webhook', express.raw({ type: 'application/json' }), async (req
 
         await linkPaidOrRecentPledgesToUser(user.id, user.email)
 
+        // Use Stripe subscription id when available so invoice.paid can match recurring payments
+        const stripeSubId =
+          typeof session.subscription === 'string'
+            ? session.subscription
+            : (session.subscription as any)?.id ?? session.id
+
         await ensureDbSubscriptionActive({
           userId: user.id,
           animalId,
           monthlyAmountCZK: amountCZK || 0, // must be present in metadata
           startedAt: new Date(),
-          providerRef: session.id,
+          providerRef: stripeSubId,
         })
+      }
+    }
+
+    // Recurring (and first) Stripe payments: store in Payment table for reporting
+    if (event.type === 'invoice.paid') {
+      const invoice = event.data.object as Stripe.Invoice
+      const rawSub = (invoice as any).subscription
+      const stripeSubId = typeof rawSub === 'string' ? rawSub : rawSub?.id
+      if (!stripeSubId) {
+        res.json({ received: true })
+        return
+      }
+
+      const sub = await prisma.subscription.findFirst({
+        where: { provider: 'STRIPE' as any, providerRef: stripeSubId },
+        select: { id: true },
+      })
+      if (sub) {
+        const providerRef = invoice.id
+        const amountCZK = invoice.amount_paid != null ? Math.round(Number(invoice.amount_paid) / 100) : 0
+        const paidAt =
+          (invoice as any).status_transitions?.paid_at != null
+            ? new Date(Number((invoice as any).status_transitions.paid_at) * 1000)
+            : new Date()
+        try {
+          await prisma.payment.create({
+            data: {
+              subscriptionId: sub.id,
+              provider: 'STRIPE' as any,
+              providerRef,
+              amount: amountCZK || 1,
+              currency: (invoice.currency || 'czk').toUpperCase(),
+              status: PaymentStatus.PAID,
+              paidAt,
+            } as any,
+          })
+        } catch (e: any) {
+          if (e?.code !== 'P2002') throw e
+          // P2002 = unique violation (subscriptionId + providerRef), idempotent ok
+        }
       }
     }
 
