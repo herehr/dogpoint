@@ -182,11 +182,18 @@ router.get('/payments', async (req: Request, res: Response) => {
       prisma.payment.findMany({
         where: filter as any,
         orderBy: { createdAt: 'desc' },
-        include: {
+        select: {
+          id: true,
+          amount: true,
+          currency: true,
+          status: true,
+          provider: true,
+          createdAt: true,
           subscription: {
-            include: {
+            select: {
+              animalId: true,
               user: { select: { email: true } },
-              animal: { select: { id: true, jmeno: true, name: true } },
+              animal: { select: { jmeno: true, name: true } },
             },
           },
         },
@@ -194,7 +201,15 @@ router.get('/payments', async (req: Request, res: Response) => {
       prisma.pledgePayment.findMany({
         where: filter as any,
         orderBy: { createdAt: 'desc' },
-        include: { pledge: true },
+        select: {
+          id: true,
+          amount: true,
+          currency: true,
+          status: true,
+          provider: true,
+          createdAt: true,
+          pledge: { select: { email: true, animalId: true } },
+        },
       }),
     ])
 
@@ -225,12 +240,13 @@ router.get('/payments', async (req: Request, res: Response) => {
       })),
     ].sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt))
 
-    const total = rows.reduce((s, r) => s + (String(r.status).toUpperCase() === 'PAID' ? r.amount : 0), 0)
+    const total = rows.reduce((s, r) => s + (String(r.status || '').toUpperCase() === 'PAID' ? (r.amount ?? 0) : 0), 0)
 
     res.json({ ok: true, count: rows.length, total, rows })
   } catch (e: any) {
     console.error('GET /api/admin/stats/payments error', e)
-    res.status(500).json({ error: 'internal error' })
+    const msg = e?.message || String(e)
+    res.status(500).json({ error: 'internal error', detail: msg })
   }
 })
 
