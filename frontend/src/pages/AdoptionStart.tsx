@@ -20,6 +20,7 @@ import { useParams, useSearchParams, useNavigate, Link as RouterLink } from 'rea
 import QRCode from 'qrcode'
 import {
   createCheckoutSession, // STRIPE (card / apple / google)
+  setAuthToken,
   stashPendingEmail,
   startBankAdoption, // BANK step 1 (creates Subscription + temp access)
   sendBankPaymentEmail, // BANK step 2 (optional: email with details)
@@ -248,6 +249,7 @@ export default function AdoptionStart() {
         } as any)
 
         if ((resp as any)?.token) {
+          setAuthToken((resp as any).token)
           login((resp as any).token, 'USER')
         }
         if ((resp as any)?.variableSymbol) {
@@ -301,6 +303,7 @@ export default function AdoptionStart() {
       } as any)
 
       if ((resp as any)?.token) {
+        setAuthToken((resp as any).token)
         login((resp as any).token, 'USER')
       }
 
@@ -334,6 +337,7 @@ export default function AdoptionStart() {
       } as any)
 
       if ((resp as any)?.token) {
+        setAuthToken((resp as any).token)
         login((resp as any).token, 'USER')
       }
       if ((resp as any)?.variableSymbol) {
