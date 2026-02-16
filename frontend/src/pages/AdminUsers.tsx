@@ -24,7 +24,7 @@ import {
 } from '@mui/material'
 import EditIcon from '@mui/icons-material/Edit'
 import RefreshIcon from '@mui/icons-material/Refresh'
-import { Link as RouterLink } from 'react-router-dom'
+import { Link as RouterLink, useLocation } from 'react-router-dom'
 import { adminUsers, updateAdminUser, type AdminUser } from '../api'
 
 function formatAddress(u: AdminUser): string {
@@ -42,6 +42,10 @@ function formatName(u: AdminUser): string {
 }
 
 export default function AdminUsers() {
+  const location = useLocation()
+  const isModerator = location.pathname.startsWith('/moderator')
+  const backTo = isModerator ? '/moderator' : '/admin'
+
   const [rows, setRows] = useState<AdminUser[]>([])
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState<string | null>(null)
@@ -143,7 +147,7 @@ export default function AdminUsers() {
         </Typography>
         <Button
           component={RouterLink}
-          to="/admin"
+          to={backTo}
           variant="outlined"
           size="small"
         >

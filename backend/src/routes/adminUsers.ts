@@ -3,10 +3,10 @@
 // PATCH /api/admin/users/:id - update user name/address
 import { Router, Request, Response } from 'express'
 import { prisma } from '../prisma'
-import { requireAuth, requireAdmin } from '../middleware/authJwt'
+import { requireAuth, requireStaff } from '../middleware/authJwt'
 
 const router = Router()
-router.use(requireAuth, requireAdmin)
+router.use(requireAuth, requireStaff)
 
 /* GET /api/admin/users */
 router.get('/users', async (_req: Request, res: Response) => {

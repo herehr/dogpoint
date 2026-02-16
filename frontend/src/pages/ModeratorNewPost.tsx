@@ -359,7 +359,7 @@ const headers = {
           {/* Animal selector */}
           <TextField
             select
-            SelectProps={{ native: true }}
+            SelectProps={{ native: true, inputProps: { 'aria-label': 'Zvíře' } }}
             label="Zvíře"
             value={animalId}
             onChange={(e) => setAnimalId(e.target.value)}
@@ -402,7 +402,15 @@ const headers = {
               <Button onClick={() => fileRef.current?.click()} startIcon={<UploadIcon />} variant="outlined">
                 Vybrat soubory
               </Button>
-              <input ref={fileRef} type="file" hidden multiple accept="image/*,video/*" onChange={onPickFiles} />
+              <input
+                ref={fileRef}
+                type="file"
+                hidden
+                multiple
+                accept="image/*,video/*"
+                onChange={onPickFiles}
+                aria-label="Vybrat soubory"
+              />
 
               <Button onClick={() => cameraRef.current?.click()} startIcon={<PhotoCameraIcon />} variant="outlined">
                 Vyfotit (telefon)
@@ -412,8 +420,8 @@ const headers = {
                 type="file"
                 hidden
                 accept="image/*,video/*"
-                capture="environment"
                 onChange={onPickCamera}
+                aria-label="Vyfotit (telefon)"
               />
             </Stack>
 
@@ -459,6 +467,12 @@ const headers = {
                           borderColor: 'divider',
                           borderRadius: 2,
                           overflow: 'hidden',
+                          '& > video, & > img': {
+                            width: '100%',
+                            height: 140,
+                            objectFit: 'cover',
+                            display: 'block',
+                          },
                         }}
                       >
                         {video ? (
@@ -467,7 +481,6 @@ const headers = {
                             preload="metadata"
                             playsInline
                             poster={poster}
-                            style={{ width: '100%', height: 140, objectFit: 'cover', display: 'block' }}
                           >
                             <source src={m.url} type={guessVideoMime(m.url)} />
                           </video>
@@ -475,7 +488,6 @@ const headers = {
                           <img
                             src={m.url}
                             alt={`post-media-${i}`}
-                            style={{ width: '100%', height: 140, objectFit: 'cover', display: 'block' }}
                           />
                         )}
 
@@ -521,7 +533,7 @@ const headers = {
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }} sx={{ mb: 2 }}>
         <TextField
           select
-          SelectProps={{ native: true }}
+          SelectProps={{ native: true, inputProps: { 'aria-label': 'Filtrovat podle zvířete' } }}
           label="Filtrovat podle zvířete"
           value={filterAnimalId}
           onChange={(e) => setFilterAnimalId(e.target.value)}
@@ -590,7 +602,7 @@ const headers = {
           <Stack spacing={2} sx={{ mt: 1 }}>
             <TextField
               select
-              SelectProps={{ native: true }}
+              SelectProps={{ native: true, inputProps: { 'aria-label': 'Zvíře' } }}
               label="Zvíře"
               value={editAnimalId}
               onChange={(e) => setEditAnimalId(e.target.value)}

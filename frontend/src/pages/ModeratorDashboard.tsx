@@ -14,6 +14,7 @@ import {
 import PetsIcon from '@mui/icons-material/Pets'
 import AddPhotoAlternateIcon from '@mui/icons-material/AddPhotoAlternate'
 import PostAddIcon from '@mui/icons-material/PostAdd'
+import PeopleIcon from '@mui/icons-material/People'
 import { Link as RouterLink } from 'react-router-dom'
 
 export default function ModeratorDashboard() {
@@ -102,7 +103,28 @@ export default function ModeratorDashboard() {
           </Card>
         </Grid>
 
-        {/* 🔴 NEW: Zvířata ke schválení (pending tab entry) */}
+        {/* Uživatelé – jména, adresy, adopce */}
+        <Grid item xs={12} md={6}>
+          <Card variant="outlined">
+            <CardActionArea component={RouterLink} to="/moderator/users">
+              <CardContent>
+                <Stack direction="row" spacing={2} alignItems="center">
+                  <PeopleIcon />
+                  <div>
+                    <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                      Uživatelé
+                    </Typography>
+                    <Typography color="text.secondary">
+                      Jména, adresy, adopce. Úprava jmen a adres.
+                    </Typography>
+                  </div>
+                </Stack>
+              </CardContent>
+            </CardActionArea>
+          </Card>
+        </Grid>
+
+        {/* Zvířata ke schválení (pending tab entry) */}
         <Grid item xs={12} md={6}>
           <Card variant="outlined">
             {/* You can later implement /moderator/animals?tab=pending

@@ -175,7 +175,7 @@ export default function App() {
         <Route
           path="admin/users"
           element={
-            <RequireRole roles={['ADMIN']}>
+            <RequireRole roles={['ADMIN', 'MODERATOR']}>
               <AdminUsers />
             </RequireRole>
           }
@@ -243,6 +243,15 @@ export default function App() {
           element={
             <RequireRole roles={['MODERATOR', 'ADMIN']}>
               <ModeratorNewPost />
+            </RequireRole>
+          }
+        />
+
+        <Route
+          path="moderator/users"
+          element={
+            <RequireRole roles={['MODERATOR', 'ADMIN']}>
+              <AdminUsers />
             </RequireRole>
           }
         />
