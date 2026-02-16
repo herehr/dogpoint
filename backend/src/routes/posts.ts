@@ -97,6 +97,33 @@ router.get('/public', tryAttachUser, listPosts)
 router.get('/', tryAttachUser, listPosts)
 
 /* ──────────────────────────────────────────────────────────
+   GET /api/posts/all (staff only – all posts for moderator)
+─────────────────────────────────────────────────────────── */
+
+router.get('/all', requireAuth, async (req: Request, res: Response) => {
+  const role = getRole(req)
+  if (!isStaff(role)) {
+    res.status(403).json({ error: 'Forbidden' })
+    return
+  }
+
+  try {
+    const animalId = req.query.animalId ? String(req.query.animalId) : undefined
+
+    const posts = await prisma.post.findMany({
+      where: { active: true, ...(animalId ? { animalId } : {}) },
+      orderBy: { createdAt: 'desc' },
+      include: { media: true, animal: { select: { id: true, jmeno: true, name: true } } },
+    })
+
+    res.json(posts)
+  } catch (e: any) {
+    console.error('GET /api/posts/all error:', e)
+    res.status(500).json({ error: 'Internal error fetching posts' })
+  }
+})
+
+/* ──────────────────────────────────────────────────────────
    GET /api/posts/pending (staff only)
 ─────────────────────────────────────────────────────────── */
 
@@ -367,13 +394,16 @@ router.patch('/:id', requireAuth, async (req: Request, res: Response) => {
     }
 
     const updated = await prisma.$transaction(async (tx) => {
+      const updateData: Record<string, unknown> = {
+        title: body.title ?? undefined,
+        body: body.body ?? undefined,
+        active: body.active ?? undefined,
+      }
+      if (typeof body.animalId === 'string' && body.animalId) updateData.animalId = body.animalId
+
       await tx.post.update({
         where: { id },
-        data: {
-          title: body.title ?? undefined,
-          body: body.body ?? undefined,
-          active: body.active ?? undefined,
-        },
+        data: updateData,
       })
 
       if (willReplaceMedia) {

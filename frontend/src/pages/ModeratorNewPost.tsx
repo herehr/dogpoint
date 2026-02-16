@@ -1,5 +1,5 @@
 // frontend/src/pages/ModeratorNewPost.tsx
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Container,
   Typography,
@@ -12,10 +12,17 @@ import {
   LinearProgress,
   IconButton,
   Tooltip,
+  Paper,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Divider,
 } from '@mui/material'
 import UploadIcon from '@mui/icons-material/UploadFile'
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
+import EditIcon from '@mui/icons-material/Edit'
 import { useNavigate } from 'react-router-dom'
 
 import RichTextEditor from '../components/RichTextEditor'
@@ -35,6 +42,17 @@ type PostMedia = {
   typ?: 'image' | 'video'
   poster?: string | null
   posterUrl?: string | null
+}
+
+type PostFromApi = {
+  id: string
+  title: string
+  body?: string | null
+  status: string
+  animalId: string
+  createdAt: string
+  animal?: { id: string; jmeno?: string | null; name?: string | null } | null
+  media?: Array<{ id?: string; url: string; typ?: string; type?: string }>
 }
 
 const EMOJIS = ['🐾', '❤️', '😊', '🥰', '👏', '🎉', '😍', '🤗', '🌟', '👍']
@@ -82,6 +100,14 @@ export default function ModeratorNewPost() {
   const [error, setError] = useState<string | null>(null)
   const [ok, setOk] = useState<string | null>(null)
 
+  const [allPosts, setAllPosts] = useState<PostFromApi[]>([])
+  const [allPostsLoading, setAllPostsLoading] = useState(false)
+  const [editPost, setEditPost] = useState<PostFromApi | null>(null)
+  const [editTitle, setEditTitle] = useState('')
+  const [editBody, setEditBody] = useState('')
+  const [editAnimalId, setEditAnimalId] = useState('')
+  const [editSaving, setEditSaving] = useState(false)
+
   const fileRef = useRef<HTMLInputElement>(null)
   const cameraRef = useRef<HTMLInputElement>(null)
 
@@ -95,6 +121,71 @@ export default function ModeratorNewPost() {
       }
     })()
   }, [])
+
+  const fetchAllPosts = useCallback(async () => {
+    const token = getToken()
+    if (!token) return
+    setAllPostsLoading(true)
+    try {
+      const res = await fetch(apiUrl('/api/posts/all'), {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) throw new Error('Načtení příspěvků selhalo')
+      const data = (await res.json()) as PostFromApi[]
+      setAllPosts(Array.isArray(data) ? data : [])
+    } catch {
+      setAllPosts([])
+    } finally {
+      setAllPostsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchAllPosts()
+  }, [fetchAllPosts])
+
+  function openEdit(p: PostFromApi) {
+    setEditPost(p)
+    setEditTitle(p.title || '')
+    setEditBody(p.body || '')
+    setEditAnimalId(p.animalId || '')
+  }
+
+  function closeEdit() {
+    setEditPost(null)
+    setEditTitle('')
+    setEditBody('')
+    setEditAnimalId('')
+  }
+
+  async function saveEdit() {
+    if (!editPost) return
+    const token = getToken()
+    if (!token) return
+    setEditSaving(true)
+    try {
+      const res = await fetch(apiUrl(`/api/posts/${editPost.id}`), {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          title: editTitle.trim(),
+          body: editBody,
+          animalId: editAnimalId || undefined,
+        }),
+      })
+      if (!res.ok) throw new Error('Uložení selhalo')
+      setOk('Příspěvek byl upraven.')
+      closeEdit()
+      fetchAllPosts()
+    } catch (e: any) {
+      setError(e?.message || 'Uložení selhalo')
+    } finally {
+      setEditSaving(false)
+    }
+  }
 
   function addEmoji(emoji: string) {
     setBody((prev) => (prev ? `${prev} ${emoji}` : emoji))
@@ -234,6 +325,7 @@ const headers = {
       setTitle('')
       setBody('')
       setMedia([])
+      fetchAllPosts()
     } catch (e: any) {
       console.error('[ModeratorNewPost] save error', e)
       setError(e?.message || 'Uložení příspěvku selhalo')
@@ -418,6 +510,91 @@ const headers = {
           </Stack>
         </Stack>
       </form>
+
+      <Divider sx={{ my: 4 }} />
+
+      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+        <Typography variant="h6" sx={{ fontWeight: 800 }}>
+          Všechny příspěvky
+        </Typography>
+        <Button size="small" onClick={fetchAllPosts} disabled={allPostsLoading}>
+          Obnovit
+        </Button>
+      </Stack>
+
+      {allPostsLoading ? (
+        <Typography color="text.secondary">Načítám…</Typography>
+      ) : allPosts.length === 0 ? (
+        <Typography color="text.secondary">Žádné příspěvky.</Typography>
+      ) : (
+        <Stack spacing={2}>
+          {allPosts.map((p) => {
+            const animalName = p.animal?.jmeno || p.animal?.name || p.animalId
+            const created = new Date(p.createdAt).toLocaleDateString('cs-CZ')
+            return (
+              <Paper key={p.id} variant="outlined" sx={{ p: 2 }}>
+                <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={2}>
+                  <Box sx={{ flex: 1 }}>
+                    <Typography sx={{ fontWeight: 700 }}>{p.title || 'Bez názvu'}</Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Zvíře: {animalName} · {created} · {p.status}
+                    </Typography>
+                  </Box>
+                  <Button size="small" startIcon={<EditIcon />} onClick={() => openEdit(p)} variant="outlined">
+                    Upravit
+                  </Button>
+                </Stack>
+                {p.body && (
+                  <Box
+                    sx={{ mt: 1, '& img': { maxWidth: '100%' }, '& video': { maxWidth: '100%' } }}
+                    dangerouslySetInnerHTML={{ __html: p.body }}
+                  />
+                )}
+              </Paper>
+            )
+          })}
+        </Stack>
+      )}
+
+      <Dialog open={!!editPost} onClose={closeEdit} maxWidth="sm" fullWidth>
+        <DialogTitle>Upravit příspěvek</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField
+              select
+              SelectProps={{ native: true }}
+              label="Zvíře"
+              value={editAnimalId}
+              onChange={(e) => setEditAnimalId(e.target.value)}
+              fullWidth
+            >
+              <option value="">— vyberte zvíře —</option>
+              {animals.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.jmeno || (a as any).name || 'Bez jména'}
+                </option>
+              ))}
+            </TextField>
+            <TextField
+              label="Titulek"
+              value={editTitle}
+              onChange={(e) => setEditTitle(e.target.value)}
+              fullWidth
+            />
+            <RichTextEditor
+              label="Text příspěvku"
+              value={editBody}
+              onChange={(val) => setEditBody(val)}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeEdit}>Zrušit</Button>
+          <Button onClick={saveEdit} variant="contained" disabled={editSaving}>
+            {editSaving ? 'Ukládám…' : 'Uložit'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Container>
   )
 }
