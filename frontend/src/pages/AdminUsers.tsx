@@ -196,14 +196,18 @@ export default function AdminUsers() {
                     {u.adoptions.length === 0 ? (
                       <Typography variant="body2" color="text.secondary">—</Typography>
                     ) : (
-                      u.adoptions.map((a) => (
-                        <Chip
-                          key={a.id}
-                          label={a.animalName}
-                          size="small"
-                          variant="outlined"
-                        />
-                      ))
+                      u.adoptions.map((a) => {
+                        const isActive = (a.status || '').toUpperCase() === 'ACTIVE'
+                        return (
+                          <Chip
+                            key={a.id}
+                            label={a.animalName}
+                            size="small"
+                            variant="outlined"
+                            sx={!isActive ? { bgcolor: 'action.hover', color: 'text.secondary' } : undefined}
+                          />
+                        )
+                      })
                     )}
                   </Stack>
                 </TableCell>
