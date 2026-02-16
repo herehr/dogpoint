@@ -108,10 +108,14 @@ export default function ModeratorNewPost() {
   const [editTitle, setEditTitle] = useState('')
   const [editBody, setEditBody] = useState('')
   const [editAnimalId, setEditAnimalId] = useState('')
+  const [editMedia, setEditMedia] = useState<PostMedia[]>([])
+  const [editUploading, setEditUploading] = useState(false)
+  const [editUploadNote, setEditUploadNote] = useState('')
   const [editSaving, setEditSaving] = useState(false)
 
   const fileRef = useRef<HTMLInputElement>(null)
   const cameraRef = useRef<HTMLInputElement>(null)
+  const editFileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     ;(async () => {
@@ -151,6 +155,13 @@ export default function ModeratorNewPost() {
     setEditTitle(p.title || '')
     setEditBody(p.body || '')
     setEditAnimalId(p.animalId || '')
+    setEditMedia(
+      (p.media || []).map((m) => ({
+        url: m.url,
+        type: (m.typ || m.type || guessTypeFromUrl(m.url) || 'image') as 'image' | 'video',
+        typ: (m.typ || m.type || 'image') as 'image' | 'video',
+      })),
+    )
   }
 
   function closeEdit() {
@@ -158,6 +169,40 @@ export default function ModeratorNewPost() {
     setEditTitle('')
     setEditBody('')
     setEditAnimalId('')
+    setEditMedia([])
+  }
+
+  function removeEditMedia(idx: number) {
+    setEditMedia((list) => list.filter((_, i) => i !== idx))
+  }
+
+  async function handleEditFiles(files: FileList | File[]) {
+    const arr = Array.from(files).filter((f) => f && f.size > 0)
+    if (!arr.length) return
+    setEditUploading(true)
+    setError(null)
+    try {
+      const results: PostMedia[] = []
+      const bust = Date.now()
+      for (let i = 0; i < arr.length; i++) {
+        setEditUploadNote(`Nahrávám ${i + 1} / ${arr.length}…`)
+        const one = await uploadMedia(arr[i])
+        const rawUrl = String((one as any)?.url || '')
+        const rawKey = String((one as any)?.key || '')
+        let publicUrl = rawUrl
+        if (!publicUrl && rawKey) publicUrl = buildPublicUrlFromKey(rawKey)
+        if (publicUrl) {
+          const t = (guessTypeFromUrl(publicUrl) || (arr[i].type.startsWith('video/') ? 'video' : 'image')) as 'image' | 'video'
+          results.push({ url: `${publicUrl}${publicUrl.includes('?') ? '&' : '?'}v=${bust}`, type: t, typ: t })
+        }
+      }
+      if (results.length) setEditMedia((cur) => [...cur, ...results])
+    } catch (e: any) {
+      setError(e?.message || 'Nahrání selhalo')
+    } finally {
+      setEditUploading(false)
+      setEditUploadNote('')
+    }
   }
 
   async function saveEdit() {
@@ -176,6 +221,7 @@ export default function ModeratorNewPost() {
           title: editTitle.trim(),
           body: editBody,
           animalId: editAnimalId || undefined,
+          media: editMedia.map((m) => ({ url: m.url, typ: m.type || m.typ || 'image' })),
         }),
       })
       if (!res.ok) throw new Error('Uložení selhalo')
@@ -598,7 +644,7 @@ const headers = {
         )
       })()}
 
-      <Dialog open={!!editPost} onClose={closeEdit} maxWidth="sm" fullWidth>
+      <Dialog open={!!editPost} onClose={closeEdit} maxWidth="md" fullWidth>
         <DialogTitle>Upravit příspěvek</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
@@ -631,11 +677,79 @@ const headers = {
               value={editBody}
               onChange={(val) => setEditBody(val)}
             />
+            <Stack spacing={1}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+                Fotky / videa
+              </Typography>
+              <Stack direction="row" spacing={2} alignItems="center">
+                <Button
+                  onClick={() => editFileRef.current?.click()}
+                  startIcon={<UploadIcon />}
+                  variant="outlined"
+                  size="small"
+                >
+                  Přidat
+                </Button>
+                <input
+                  ref={editFileRef}
+                  type="file"
+                  hidden
+                  multiple
+                  accept="image/*,video/*"
+                  onChange={(e) => e.target.files && handleEditFiles(e.target.files)}
+                  aria-label="Přidat fotky nebo videa"
+                />
+                {editUploading && (
+                  <>
+                    <LinearProgress sx={{ flex: 1, maxWidth: 120 }} />
+                    <Typography variant="caption" color="text.secondary">{editUploadNote}</Typography>
+                  </>
+                )}
+              </Stack>
+              {editMedia.length > 0 && (
+                <Grid container spacing={1} sx={{ mt: 0.5 }}>
+                  {editMedia.map((m, i) => {
+                    const video = isVideoMedia(m)
+                    return (
+                      <Grid item xs={6} sm={4} key={`${m.url}-${i}`}>
+                        <Box
+                          sx={{
+                            position: 'relative',
+                            border: '1px solid',
+                            borderColor: 'divider',
+                            borderRadius: 2,
+                            overflow: 'hidden',
+                            '& > video, & > img': { width: '100%', height: 100, objectFit: 'cover', display: 'block' },
+                          }}
+                        >
+                          {video ? (
+                            <video controls preload="metadata" playsInline>
+                              <source src={m.url} type={guessVideoMime(m.url)} />
+                            </video>
+                          ) : (
+                            <img src={m.url} alt={`edit-media-${i}`} />
+                          )}
+                          <Tooltip title="Odebrat">
+                            <IconButton
+                              size="small"
+                              onClick={() => removeEditMedia(i)}
+                              sx={{ position: 'absolute', top: 4, right: 4, bgcolor: 'rgba(255,255,255,0.9)' }}
+                            >
+                              <DeleteOutlineIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        </Box>
+                      </Grid>
+                    )
+                  })}
+                </Grid>
+              )}
+            </Stack>
           </Stack>
         </DialogContent>
         <DialogActions>
           <Button onClick={closeEdit}>Zrušit</Button>
-          <Button onClick={saveEdit} variant="contained" disabled={editSaving}>
+          <Button onClick={saveEdit} variant="contained" disabled={editSaving || editUploading}>
             {editSaving ? 'Ukládám…' : 'Uložit'}
           </Button>
         </DialogActions>
