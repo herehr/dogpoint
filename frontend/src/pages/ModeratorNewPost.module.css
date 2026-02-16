@@ -1,0 +1,8 @@
+/* Media thumbnail - video and img sizing for accessibility (no inline styles) */
+.mediaThumb video,
+.mediaThumb img {
+  width: 100%;
+  height: 140px;
+  object-fit: cover;
+  display: block;
+}

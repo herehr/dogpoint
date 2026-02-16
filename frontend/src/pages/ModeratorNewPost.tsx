@@ -26,6 +26,7 @@ import EditIcon from '@mui/icons-material/Edit'
 import { useNavigate } from 'react-router-dom'
 
 import RichTextEditor from '../components/RichTextEditor'
+import styles from './ModeratorNewPost.module.css'
 import { fetchAnimals, type Animal, uploadMedia } from '../api'
 import { apiUrl, authHeader } from '../services/api'
 import { getToken } from '../services/api'
@@ -359,12 +360,15 @@ const headers = {
           {/* Animal selector */}
           <TextField
             select
-            SelectProps={{ native: true, inputProps: { 'aria-label': 'Zvíře' } }}
             label="Zvíře"
             value={animalId}
             onChange={(e) => setAnimalId(e.target.value)}
             required
             fullWidth
+            SelectProps={{
+              native: true,
+              inputProps: { 'aria-label': 'Zvíře', title: 'Zvíře', id: 'post-animal-select' },
+            }}
           >
             <option value="">— vyberte zvíře —</option>
             {animals.map((a) => (
@@ -461,18 +465,13 @@ const headers = {
                   return (
                     <Grid item xs={6} sm={4} md={3} key={`${m.url}-${i}`}>
                       <Box
+                        className={styles.mediaThumb}
                         sx={{
                           position: 'relative',
                           border: '1px solid',
                           borderColor: 'divider',
                           borderRadius: 2,
                           overflow: 'hidden',
-                          '& > video, & > img': {
-                            width: '100%',
-                            height: 140,
-                            objectFit: 'cover',
-                            display: 'block',
-                          },
                         }}
                       >
                         {video ? (
@@ -533,12 +532,15 @@ const headers = {
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }} sx={{ mb: 2 }}>
         <TextField
           select
-          SelectProps={{ native: true, inputProps: { 'aria-label': 'Filtrovat podle zvířete' } }}
           label="Filtrovat podle zvířete"
           value={filterAnimalId}
           onChange={(e) => setFilterAnimalId(e.target.value)}
           size="small"
           sx={{ minWidth: 220 }}
+          SelectProps={{
+            native: true,
+            inputProps: { 'aria-label': 'Filtrovat podle zvířete', title: 'Filtrovat podle zvířete', id: 'post-filter-animal' },
+          }}
         >
           <option value="">— všechna zvířata —</option>
           {animals.map((a) => (
@@ -602,11 +604,14 @@ const headers = {
           <Stack spacing={2} sx={{ mt: 1 }}>
             <TextField
               select
-              SelectProps={{ native: true, inputProps: { 'aria-label': 'Zvíře' } }}
               label="Zvíře"
               value={editAnimalId}
               onChange={(e) => setEditAnimalId(e.target.value)}
               fullWidth
+              SelectProps={{
+                native: true,
+                inputProps: { 'aria-label': 'Zvíře', title: 'Zvíře', id: 'post-edit-animal-select' },
+              }}
             >
               <option value="">— vyberte zvíře —</option>
               {animals.map((a) => (
