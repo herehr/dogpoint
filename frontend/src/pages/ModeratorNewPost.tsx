@@ -102,6 +102,7 @@ export default function ModeratorNewPost() {
 
   const [allPosts, setAllPosts] = useState<PostFromApi[]>([])
   const [allPostsLoading, setAllPostsLoading] = useState(false)
+  const [filterAnimalId, setFilterAnimalId] = useState<string>('')
   const [editPost, setEditPost] = useState<PostFromApi | null>(null)
   const [editTitle, setEditTitle] = useState('')
   const [editBody, setEditBody] = useState('')
@@ -513,10 +514,27 @@ const headers = {
 
       <Divider sx={{ my: 4 }} />
 
-      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
-        <Typography variant="h6" sx={{ fontWeight: 800 }}>
-          Všechny příspěvky
-        </Typography>
+      <Typography variant="h6" sx={{ fontWeight: 800, mb: 2 }}>
+        Všechny příspěvky
+      </Typography>
+
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }} sx={{ mb: 2 }}>
+        <TextField
+          select
+          SelectProps={{ native: true }}
+          label="Filtrovat podle zvířete"
+          value={filterAnimalId}
+          onChange={(e) => setFilterAnimalId(e.target.value)}
+          size="small"
+          sx={{ minWidth: 220 }}
+        >
+          <option value="">— všechna zvířata —</option>
+          {animals.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.jmeno || (a as any).name || 'Bez jména'}
+            </option>
+          ))}
+        </TextField>
         <Button size="small" onClick={fetchAllPosts} disabled={allPostsLoading}>
           Obnovit
         </Button>
@@ -524,37 +542,47 @@ const headers = {
 
       {allPostsLoading ? (
         <Typography color="text.secondary">Načítám…</Typography>
-      ) : allPosts.length === 0 ? (
-        <Typography color="text.secondary">Žádné příspěvky.</Typography>
-      ) : (
-        <Stack spacing={2}>
-          {allPosts.map((p) => {
-            const animalName = p.animal?.jmeno || p.animal?.name || p.animalId
-            const created = new Date(p.createdAt).toLocaleDateString('cs-CZ')
-            return (
-              <Paper key={p.id} variant="outlined" sx={{ p: 2 }}>
-                <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={2}>
-                  <Box sx={{ flex: 1 }}>
-                    <Typography sx={{ fontWeight: 700 }}>{p.title || 'Bez názvu'}</Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Zvíře: {animalName} · {created} · {p.status}
-                    </Typography>
-                  </Box>
-                  <Button size="small" startIcon={<EditIcon />} onClick={() => openEdit(p)} variant="outlined">
-                    Upravit
-                  </Button>
-                </Stack>
-                {p.body && (
-                  <Box
-                    sx={{ mt: 1, '& img': { maxWidth: '100%' }, '& video': { maxWidth: '100%' } }}
-                    dangerouslySetInnerHTML={{ __html: p.body }}
-                  />
-                )}
-              </Paper>
-            )
-          })}
-        </Stack>
-      )}
+      ) : (() => {
+        const filtered = filterAnimalId
+          ? allPosts.filter((p) => p.animalId === filterAnimalId)
+          : allPosts
+        if (filtered.length === 0) {
+          return (
+            <Typography color="text.secondary">
+              {filterAnimalId ? 'Žádné příspěvky pro vybrané zvíře.' : 'Žádné příspěvky.'}
+            </Typography>
+          )
+        }
+        return (
+          <Stack spacing={2}>
+            {filtered.map((p) => {
+              const animalName = p.animal?.jmeno || p.animal?.name || p.animalId
+              const created = new Date(p.createdAt).toLocaleDateString('cs-CZ')
+              return (
+                <Paper key={p.id} variant="outlined" sx={{ p: 2 }}>
+                  <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={2}>
+                    <Box sx={{ flex: 1 }}>
+                      <Typography sx={{ fontWeight: 700 }}>{p.title || 'Bez názvu'}</Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Zvíře: {animalName} · {created} · {p.status}
+                      </Typography>
+                    </Box>
+                    <Button size="small" startIcon={<EditIcon />} onClick={() => openEdit(p)} variant="outlined">
+                      Upravit
+                    </Button>
+                  </Stack>
+                  {p.body && (
+                    <Box
+                      sx={{ mt: 1, '& img': { maxWidth: '100%' }, '& video': { maxWidth: '100%' } }}
+                      dangerouslySetInnerHTML={{ __html: p.body }}
+                    />
+                  )}
+                </Paper>
+              )
+            })}
+          </Stack>
+        )
+      })()}
 
       <Dialog open={!!editPost} onClose={closeEdit} maxWidth="sm" fullWidth>
         <DialogTitle>Upravit příspěvek</DialogTitle>
