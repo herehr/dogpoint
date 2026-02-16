@@ -204,7 +204,7 @@ export default function AdminUsers() {
                             label={a.animalName}
                             size="small"
                             variant="outlined"
-                            sx={!isActive ? { bgcolor: 'action.hover', color: 'text.secondary' } : undefined}
+                            sx={!isActive ? { bgcolor: 'grey.300', color: 'grey.600', borderColor: 'grey.400' } : undefined}
                           />
                         )
                       })
