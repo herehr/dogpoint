@@ -408,6 +408,63 @@ export async function resetModeratorPassword(id: string, newPassword: string) {
   return res.json()
 }
 
+// ---- Admin Users (all users with name, address, adoptions) ----
+
+export type AdminUserAdoption = {
+  id: string
+  animalId: string
+  animalName: string
+  status: string
+  monthlyAmount?: number
+  startedAt?: string
+}
+
+export type AdminUser = {
+  id: string
+  email: string
+  firstName?: string | null
+  lastName?: string | null
+  street?: string | null
+  streetNo?: string | null
+  zip?: string | null
+  city?: string | null
+  role?: string
+  adoptions: AdminUserAdoption[]
+}
+
+export async function adminUsers(): Promise<AdminUser[]> {
+  const res = await fetch(apiUrl('/api/admin/users'), {
+    headers: { 'Content-Type': 'application/json', ...authHeader() },
+  })
+  if (!res.ok) {
+    throw new Error(`API ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`)
+  }
+  const data = (await res.json()) as { ok?: boolean; users?: AdminUser[] }
+  return Array.isArray(data.users) ? data.users : []
+}
+
+export async function updateAdminUser(
+  id: string,
+  patch: {
+    firstName?: string
+    lastName?: string
+    street?: string
+    streetNo?: string
+    zip?: string
+    city?: string
+  },
+) {
+  const res = await fetch(apiUrl(`/api/admin/users/${encodeURIComponent(id)}`), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...authHeader() },
+    body: JSON.stringify(patch),
+  })
+  if (!res.ok) {
+    throw new Error(`API ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`)
+  }
+  return res.json()
+}
+
 // ---- Tax (admin + public token form) ----
 
 export async function sendTaxRequestByEmail(email: string) {

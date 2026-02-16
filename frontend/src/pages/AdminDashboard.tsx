@@ -295,21 +295,27 @@ export default function AdminDashboard() {
           </Paper>
         </Grid>
 
-        {/* 8) Adopce (placeholder) */}
+        {/* 8) Uživatelé – jména, adresy, adopce */}
         <Grid item xs={12} sm={6} md={4}>
           <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, height: '100%' }}>
             <Stack spacing={1.5}>
               <Stack direction="row" spacing={1} alignItems="center">
                 <DescriptionIcon />
                 <Typography variant="h6" sx={{ fontWeight: 800 }}>
-                  Adopce
+                  Uživatelé
                 </Typography>
               </Stack>
               <Typography color="text.secondary">
-                Správa žádostí o adopci.
+                Přehled všech uživatelů s jmény, adresami a adopcemi. Úprava jmen a adres.
               </Typography>
-              <Button disabled size="small" variant="outlined" sx={{ alignSelf: 'flex-start' }}>
-                Brzy
+              <Button
+                component={RouterLink}
+                to="/admin/users"
+                variant="contained"
+                size="small"
+                sx={{ alignSelf: 'flex-start' }}
+              >
+                Otevřít
               </Button>
             </Stack>
           </Paper>
