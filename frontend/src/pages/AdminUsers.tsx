@@ -1,6 +1,6 @@
 // frontend/src/pages/AdminUsers.tsx
 // Admin: list all users with name, address, adoptions; edit name/address
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import {
   Container,
   Typography,
@@ -47,6 +47,7 @@ export default function AdminUsers() {
   const [err, setErr] = useState<string | null>(null)
   const [ok, setOk] = useState<string | null>(null)
 
+  const [search, setSearch] = useState('')
   const [editUser, setEditUser] = useState<AdminUser | null>(null)
   const [editForm, setEditForm] = useState({
     firstName: '',
@@ -75,6 +76,23 @@ export default function AdminUsers() {
   useEffect(() => {
     refresh()
   }, [])
+
+  const filteredRows = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return rows
+    return rows.filter((u) => {
+      const email = (u.email ?? '').toLowerCase()
+      const name = formatName(u).toLowerCase()
+      const addr = formatAddress(u).toLowerCase()
+      const adoptions = u.adoptions.map((a) => (a.animalName ?? '').toLowerCase()).join(' ')
+      return (
+        email.includes(q) ||
+        name.includes(q) ||
+        addr.includes(q) ||
+        adoptions.includes(q)
+      )
+    })
+  }, [rows, search])
 
   function openEdit(u: AdminUser) {
     setEditUser(u)
@@ -148,6 +166,18 @@ export default function AdminUsers() {
         <Table size="small">
           <TableHead>
             <TableRow sx={{ bgcolor: 'action.hover' }}>
+              <TableCell colSpan={5} sx={{ py: 1.5, borderBottom: 'none' }}>
+                <TextField
+                  size="small"
+                  placeholder="Hledat (e-mail, jméno, adresa, adopce)"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  fullWidth
+                  sx={{ '& .MuiOutlinedInput-root': { bgcolor: 'background.paper' } }}
+                />
+              </TableCell>
+            </TableRow>
+            <TableRow sx={{ bgcolor: 'action.hover' }}>
               <TableCell sx={{ fontWeight: 700 }}>E-mail</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Jméno</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Adresa</TableCell>
@@ -156,7 +186,7 @@ export default function AdminUsers() {
             </TableRow>
           </TableHead>
           <TableBody>
-            {rows.map((u) => (
+            {filteredRows.map((u) => (
               <TableRow key={u.id} hover>
                 <TableCell>{u.email}</TableCell>
                 <TableCell>{formatName(u)}</TableCell>
