@@ -21,6 +21,15 @@ function parseISODateOrNull(s: unknown): string | null {
 }
 
 /**
+ * GET /api/fio/status
+ * - Admin only. Returns whether FIO_TOKEN is configured (for debugging).
+ */
+router.get('/status', requireAuth, requireAdmin, (_req: Request, res: Response) => {
+  const configured = !!process.env.FIO_TOKEN?.trim()
+  return res.json({ fioConfigured: configured })
+})
+
+/**
  * GET /api/fio/import?from=2026-01-09&to=2026-01-16
  * - Admin only. Requires Bearer token.
  * - If from/to not provided, defaults to lookback (env FIO_CRON_LOOKBACK_DAYS or 7)

@@ -279,10 +279,11 @@ export default function AdminStats({ embedded = false }: Props) {
       from.setDate(from.getDate() - daysBack)
       const fromStr = from.toISOString().slice(0, 10)
       const toStr = to.toISOString().slice(0, 10)
-      const token = getToken() || getAdminToken()
-      if (!token?.trim()) throw new Error('Nejste přihlášen jako admin.')
+      const t = token ?? getToken() ?? getAdminToken()
+      if (!t?.trim()) throw new Error('Nejste přihlášen jako admin.')
       const res = await fetch(apiUrl(`/api/fio/import?from=${fromStr}&to=${toStr}`), {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${t}` },
+        credentials: 'include',
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error((data as any)?.error || data?.detail || `HTTP ${res.status}`)
