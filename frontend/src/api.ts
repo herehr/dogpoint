@@ -433,8 +433,10 @@ export type AdminUser = {
   adoptions: AdminUserAdoption[]
 }
 
-export async function adminUsers(): Promise<AdminUser[]> {
-  const data = await getJSON<{ ok?: boolean; users?: AdminUser[] }>('/api/admin/users')
+export async function adminUsers(tokenOverride?: string | null): Promise<AdminUser[]> {
+  const token = tokenOverride ?? getToken()
+  const headers = token ? { Authorization: `Bearer ${token}` } : authHeader()
+  const data = await getJSON<{ ok?: boolean; users?: AdminUser[] }>('/api/admin/users', { headers })
   return Array.isArray(data?.users) ? data.users : []
 }
 
@@ -448,8 +450,10 @@ export async function updateAdminUser(
     zip?: string
     city?: string
   },
+  tokenOverride?: string | null,
 ) {
-  return patchJSON(`/api/admin/users/${encodeURIComponent(id)}`, patch)
+  const headers = tokenOverride ? { Authorization: `Bearer ${tokenOverride}` } : undefined
+  return patchJSON(`/api/admin/users/${encodeURIComponent(id)}`, patch, { headers })
 }
 
 // ---- Tax (admin + public token form) ----

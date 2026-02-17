@@ -27,6 +27,7 @@ import EditIcon from '@mui/icons-material/Edit'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import DownloadIcon from '@mui/icons-material/Download'
 import { Link as RouterLink, useLocation } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
 import { adminUsers, updateAdminUser, type AdminUser } from '../api'
 
 function formatAddress(u: AdminUser): string {
@@ -83,6 +84,7 @@ function downloadCsv(users: AdminUser[]) {
 
 export default function AdminUsers() {
   const location = useLocation()
+  const { token } = useAuth()
   const isModerator = location.pathname.startsWith('/moderator')
   const backTo = isModerator ? '/moderator' : '/admin'
 
@@ -106,11 +108,12 @@ export default function AdminUsers() {
   const [saving, setSaving] = useState(false)
 
   async function refresh() {
+    if (!token) return
     setErr(null)
     setOk(null)
     setLoading(true)
     try {
-      const list = await adminUsers()
+      const list = await adminUsers(token)
       setRows(Array.isArray(list) ? list : [])
     } catch (e: any) {
       setErr(e?.message || 'Nepodařilo se načíst uživatele.')
@@ -120,8 +123,8 @@ export default function AdminUsers() {
   }
 
   useEffect(() => {
-    refresh()
-  }, [])
+    if (token) refresh()
+  }, [token])
 
   const filteredRows = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -194,7 +197,7 @@ export default function AdminUsers() {
   }
 
   async function saveEdit() {
-    if (!editUser) return
+    if (!editUser || !token) return
     setSaving(true)
     setErr(null)
     setOk(null)
@@ -206,7 +209,7 @@ export default function AdminUsers() {
         streetNo: editForm.streetNo.trim() || undefined,
         zip: editForm.zip.trim() || undefined,
         city: editForm.city.trim() || undefined,
-      })
+      }, token)
       setOk('Uloženo.')
       closeEdit()
       refresh()
