@@ -1,8 +1,18 @@
-/* Media thumbnail - video and img sizing for accessibility (no inline styles) */
+/* Media thumbnail - preserve portrait or landscape aspect ratio (like posts) */
+.mediaThumb {
+  min-height: 140px;
+  max-height: 280px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f5f5f5;
+}
 .mediaThumb video,
 .mediaThumb img {
-  width: 100%;
-  height: 140px;
-  object-fit: cover;
+  max-width: 100%;
+  max-height: 280px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
   display: block;
 }

@@ -726,13 +726,13 @@ const headers = {
                     return (
                       <Grid item xs={6} sm={4} key={`${m.url}-${i}`}>
                         <Box
+                          className={styles.mediaThumb}
                           sx={{
                             position: 'relative',
                             border: '1px solid',
                             borderColor: 'divider',
                             borderRadius: 2,
                             overflow: 'hidden',
-                            '& > video, & > img': { width: '100%', height: 100, objectFit: 'cover', display: 'block' },
                           }}
                         >
                           {video ? (
