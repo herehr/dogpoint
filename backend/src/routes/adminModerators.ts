@@ -130,11 +130,25 @@ router.post('/moderators/:id/resend-invite', async (req: Request, res: Response)
 ────────────────────────────────────────────── */
 router.delete('/moderators/:id', async (req: Request, res: Response) => {
   const id = req.params.id
+
+  const user = await prisma.user.findUnique({ where: { id }, select: { id: true, role: true } })
+  if (!user) return res.status(404).json({ error: 'Not found' })
+  if (user.role !== 'MODERATOR') return res.status(400).json({ error: 'User is not a moderator' })
+
   try {
-    await prisma.user.delete({ where: { id } })
+    await prisma.$transaction([
+      prisma.animal.updateMany({ where: { approvedById: id }, data: { approvedById: null } }),
+      prisma.animal.updateMany({ where: { createdById: id }, data: { createdById: null } }),
+      prisma.post.updateMany({ where: { approvedById: id }, data: { approvedById: null } }),
+      prisma.post.updateMany({ where: { authorId: id }, data: { authorId: null } }),
+      prisma.post.updateMany({ where: { createdById: id }, data: { createdById: null } }),
+      prisma.notification.deleteMany({ where: { userId: id } }),
+      prisma.user.delete({ where: { id } }),
+    ])
     res.json({ ok: true })
-  } catch {
-    res.status(404).json({ error: 'Not found' })
+  } catch (e: any) {
+    console.error('[DELETE moderator]', e)
+    res.status(500).json({ error: e?.message || 'Delete failed' })
   }
 })
 

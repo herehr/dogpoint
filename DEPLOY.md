@@ -1,27 +1,45 @@
 # DigitalOcean App Platform – Deployment Notes
 
-## 1. Database: SUPERUSER for migrations
+## Quick checklist (fix "SUPERUSER" / connection errors)
 
-**Problem:** `prisma migrate deploy` fails with "database user lacks SUPERUSER role".
+1. **Run Command** – App Platform → Backend → Settings → Run Command: `node dist/index.js` or **leave empty**. Never use `npm run start:with-migrate`.
+2. **DATABASE_URL** – Use the **Connection Pool** URL from your DB cluster (port **25061**), not the direct connection (25060). In DO: Databases → your cluster → Connection Details → **Connection pool** tab → copy the URI.
+3. **Health check** – Use `GET /health` (not `/health/db`). Path: `/health`.
 
-**Options:**
+---
 
-### A) Grant SUPERUSER (recommended if you control the DB)
-In your PostgreSQL client, connect as a superuser and run:
+## 1. Database connection
+
+**CRITICAL:** In DO App Platform → Backend → Settings → **Run Command**: set to `node dist/index.js` or leave **empty**. Do NOT use `npm run start:with-migrate`.
+
+**Problem:** "Database user lacks SUPERUSER" or connection failures.
+
+### Use the Connection Pool URL (fixes pool exhaustion)
+
+DigitalOcean Managed PostgreSQL has two connection types:
+
+| Type            | Port  | Use case                          |
+|-----------------|-------|-----------------------------------|
+| Direct          | 25060 | Migrations, admin tools           |
+| **Connection pool** | **25061** | **App runtime (recommended)** |
+
+For `DATABASE_URL`, use the **Connection pool** URI from: Databases → your cluster → Connection Details → **Connection pool** tab. It looks like:
+
+```
+postgresql://user:pass@host.db.ondigitalocean.com:25061/defaultdb?sslmode=require
+```
+
+The backend adds `connection_limit=5` automatically if missing.
+
+### Options if you still get SUPERUSER
+
+**A) Grant SUPERUSER** (if you control the DB)
 ```sql
 ALTER USER your_db_user WITH SUPERUSER;
 ```
 
-### B) Skip migrations in Run Command (temporary workaround)
-In DO App Platform → your backend service → Settings → Run Command, change from:
-```
-npm run start:with-migrate
-```
-to:
-```
-npm run start:prod
-```
-Then run migrations manually (e.g. from your laptop with `DATABASE_URL` pointing to prod):
+**B) Skip migrations** (Dockerfile default)
+The Dockerfile runs `node dist/index.js` (no migrations). Run migrations manually:
 ```bash
 cd backend && npx prisma migrate deploy --schema=./prisma/schema.prisma
 ```
