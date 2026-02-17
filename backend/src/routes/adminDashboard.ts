@@ -43,7 +43,17 @@ router.get('/overview', async (_req: Request, res: Response) => {
     const thisM = monthRangeUTC(now)
     const prevM = prevMonthRangeUTC(now)
 
-    // Payments received this month / last month (Subscription payments only for now)
+    // Total sum of all PAID payments (all time)
+    const totalAgg = await prisma.payment.aggregate({
+      where: { status: PS.PAID },
+      _sum: { amount: true },
+      _count: { _all: true },
+    })
+    const totalPaymentsSum = Number(totalAgg._sum.amount || 0)
+    const totalPaymentsCount = Number(totalAgg._count._all || 0)
+    const averageDonationCzk = totalPaymentsCount > 0 ? Math.round(totalPaymentsSum / totalPaymentsCount) : 0
+
+    // Payments received this month / last month
     // (If you also want pledge payments included, tell me and I’ll add them safely.)
     const [thisMonthAgg, prevMonthAgg] = await Promise.all([
       prisma.payment.aggregate({
@@ -99,6 +109,9 @@ router.get('/overview', async (_req: Request, res: Response) => {
 
     res.json({
       ok: true,
+      totalPaymentsSum,
+      totalPaymentsCount,
+      averageDonationCzk,
       expectedMonthlyCzk,
       receivedThisMonthCzk: Number(thisMonthAgg._sum.amount || 0),
       receivedThisMonthCount: Number(thisMonthAgg._count._all || 0),
