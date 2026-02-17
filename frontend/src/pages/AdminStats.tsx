@@ -209,10 +209,10 @@ export default function AdminStats({ embedded = false }: Props) {
       from.setDate(from.getDate() - daysBack)
       const fromStr = from.toISOString().slice(0, 10)
       const toStr = to.toISOString().slice(0, 10)
-      const token = getToken() ?? getAdminToken()
-      if (!token?.trim()) throw new Error('Nejste přihlášen jako admin.')
+      const t = token ?? getToken() ?? getAdminToken()
+      if (!t?.trim()) throw new Error('Nejste přihlášen jako admin.')
       const res = await fetch(apiUrl(`/api/fio/import?from=${fromStr}&to=${toStr}`), {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${t}` },
         credentials: 'include',
       })
       const data = await res.json().catch(() => ({}))
@@ -266,35 +266,6 @@ export default function AdminStats({ embedded = false }: Props) {
       window.URL.revokeObjectURL(url)
     } catch (e: any) {
       setErr(e?.message || 'Export CSV selhal')
-    }
-  }
-
-  async function runFioImport(daysBack = 30) {
-    setFioImportErr(null)
-    setFioImportResult(null)
-    setFioImportLoading(true)
-    try {
-      const to = new Date()
-      const from = new Date()
-      from.setDate(from.getDate() - daysBack)
-      const fromStr = from.toISOString().slice(0, 10)
-      const toStr = to.toISOString().slice(0, 10)
-      const t = token ?? getToken() ?? getAdminToken()
-      if (!t?.trim()) throw new Error('Nejste přihlášen jako admin.')
-      const res = await fetch(apiUrl(`/api/fio/import?from=${fromStr}&to=${toStr}`), {
-        headers: { Authorization: `Bearer ${t}` },
-        credentials: 'include',
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error((data as any)?.error || data?.detail || `HTTP ${res.status}`)
-      setFioImportResult(data)
-      loadAdoptionOverview()
-      loadStatsOverview()
-      if (tab === 'payments') load()
-    } catch (e: any) {
-      setFioImportErr(e?.message || 'FIO import selhal')
-    } finally {
-      setFioImportLoading(false)
     }
   }
 
