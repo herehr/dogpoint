@@ -79,6 +79,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const refreshMe = async () => {
     const t = getToken()
     if (!t) {
+      setToken(null)
       setUser(null)
       setRole(null)
       return
@@ -86,6 +87,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     try {
       const u = await me()
+      setToken(t) // keep token in sync with storage (moderator/admin tokens)
       setUser({
         id: u.id,
         email: u.email,
