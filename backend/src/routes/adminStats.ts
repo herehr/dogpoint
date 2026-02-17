@@ -507,6 +507,86 @@ router.get('/adoptions/overview', async (_req: Request, res: Response) => {
 })
 
 // ───────────────────────────────────────────────────────────────
+// 5b) CSV EXPORT – variable symbols starting with 595 (full data for FIO cross-check)
+// GET /api/admin/stats/adoptions/export-vs-595.csv
+// ───────────────────────────────────────────────────────────────
+router.get('/adoptions/export-vs-595.csv', async (_req: Request, res: Response) => {
+  try {
+    const subs = await prisma.subscription.findMany({
+      where: {
+        variableSymbol: { startsWith: '595' },
+      },
+      include: {
+        user: true,
+        animal: true,
+      },
+      orderBy: { variableSymbol: 'asc' },
+    })
+
+    const header = [
+      'variableSymbol',
+      'email',
+      'firstName',
+      'lastName',
+      'street',
+      'streetNo',
+      'zip',
+      'city',
+      'animal',
+      'status',
+      'monthlyAmount',
+      'currency',
+      'provider',
+      'message',
+      'createdAt',
+      'startedAt',
+      'pendingSince',
+    ].join(';')
+
+    const lines: string[] = [header]
+
+    for (const r of subs) {
+      const animalName = r.animal?.jmeno || r.animal?.name || r.animal?.id || ''
+      lines.push(
+        [
+          csvEscape(r.variableSymbol),
+          csvEscape(r.user?.email),
+          csvEscape(r.user?.firstName),
+          csvEscape(r.user?.lastName),
+          csvEscape(r.user?.street),
+          csvEscape(r.user?.streetNo),
+          csvEscape(r.user?.zip),
+          csvEscape(r.user?.city),
+          csvEscape(animalName),
+          csvEscape(r.status),
+          csvEscape(r.monthlyAmount),
+          csvEscape(r.currency),
+          csvEscape(r.provider),
+          csvEscape(r.message),
+          csvEscape(r.createdAt?.toISOString?.() ? r.createdAt.toISOString() : r.createdAt),
+          csvEscape(r.startedAt?.toISOString?.() ? r.startedAt.toISOString() : r.startedAt),
+          csvEscape(r.pendingSince?.toISOString?.() ? r.pendingSince.toISOString() : r.pendingSince),
+        ].join(';')
+      )
+    }
+
+    const csv = '\uFEFF' + lines.join('\n')
+    const today = new Date().toISOString().slice(0, 10)
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8')
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="dogpoint-vs-595-${today}.csv"`
+    )
+
+    return res.status(200).send(csv)
+  } catch (e: any) {
+    console.error('GET /api/admin/stats/adoptions/export-vs-595.csv error', e)
+    return res.status(500).json({ error: 'internal error' })
+  }
+})
+
+// ───────────────────────────────────────────────────────────────
 // 6) CSV EXPORT (frontend expects this exact endpoint)
 // GET /api/admin/stats/adoptions/export.csv
 // ───────────────────────────────────────────────────────────────
