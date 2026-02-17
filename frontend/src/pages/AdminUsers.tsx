@@ -28,6 +28,7 @@ import RefreshIcon from '@mui/icons-material/Refresh'
 import DownloadIcon from '@mui/icons-material/Download'
 import { Link as RouterLink, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { getToken } from '../services/api'
 import { adminUsers, updateAdminUser, type AdminUser } from '../api'
 
 function formatAddress(u: AdminUser): string {
@@ -84,7 +85,8 @@ function downloadCsv(users: AdminUser[]) {
 
 export default function AdminUsers() {
   const location = useLocation()
-  const { token } = useAuth()
+  const { token: authToken } = useAuth()
+  const token = authToken ?? getToken()
   const isModerator = location.pathname.startsWith('/moderator')
   const backTo = isModerator ? '/moderator' : '/admin'
 
@@ -108,12 +110,13 @@ export default function AdminUsers() {
   const [saving, setSaving] = useState(false)
 
   async function refresh() {
-    if (!token) return
+    const t = token ?? getToken()
+    if (!t?.trim()) return
     setErr(null)
     setOk(null)
     setLoading(true)
     try {
-      const list = await adminUsers(token)
+      const list = await adminUsers(t)
       setRows(Array.isArray(list) ? list : [])
     } catch (e: any) {
       setErr(e?.message || 'Nepodařilo se načíst uživatele.')
@@ -123,7 +126,7 @@ export default function AdminUsers() {
   }
 
   useEffect(() => {
-    if (token) refresh()
+    if (token ?? getToken()) refresh()
   }, [token])
 
   const filteredRows = useMemo(() => {
@@ -197,7 +200,8 @@ export default function AdminUsers() {
   }
 
   async function saveEdit() {
-    if (!editUser || !token) return
+    const t = token ?? getToken()
+    if (!editUser || !t?.trim()) return
     setSaving(true)
     setErr(null)
     setOk(null)
@@ -209,7 +213,7 @@ export default function AdminUsers() {
         streetNo: editForm.streetNo.trim() || undefined,
         zip: editForm.zip.trim() || undefined,
         city: editForm.city.trim() || undefined,
-      }, token)
+      }, t)
       setOk('Uloženo.')
       closeEdit()
       refresh()

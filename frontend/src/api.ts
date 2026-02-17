@@ -435,8 +435,22 @@ export type AdminUser = {
 
 export async function adminUsers(tokenOverride?: string | null): Promise<AdminUser[]> {
   const token = tokenOverride ?? getToken()
-  const headers = token ? { Authorization: `Bearer ${token}` } : authHeader()
-  const data = await getJSON<{ ok?: boolean; users?: AdminUser[] }>('/api/admin/users', { headers })
+  if (!token?.trim()) {
+    throw new Error('Nejste přihlášen. Přihlaste se prosím znovu.')
+  }
+  const res = await fetch(apiUrl('/api/admin/users'), {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    credentials: 'include',
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error((err as any)?.error || `API ${res.status}`)
+  }
+  const data = (await res.json()) as { ok?: boolean; users?: AdminUser[] }
   return Array.isArray(data?.users) ? data.users : []
 }
 
@@ -452,8 +466,22 @@ export async function updateAdminUser(
   },
   tokenOverride?: string | null,
 ) {
-  const headers = tokenOverride ? { Authorization: `Bearer ${tokenOverride}` } : undefined
-  return patchJSON(`/api/admin/users/${encodeURIComponent(id)}`, patch, { headers })
+  const token = tokenOverride ?? getToken()
+  if (!token?.trim()) throw new Error('Nejste přihlášen.')
+  const res = await fetch(apiUrl(`/api/admin/users/${encodeURIComponent(id)}`), {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(patch),
+    credentials: 'include',
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error((err as any)?.error || `API ${res.status}`)
+  }
+  return res.json()
 }
 
 // ---- Tax (admin + public token form) ----

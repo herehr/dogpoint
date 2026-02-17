@@ -54,6 +54,8 @@ const corsOptions: Parameters<typeof cors>[0] = {
     return callback(null, false)
   },
   credentials: true,
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  exposedHeaders: ['Content-Type'],
 }
 
 /* ──────────────────────────────────────────────
