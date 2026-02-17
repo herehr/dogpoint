@@ -21,7 +21,7 @@ import {
 
 import PeopleIcon from '@mui/icons-material/People'
 import PetsIcon from '@mui/icons-material/Pets'
-import PhotoLibraryIcon from '@mui/icons-material/PhotoLibrary'
+import PostAddIcon from '@mui/icons-material/PostAdd'
 import DescriptionIcon from '@mui/icons-material/Description'
 import BarChartIcon from '@mui/icons-material/BarChart'
 import RequestQuoteIcon from '@mui/icons-material/RequestQuote'
@@ -249,21 +249,27 @@ export default function AdminDashboard() {
           </Paper>
         </Grid>
 
-        {/* 6) Galerie (placeholder) */}
+        {/* 6) Příběhy / příspěvky */}
         <Grid item xs={12} sm={6} md={4}>
           <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, height: '100%' }}>
             <Stack spacing={1.5}>
               <Stack direction="row" spacing={1} alignItems="center">
-                <PhotoLibraryIcon />
+                <PostAddIcon />
                 <Typography variant="h6" sx={{ fontWeight: 800 }}>
-                  Galerie
+                  Příběhy / příspěvky
                 </Typography>
               </Stack>
               <Typography color="text.secondary">
-                Soubory a obrázky ke zvířatům.
+                Po adopci přidávejte novinky k danému zvířeti. Nové a editovatelné.
               </Typography>
-              <Button disabled size="small" variant="outlined" sx={{ alignSelf: 'flex-start' }}>
-                Brzy
+              <Button
+                component={RouterLink}
+                to="/admin/posts/novy"
+                variant="contained"
+                size="small"
+                sx={{ alignSelf: 'flex-start' }}
+              >
+                Otevřít
               </Button>
             </Stack>
           </Paper>
