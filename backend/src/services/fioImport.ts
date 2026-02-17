@@ -9,11 +9,19 @@ export type FioImportResult = {
   to: string
   fetched: number
   normalized: number
+  incoming?: number
   createdPayments: number
   matchedSubs: number
   skippedNoVS: number
   skippedNoMatch: number
   skippedDuplicate: number
+}
+
+/** Normalize VS for matching: remove spaces, strip leading zeros */
+function normalizeVS(s: string | null | undefined): string {
+  const t = (s ?? '').replace(/\s/g, '').trim()
+  const n = t.replace(/^0+/, '')
+  return n || '0'
 }
 
 export async function importFioTransactions(params: { fromISO: string; toISO: string }): Promise<FioImportResult> {
@@ -26,43 +34,37 @@ export async function importFioTransactions(params: { fromISO: string; toISO: st
     .map((t) => normalizeFioTx(t))
     .filter((x): x is NormalizedFioTx => x !== null)
 
+  // Only INCOMING (positive amount) – adoptions are money received
+  const incomingList = normalizedList.filter((tx) => tx.amountCzk > 0)
+
+  // Build map: normalized VS -> subscription (for flexible matching)
+  const fioSubs = await prisma.subscription.findMany({
+    where: { provider: PaymentProvider.FIO, variableSymbol: { not: null } },
+    select: { id: true, status: true, variableSymbol: true },
+  })
+  const vsToSub = new Map<string, (typeof fioSubs)[0]>()
+  for (const s of fioSubs) {
+    const vs = s.variableSymbol || ''
+    if (vs) {
+      vsToSub.set(vs, s)
+      vsToSub.set(normalizeVS(vs), s)
+    }
+  }
+
   let createdPayments = 0
   let matchedSubs = 0
   let skippedNoVS = 0
   let skippedNoMatch = 0
   let skippedDuplicate = 0
 
-  /** Normalize variable symbol for matching (strip leading zeros). FIO may send "00012345", we store "12345". */
-  function normalizeVs(s: string): string {
-    const t = String(s || '').trim()
-    const n = t.replace(/^0+/, '')
-    return n || '0'
-  }
-
-  // Build lookup: exact VS and normalized VS -> subscription (for flexible matching)
-  const fioSubs = await prisma.subscription.findMany({
-    where: { provider: PaymentProvider.FIO, variableSymbol: { not: null } },
-    select: { id: true, status: true, variableSymbol: true },
-  })
-  const subByVs = new Map<string, { id: string; status: string }>()
-  for (const s of fioSubs) {
-    const vs = s.variableSymbol || ''
-    if (vs) {
-      subByVs.set(vs, { id: s.id, status: s.status })
-      subByVs.set(normalizeVs(vs), { id: s.id, status: s.status })
-    }
-  }
-
-  for (const tx of normalizedList) {
-    const vs = (tx.variableSymbol || '').trim()
+  for (const tx of incomingList) {
+    const vs = normalizeVS(tx.variableSymbol)
     if (!vs) {
       skippedNoVS++
       continue
     }
 
-    // match: exact first, then normalized (FIO may send "00012345", we store "12345")
-    const sub = subByVs.get(vs) ?? subByVs.get(normalizeVs(vs)) ?? null
-
+    const sub = vsToSub.get(vs)
     if (!sub) {
       skippedNoMatch++
       continue
@@ -117,6 +119,7 @@ export async function importFioTransactions(params: { fromISO: string; toISO: st
     to: toISO,
     fetched: rawList.length,
     normalized: normalizedList.length,
+    incoming: incomingList.length,
     createdPayments,
     matchedSubs,
     skippedNoVS,

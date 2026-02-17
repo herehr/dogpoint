@@ -314,7 +314,7 @@ export default function AdminUsers() {
                       <Typography variant="body2" color="text.secondary">—</Typography>
                     ) : (
                       u.adoptions.map((a) => {
-                        const isActive = (a.status || '').toUpperCase() === 'ACTIVE'
+                        const isActive = a.status === 'ACTIVE' || a.status === 'PENDING'
                         return (
                           <Chip
                             key={a.id}

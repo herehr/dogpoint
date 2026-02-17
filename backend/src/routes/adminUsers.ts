@@ -23,7 +23,6 @@ router.get('/users', async (_req: Request, res: Response) => {
         city: true,
         role: true,
         subscriptions: {
-          where: { status: { in: ['ACTIVE', 'PENDING'] } },
           select: {
             id: true,
             animalId: true,

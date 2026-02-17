@@ -71,18 +71,29 @@ function toDateFromMs(ms: number | null): Date | null {
   return d
 }
 
+/** Parse FIO date: column0 can be number (ms) or string "YYYY-MM-DD+ZZZZ" */
+function parseFioDate(val: number | string | null | undefined): Date | null {
+  if (val == null) return null
+  if (typeof val === 'number') return toDateFromMs(val)
+  const s = String(val).trim()
+  if (!s) return null
+  const d = new Date(s.slice(0, 10))
+  return Number.isNaN(d.getTime()) ? null : d
+}
+
 export function normalizeFioTx(t: FioTransaction): NormalizedFioTx | null {
   const movementIdNum = colVal<number>(t.column22)
   const movementId = movementIdNum != null ? String(movementIdNum) : null
 
   const amountNum = colVal<number>(t.column1)
-  const bookedAt = toDateFromMs(colVal<number>(t.column0))
+  const col0Val = (t.column0 as { value?: number | string } | null)?.value
+  const bookedAt = parseFioDate(col0Val)
 
   if (!movementId || amountNum == null || !bookedAt) return null
 
   const currency = (colVal<string>(t.column14) || 'CZK').toUpperCase()
   const vsRaw = colVal<string>(t.column5)
-  const variableSymbol = vsRaw ? String(vsRaw).trim() : null
+  const variableSymbol = vsRaw ? String(vsRaw).replace(/\s/g, '').trim() : null
 
   const msg = colVal<string>(t.column16)
   const cmt = colVal<string>(t.column25)

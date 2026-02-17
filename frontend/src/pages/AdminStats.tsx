@@ -199,20 +199,50 @@ export default function AdminStats({ embedded = false }: Props) {
     }
   }, [token])
 
+  async function runFioImport(daysBack = 30) {
+    setFioImportErr(null)
+    setFioImportResult(null)
+    setFioImportLoading(true)
+    try {
+      const to = new Date()
+      const from = new Date()
+      from.setDate(from.getDate() - daysBack)
+      const fromStr = from.toISOString().slice(0, 10)
+      const toStr = to.toISOString().slice(0, 10)
+      const token = getToken() ?? getAdminToken()
+      if (!token?.trim()) throw new Error('Nejste přihlášen jako admin.')
+      const res = await fetch(apiUrl(`/api/fio/import?from=${fromStr}&to=${toStr}`), {
+        headers: { Authorization: `Bearer ${token}` },
+        credentials: 'include',
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error((data as any)?.error || data?.detail || `HTTP ${res.status}`)
+      setFioImportResult(data)
+      loadAdoptionOverview()
+      loadStatsOverview()
+      if (tab === 'payments') load()
+    } catch (e: any) {
+      setFioImportErr(e?.message || 'FIO import selhal')
+    } finally {
+      setFioImportLoading(false)
+    }
+  }
+
   async function downloadAdoptersCsv() {
     setErr(null)
     try {
-      const token = getToken() || getAdminToken()
-      if (!token) {
+      const t = token ?? getToken() ?? getAdminToken()
+      if (!t) {
         throw new Error('Chybí adminToken. Přihlas se jako ADMIN (Admin login) a zkus export znovu.')
       }
 
       const res = await fetch(apiUrl('/api/admin/stats/adoptions/export.csv'), {
         method: 'GET',
         headers: {
-          Authorization: `Bearer ${token}`,
+          Authorization: `Bearer ${t}`,
           Accept: 'text/csv',
         },
+        credentials: 'include',
       })
 
       if (res.status === 401 || res.status === 403) {
@@ -348,7 +378,7 @@ export default function AdminStats({ embedded = false }: Props) {
               FIO import
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-              Načte platby z FIO API do tabulky Payment (posledních 30 dní).
+              Načte platby z FIO API do tabulky Payment (poslední měsíc).
             </Typography>
             {fioImportErr && (
               <Alert severity="error" sx={{ mb: 1 }}>
@@ -356,8 +386,17 @@ export default function AdminStats({ embedded = false }: Props) {
               </Alert>
             )}
             {fioImportResult && (
-              <Typography variant="body2" color="success.main" sx={{ mb: 1 }}>
-                Vytvořeno: {fioImportResult.createdPayments} plateb
+              <Typography variant="body2" sx={{ mb: 1 }}>
+                <strong>Vytvořeno:</strong> {fioImportResult.createdPayments} plateb
+                {typeof fioImportResult.incoming === 'number' && (
+                  <> · Příchozí: {fioImportResult.incoming}</>
+                )}
+                {fioImportResult.skippedNoMatch > 0 && (
+                  <> · Bez shody VS: {fioImportResult.skippedNoMatch}</>
+                )}
+                {fioImportResult.skippedNoVS > 0 && (
+                  <> · Bez VS: {fioImportResult.skippedNoVS}</>
+                )}
               </Typography>
             )}
             <Button
@@ -365,7 +404,7 @@ export default function AdminStats({ embedded = false }: Props) {
               onClick={() => runFioImport(30)}
               disabled={fioImportLoading}
             >
-              {fioImportLoading ? 'Načítám…' : 'Spustit FIO import (30 dní)'}
+              {fioImportLoading ? 'Načítám…' : 'Stáhnout FIO – poslední měsíc'}
             </Button>
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
               Endpoint: <code>/api/admin/stats/adoptions/export.csv</code>
