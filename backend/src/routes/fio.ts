@@ -1,5 +1,6 @@
 // backend/src/routes/fio.ts
 import { Router, type Request, type Response } from 'express'
+import { requireAuth, requireAdmin } from '../middleware/authJwt'
 import { importFioTransactions } from '../services/fioImport'
 
 const router = Router()
@@ -21,9 +22,10 @@ function parseISODateOrNull(s: unknown): string | null {
 
 /**
  * GET /api/fio/import?from=2026-01-09&to=2026-01-16
+ * - Admin only. Requires Bearer token.
  * - If from/to not provided, defaults to lookback (env FIO_CRON_LOOKBACK_DAYS or 7)
  */
-router.get('/import', async (req: Request, res: Response) => {
+router.get('/import', requireAuth, requireAdmin, async (req: Request, res: Response) => {
   try {
     const lookbackDays = Math.max(1, Number(process.env.FIO_CRON_LOOKBACK_DAYS || 7))
 
