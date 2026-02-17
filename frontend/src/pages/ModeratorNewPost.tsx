@@ -86,6 +86,13 @@ function buildPublicUrlFromKey(key: string): string {
   return `${SPACE_PUBLIC_BASE}/${cleanKey}`
 }
 
+function ensureMediaUrl(url: string | undefined): string {
+  if (!url || typeof url !== 'string') return ''
+  const u = url.trim()
+  if (/^https?:\/\//i.test(u)) return u
+  return `${SPACE_PUBLIC_BASE.replace(/\/+$/, '')}/${u.replace(/^\//, '')}`
+}
+
 export default function ModeratorNewPost() {
   const navigate = useNavigate()
 
@@ -155,12 +162,18 @@ export default function ModeratorNewPost() {
     setEditTitle(p.title || '')
     setEditBody(p.body || '')
     setEditAnimalId(p.animalId || '')
+    const rawMedia = Array.isArray(p.media) ? p.media : []
     setEditMedia(
-      (p.media || []).map((m) => ({
-        url: m.url,
-        type: (m.typ || m.type || guessTypeFromUrl(m.url) || 'image') as 'image' | 'video',
-        typ: (m.typ || m.type || 'image') as 'image' | 'video',
-      })),
+      rawMedia
+        .filter((m: any) => m && (m.url || m.URL))
+        .map((m: any) => {
+          const url = ensureMediaUrl(m.url || m.URL)
+          return {
+            url,
+            type: (m.typ || m.type || guessTypeFromUrl(url) || 'image') as 'image' | 'video',
+            typ: (m.typ || m.type || 'image') as 'image' | 'video',
+          }
+        }),
     )
   }
 
