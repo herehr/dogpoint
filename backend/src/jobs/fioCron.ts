@@ -30,11 +30,11 @@ export function startFioCron() {
     return
   }
 
-  const schedule = process.env.FIO_CRON_SCHEDULE || '*/15 * * * *'
+  const schedule = process.env.FIO_CRON_SCHEDULE || '0 6 * * *'
   const runOnInit = String(process.env.FIO_CRON_RUN_ON_INIT || 'false').toLowerCase() === 'true'
 
   const lookbackDays = Math.max(1, Number(process.env.FIO_CRON_LOOKBACK_DAYS || 7))
-  console.log(`[FIO CRON] scheduled: ${schedule} (runOnInit=${runOnInit}) lookbackDays=${lookbackDays}`)
+  console.log(`[FIO CRON] scheduled: ${schedule} (runOnInit=${runOnInit}) lookbackDays=${lookbackDays} (default: once/day 6:00)`)
 
   const job = async () => {
     const token = process.env.FIO_TOKEN
