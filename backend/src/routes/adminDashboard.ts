@@ -55,14 +55,28 @@ router.get('/overview', async (_req: Request, res: Response) => {
 
     // Payments received this month / last month
     // (If you also want pledge payments included, tell me and I’ll add them safely.)
+    const thisMonthWhere = {
+      status: PS.PAID,
+      OR: [
+        { paidAt: { gte: thisM.from, lt: thisM.to } },
+        { paidAt: null, createdAt: { gte: thisM.from, lt: thisM.to } },
+      ],
+    }
+    const prevMonthWhere = {
+      status: PS.PAID,
+      OR: [
+        { paidAt: { gte: prevM.from, lt: prevM.to } },
+        { paidAt: null, createdAt: { gte: prevM.from, lt: prevM.to } },
+      ],
+    }
     const [thisMonthAgg, prevMonthAgg] = await Promise.all([
       prisma.payment.aggregate({
-        where: { createdAt: { gte: thisM.from, lt: thisM.to }, status: PS.PAID },
+        where: thisMonthWhere,
         _sum: { amount: true },
         _count: { _all: true },
       }),
       prisma.payment.aggregate({
-        where: { createdAt: { gte: prevM.from, lt: prevM.to }, status: PS.PAID },
+        where: prevMonthWhere,
         _sum: { amount: true },
         _count: { _all: true },
       }),
