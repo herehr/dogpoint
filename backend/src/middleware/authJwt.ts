@@ -1,8 +1,7 @@
 // backend/src/middleware/authJwt.ts
 import type { Request, Response, NextFunction } from 'express'
 import jwt from 'jsonwebtoken'
-// If you want to enforce "active" users, uncomment the prisma import and the code in requireActiveUser
-// import { prisma } from '../prisma'
+import { prisma } from '../prisma'
 
 export type JwtRole = 'ADMIN' | 'MODERATOR' | 'USER'
 export type JwtUser = {
@@ -90,10 +89,23 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction) {
 
 /**
  * ADMIN or MODERATOR can pass.
+ * Uses DB role when JWT role is USER (handles role upgrade after login).
  */
-export function requireStaff(req: Request, res: Response, next: NextFunction) {
+export async function requireStaff(req: Request, res: Response, next: NextFunction) {
   if (!req.user) return res.status(401).json({ error: 'auth required' })
-  if (req.user.role !== 'ADMIN' && req.user.role !== 'MODERATOR') {
+  let role = String(req.user.role || '').toUpperCase()
+  if (role !== 'ADMIN' && role !== 'MODERATOR') {
+    try {
+      const u = await prisma.user.findUnique({
+        where: { id: req.user.id },
+        select: { role: true },
+      })
+      role = String(u?.role || '').toUpperCase()
+    } catch {
+      // ignore
+    }
+  }
+  if (role !== 'ADMIN' && role !== 'MODERATOR') {
     return res.status(403).json({ error: 'forbidden' })
   }
   next()
