@@ -435,6 +435,7 @@ export type AdminUser = {
 export async function adminUsers(): Promise<AdminUser[]> {
   const res = await fetch(apiUrl('/api/admin/users'), {
     headers: { 'Content-Type': 'application/json', ...authHeader() },
+    credentials: 'include',
   })
   if (!res.ok) {
     throw new Error(`API ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`)
@@ -458,6 +459,7 @@ export async function updateAdminUser(
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', ...authHeader() },
     body: JSON.stringify(patch),
+    credentials: 'include',
   })
   if (!res.ok) {
     throw new Error(`API ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`)
