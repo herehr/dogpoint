@@ -71,7 +71,14 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/assets ./assets
 COPY prisma ./prisma
 
+# Own files for non-root user (node:alpine has uid 1000)
+RUN chown -R node:node /app
+
 EXPOSE 8080
 
-# DO App Platform defines run command
-# CMD ["npm", "run", "start:with-migrate"]
+# Run as non-root (avoids permission issues with DB)
+USER node
+
+# Use node directly - no migrations (DO Managed DB user lacks SUPERUSER for prisma migrate).
+# Run migrations manually: npx prisma migrate deploy --schema=./prisma/schema.prisma
+CMD ["node", "dist/index.js"]
