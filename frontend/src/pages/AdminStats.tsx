@@ -18,6 +18,7 @@ import {
   TableBody,
   Box,
 } from '@mui/material'
+import { useAuth } from '../context/AuthContext'
 import { getJSON, qs, apiUrl, getToken } from '../services/api'
 
 function ymRangeOf(date = new Date()) {
@@ -73,7 +74,15 @@ function getAdminToken(): string | null {
   )
 }
 
+function authHeaders(): Record<string, string> {
+  const t = getToken()
+  return t ? { Authorization: `Bearer ${t}` } : {}
+}
+
 export default function AdminStats({ embedded = false }: Props) {
+  const { token: authToken } = useAuth()
+  const token = authToken ?? getToken()
+
   const [tab, setTab] = useState<'payments' | 'pledges' | 'expected' | 'animals'>('payments')
   const [range, setRange] = useState<{ from?: string; to?: string }>(ymRangeOf())
   const [loading, setLoading] = useState(false)
@@ -113,11 +122,13 @@ export default function AdminStats({ embedded = false }: Props) {
   }, [tab])
 
   async function load() {
+    if (!token) return
     setErr(null)
     setLoading(true)
     try {
       const url = `${endpoint}${qs(params)}`
-      const data = await getJSON<any>(url)
+      const headers = token ? { Authorization: `Bearer ${token}` } : authHeaders()
+      const data = await getJSON<any>(url, { headers })
 
       if (tab === 'payments') setPayments(data)
       else if (tab === 'pledges') setPledges(data)
@@ -131,18 +142,23 @@ export default function AdminStats({ embedded = false }: Props) {
   }
 
   useEffect(() => {
-    const t = setTimeout(load, 150)
-    return () => clearTimeout(t)
+    if (token) {
+      const timer = setTimeout(load, 150)
+      return () => clearTimeout(timer)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, params.from, params.to])
+  }, [token, tab, params.from, params.to])
 
   const showDateRange = tab !== 'animals'
 
   async function loadAdoptionOverview() {
+    const t = token ?? getToken()
+    if (!t) return
     setAdoptErr(null)
     setAdoptLoading(true)
     try {
-      const r = await getJSON<AdoptionOverviewResp>('/api/admin/stats/adoptions/overview')
+      const headers = { Authorization: `Bearer ${t}` }
+      const r = await getJSON<AdoptionOverviewResp>('/api/admin/stats/adoptions/overview', { headers })
       setAdopt(r)
     } catch (e: any) {
       setAdopt(null)
@@ -153,15 +169,20 @@ export default function AdminStats({ embedded = false }: Props) {
   }
 
   useEffect(() => {
-    const t = setTimeout(loadAdoptionOverview, 150)
-    return () => clearTimeout(t)
-  }, [])
+    if (token) {
+      const timer = setTimeout(loadAdoptionOverview, 150)
+      return () => clearTimeout(timer)
+    }
+  }, [token])
 
   async function loadStatsOverview() {
+    const t = token ?? getToken()
+    if (!t) return
     setStatsOverviewErr(null)
     setStatsOverviewLoading(true)
     try {
-      const r = await getJSON<StatsOverviewResp>('/api/admin/stats')
+      const headers = { Authorization: `Bearer ${t}` }
+      const r = await getJSON<StatsOverviewResp>('/api/admin/stats', { headers })
       setStatsOverview(r)
     } catch (e: any) {
       setStatsOverview(null)
@@ -172,14 +193,16 @@ export default function AdminStats({ embedded = false }: Props) {
   }
 
   useEffect(() => {
-    const t = setTimeout(loadStatsOverview, 150)
-    return () => clearTimeout(t)
-  }, [])
+    if (token) {
+      const timer = setTimeout(loadStatsOverview, 150)
+      return () => clearTimeout(timer)
+    }
+  }, [token])
 
   async function downloadAdoptersCsv() {
     setErr(null)
     try {
-      const token = getAdminToken()
+      const token = getToken() || getAdminToken()
       if (!token) {
         throw new Error('Chybí adminToken. Přihlas se jako ADMIN (Admin login) a zkus export znovu.')
       }
