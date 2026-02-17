@@ -7,6 +7,7 @@
 import {
   apiUrl,
   getJSON,
+  patchJSON,
   // ✅ use the new persistent token system from services/api.ts
   getToken,
   authHeader as authHeaderSvc,
@@ -433,15 +434,8 @@ export type AdminUser = {
 }
 
 export async function adminUsers(): Promise<AdminUser[]> {
-  const res = await fetch(apiUrl('/api/admin/users'), {
-    headers: { 'Content-Type': 'application/json', ...authHeader() },
-    credentials: 'include',
-  })
-  if (!res.ok) {
-    throw new Error(`API ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`)
-  }
-  const data = (await res.json()) as { ok?: boolean; users?: AdminUser[] }
-  return Array.isArray(data.users) ? data.users : []
+  const data = await getJSON<{ ok?: boolean; users?: AdminUser[] }>('/api/admin/users')
+  return Array.isArray(data?.users) ? data.users : []
 }
 
 export async function updateAdminUser(
@@ -455,16 +449,7 @@ export async function updateAdminUser(
     city?: string
   },
 ) {
-  const res = await fetch(apiUrl(`/api/admin/users/${encodeURIComponent(id)}`), {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', ...authHeader() },
-    body: JSON.stringify(patch),
-    credentials: 'include',
-  })
-  if (!res.ok) {
-    throw new Error(`API ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`)
-  }
-  return res.json()
+  return patchJSON(`/api/admin/users/${encodeURIComponent(id)}`, patch)
 }
 
 // ---- Tax (admin + public token form) ----
