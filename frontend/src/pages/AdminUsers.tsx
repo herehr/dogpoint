@@ -21,9 +21,11 @@ import {
   DialogContent,
   DialogActions,
   Chip,
+  Checkbox,
 } from '@mui/material'
 import EditIcon from '@mui/icons-material/Edit'
 import RefreshIcon from '@mui/icons-material/Refresh'
+import DownloadIcon from '@mui/icons-material/Download'
 import { Link as RouterLink, useLocation } from 'react-router-dom'
 import { adminUsers, updateAdminUser, type AdminUser } from '../api'
 
@@ -41,6 +43,44 @@ function formatName(u: AdminUser): string {
   return [first, last].filter(Boolean).join(' ') || '—'
 }
 
+const CERT_SENT_KEY = 'adminUsers-certSent'
+
+function getCertSentIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(CERT_SENT_KEY)
+    if (!raw) return new Set()
+    const arr = JSON.parse(raw) as string[]
+    return new Set(Array.isArray(arr) ? arr : [])
+  } catch {
+    return new Set()
+  }
+}
+
+function setCertSent(userId: string, checked: boolean) {
+  const set = getCertSentIds()
+  if (checked) set.add(userId)
+  else set.delete(userId)
+  try {
+    localStorage.setItem(CERT_SENT_KEY, JSON.stringify([...set]))
+  } catch {}
+}
+
+function downloadCsv(users: AdminUser[]) {
+  const headers = ['email', 'firstName', 'lastName', 'street', 'streetNo', 'zip', 'city']
+  const escape = (s: string) => `"${String(s).replace(/"/g, '""')}"`
+  const rows = users.map((u) =>
+    headers.map((h) => escape(String((u as any)[h] ?? ''))).join(','),
+  )
+  const csv = [headers.join(','), ...rows].join('\n')
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `adresy-${new Date().toISOString().slice(0, 10)}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 export default function AdminUsers() {
   const location = useLocation()
   const isModerator = location.pathname.startsWith('/moderator')
@@ -52,6 +92,8 @@ export default function AdminUsers() {
   const [ok, setOk] = useState<string | null>(null)
 
   const [search, setSearch] = useState('')
+  const [selected, setSelected] = useState<Record<string, boolean>>({})
+  const [certSent, setCertSentState] = useState<Set<string>>(() => getCertSentIds())
   const [editUser, setEditUser] = useState<AdminUser | null>(null)
   const [editForm, setEditForm] = useState({
     firstName: '',
@@ -97,6 +139,42 @@ export default function AdminUsers() {
       )
     })
   }, [rows, search])
+
+  const allFilteredSelected = filteredRows.length > 0 && filteredRows.every((u) => selected[u.id])
+  const selectedCount = Object.values(selected).filter(Boolean).length
+
+  function toggleSelectAll() {
+    if (allFilteredSelected) {
+      setSelected((prev) => {
+        const next = { ...prev }
+        filteredRows.forEach((u) => delete next[u.id])
+        return next
+      })
+    } else {
+      setSelected((prev) => {
+        const next = { ...prev }
+        filteredRows.forEach((u) => (next[u.id] = true))
+        return next
+      })
+    }
+  }
+
+  function toggleCertSent(userId: string) {
+    const checked = !certSent.has(userId)
+    setCertSent(userId, checked)
+    setCertSentState((prev) => {
+      const next = new Set(prev)
+      if (checked) next.add(userId)
+      else next.delete(userId)
+      return next
+    })
+  }
+
+  function handleDownload() {
+    const toExport = selectedCount > 0 ? filteredRows.filter((u) => selected[u.id]) : filteredRows
+    if (toExport.length === 0) return
+    downloadCsv(toExport)
+  }
 
   function openEdit(u: AdminUser) {
     setEditUser(u)
@@ -155,6 +233,14 @@ export default function AdminUsers() {
         </Button>
         <Button
           variant="outlined"
+          startIcon={<DownloadIcon />}
+          onClick={handleDownload}
+          disabled={filteredRows.length === 0}
+        >
+          Stáhnout {selectedCount > 0 ? `(${selectedCount})` : 'vše'}
+        </Button>
+        <Button
+          variant="outlined"
           startIcon={loading ? <CircularProgress size={16} /> : <RefreshIcon />}
           onClick={refresh}
           disabled={loading}
@@ -170,7 +256,7 @@ export default function AdminUsers() {
         <Table size="small">
           <TableHead>
             <TableRow sx={{ bgcolor: 'action.hover' }}>
-              <TableCell colSpan={5} sx={{ py: 1.5, borderBottom: 'none' }}>
+              <TableCell colSpan={7} sx={{ py: 1.5, borderBottom: 'none' }}>
                 <TextField
                   size="small"
                   placeholder="Hledat (e-mail, jméno, adresa, adopce)"
@@ -182,16 +268,36 @@ export default function AdminUsers() {
               </TableCell>
             </TableRow>
             <TableRow sx={{ bgcolor: 'action.hover' }}>
+              <TableCell padding="checkbox" sx={{ fontWeight: 700 }}>
+                <Checkbox
+                  indeterminate={selectedCount > 0 && !allFilteredSelected}
+                  checked={allFilteredSelected}
+                  onChange={toggleSelectAll}
+                  size="small"
+                  aria-label="Vybrat vše"
+                />
+              </TableCell>
               <TableCell sx={{ fontWeight: 700 }}>E-mail</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Jméno</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Adresa</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Adopce</TableCell>
               <TableCell align="right" sx={{ fontWeight: 700 }}>Upravit</TableCell>
+              <TableCell padding="checkbox" sx={{ fontWeight: 700 }} title="Potvrzení odesláno">
+                Odesl.
+              </TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {filteredRows.map((u) => (
               <TableRow key={u.id} hover>
+                <TableCell padding="checkbox">
+                  <Checkbox
+                    checked={!!selected[u.id]}
+                    onChange={() => setSelected((prev) => ({ ...prev, [u.id]: !prev[u.id] }))}
+                    size="small"
+                    aria-label={`Vybrat ${u.email}`}
+                  />
+                </TableCell>
                 <TableCell>{u.email}</TableCell>
                 <TableCell>{formatName(u)}</TableCell>
                 <TableCell sx={{ maxWidth: 220 }}>{formatAddress(u)}</TableCell>
@@ -219,6 +325,15 @@ export default function AdminUsers() {
                   <IconButton size="small" onClick={() => openEdit(u)} title="Upravit">
                     <EditIcon fontSize="small" />
                   </IconButton>
+                </TableCell>
+                <TableCell padding="checkbox">
+                  <Checkbox
+                    checked={certSent.has(u.id)}
+                    onChange={() => toggleCertSent(u.id)}
+                    size="small"
+                    aria-label="Potvrzení odesláno"
+                    title="Potvrzení odesláno"
+                  />
                 </TableCell>
               </TableRow>
             ))}
