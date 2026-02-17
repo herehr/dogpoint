@@ -18,7 +18,7 @@ import {
   TableBody,
   Box,
 } from '@mui/material'
-import { getJSON, qs, apiUrl } from '../services/api'
+import { getJSON, qs, apiUrl, getToken } from '../services/api'
 
 function ymRangeOf(date = new Date()) {
   const y = date.getFullYear()
@@ -226,8 +226,8 @@ export default function AdminStats({ embedded = false }: Props) {
       from.setDate(from.getDate() - daysBack)
       const fromStr = from.toISOString().slice(0, 10)
       const toStr = to.toISOString().slice(0, 10)
-      const token = getAdminToken()
-      if (!token) throw new Error('Nejste přihlášen jako admin.')
+      const token = getToken() || getAdminToken()
+      if (!token?.trim()) throw new Error('Nejste přihlášen jako admin.')
       const res = await fetch(apiUrl(`/api/fio/import?from=${fromStr}&to=${toStr}`), {
         headers: { Authorization: `Bearer ${token}` },
       })
