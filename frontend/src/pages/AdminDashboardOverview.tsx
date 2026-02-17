@@ -93,15 +93,21 @@ export default function AdminDashboardOverview({ embedded = false }: Props) {
       )}
 
       <Grid container spacing={2}>
-        {/* Total sum + average first */}
-        <Grid item xs={12} md={6}>
+        {/* Total sum + count + average first */}
+        <Grid item xs={12} md={4}>
           <Card
             title="Celkem přijato (všechny platby)"
             value={`${(data?.totalPaymentsSum ?? 0).toLocaleString('cs-CZ')} Kč`}
             sub={data ? `${data.totalPaymentsCount ?? 0} plateb` : '—'}
           />
         </Grid>
-        <Grid item xs={12} md={6}>
+        <Grid item xs={12} md={4}>
+          <Card
+            title="Počet plateb"
+            value={data?.totalPaymentsCount ?? '—'}
+          />
+        </Grid>
+        <Grid item xs={12} md={4}>
           <Card
             title="Průměrná platba"
             value={`${(data?.averageDonationCzk ?? 0).toLocaleString('cs-CZ')} Kč`}
