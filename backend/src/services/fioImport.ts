@@ -32,6 +32,27 @@ export async function importFioTransactions(params: { fromISO: string; toISO: st
   let skippedNoMatch = 0
   let skippedDuplicate = 0
 
+  /** Normalize variable symbol for matching (strip leading zeros). FIO may send "00012345", we store "12345". */
+  function normalizeVs(s: string): string {
+    const t = String(s || '').trim()
+    const n = t.replace(/^0+/, '')
+    return n || '0'
+  }
+
+  // Build lookup: exact VS and normalized VS -> subscription (for flexible matching)
+  const fioSubs = await prisma.subscription.findMany({
+    where: { provider: PaymentProvider.FIO, variableSymbol: { not: null } },
+    select: { id: true, status: true, variableSymbol: true },
+  })
+  const subByVs = new Map<string, { id: string; status: string }>()
+  for (const s of fioSubs) {
+    const vs = s.variableSymbol || ''
+    if (vs) {
+      subByVs.set(vs, { id: s.id, status: s.status })
+      subByVs.set(normalizeVs(vs), { id: s.id, status: s.status })
+    }
+  }
+
   for (const tx of normalizedList) {
     const vs = (tx.variableSymbol || '').trim()
     if (!vs) {
@@ -39,14 +60,8 @@ export async function importFioTransactions(params: { fromISO: string; toISO: st
       continue
     }
 
-    // match subscription by VS
-    const sub = await prisma.subscription.findFirst({
-      where: {
-        provider: PaymentProvider.FIO,
-        variableSymbol: vs,
-      },
-      select: { id: true, status: true },
-    })
+    // match: exact first, then normalized (FIO may send "00012345", we store "12345")
+    const sub = subByVs.get(vs) ?? subByVs.get(normalizeVs(vs)) ?? null
 
     if (!sub) {
       skippedNoMatch++

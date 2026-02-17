@@ -53,6 +53,17 @@ type AdoptionOverviewResp = {
   cashed?: { count: number; sumCZK: number }
 }
 
+type StatsOverviewResp = {
+  ok: boolean
+  flow?: {
+    subscriptionsActiveStripe?: number
+    subscriptionsActiveFio?: number
+    subscriptionsPendingStripe?: number
+    subscriptionsPendingFio?: number
+    subscriptionsPending?: number
+  }
+}
+
 // ✅ Only ADMIN token for admin endpoints
 function getAdminToken(): string | null {
   return sessionStorage.getItem('adminToken') || localStorage.getItem('adminToken')
@@ -72,6 +83,10 @@ export default function AdminStats({ embedded = false }: Props) {
   const [adopt, setAdopt] = useState<AdoptionOverviewResp | null>(null)
   const [adoptErr, setAdoptErr] = useState<string | null>(null)
   const [adoptLoading, setAdoptLoading] = useState(false)
+
+  const [statsOverview, setStatsOverview] = useState<StatsOverviewResp | null>(null)
+  const [statsOverviewErr, setStatsOverviewErr] = useState<string | null>(null)
+  const [statsOverviewLoading, setStatsOverviewLoading] = useState(false)
 
   const params = useMemo(() => {
     const p: Record<string, string> = {}
@@ -131,6 +146,25 @@ export default function AdminStats({ embedded = false }: Props) {
 
   useEffect(() => {
     const t = setTimeout(loadAdoptionOverview, 150)
+    return () => clearTimeout(t)
+  }, [])
+
+  async function loadStatsOverview() {
+    setStatsOverviewErr(null)
+    setStatsOverviewLoading(true)
+    try {
+      const r = await getJSON<StatsOverviewResp>('/api/admin/stats')
+      setStatsOverview(r)
+    } catch (e: any) {
+      setStatsOverview(null)
+      setStatsOverviewErr(e?.message || 'Chyba načítání přehledu statistik')
+    } finally {
+      setStatsOverviewLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    const t = setTimeout(loadStatsOverview, 150)
     return () => clearTimeout(t)
   }, [])
 
@@ -207,6 +241,33 @@ export default function AdminStats({ embedded = false }: Props) {
               <Stat
                 label="Uhrazeno (PAID)"
                 value={adoptLoading ? 'Načítám…' : `${adopt?.cashed?.count ?? 0} / ${adopt?.cashed?.sumCZK ?? 0} Kč`}
+              />
+            </Stack>
+
+            <Typography variant="subtitle2" sx={{ fontWeight: 800, mt: 2, mb: 1 }}>
+              Předplatné – stav podle platby
+            </Typography>
+            {statsOverviewErr && (
+              <Alert severity="warning" sx={{ mb: 1 }}>
+                {String(statsOverviewErr)}
+              </Alert>
+            )}
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} flexWrap="wrap">
+              <Stat
+                label="ACTIVE (Stripe)"
+                value={statsOverviewLoading ? 'Načítám…' : String(statsOverview?.flow?.subscriptionsActiveStripe ?? '—')}
+              />
+              <Stat
+                label="ACTIVE (FIO)"
+                value={statsOverviewLoading ? 'Načítám…' : String(statsOverview?.flow?.subscriptionsActiveFio ?? '—')}
+              />
+              <Stat
+                label="PENDING (FIO)"
+                value={statsOverviewLoading ? 'Načítám…' : String(statsOverview?.flow?.subscriptionsPendingFio ?? '—')}
+              />
+              <Stat
+                label="PENDING (celkem)"
+                value={statsOverviewLoading ? 'Načítám…' : String(statsOverview?.flow?.subscriptionsPending ?? '—')}
               />
             </Stack>
           </Box>

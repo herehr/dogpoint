@@ -7,6 +7,7 @@ import {
   PaymentStatus as PS,
   ContentStatus,
   SubscriptionStatus,
+  PaymentProvider,
 } from '@prisma/client'
 
 const router = Router()
@@ -91,6 +92,10 @@ router.get('/', async (_req: Request, res: Response) => {
       paymentsPaidLastMonth,
       subsActive,
       subsPending,
+      subsActiveStripe,
+      subsActiveFio,
+      subsPendingStripe,
+      subsPendingFio,
     ] = await Promise.all([
       prisma.user.count(),
       prisma.user.count({
@@ -131,6 +136,18 @@ router.get('/', async (_req: Request, res: Response) => {
       }),
       prisma.subscription.count({ where: { status: SubscriptionStatus.ACTIVE } }),
       prisma.subscription.count({ where: { status: SubscriptionStatus.PENDING } }),
+      prisma.subscription.count({
+        where: { status: SubscriptionStatus.ACTIVE, provider: PaymentProvider.STRIPE },
+      }),
+      prisma.subscription.count({
+        where: { status: SubscriptionStatus.ACTIVE, provider: PaymentProvider.FIO },
+      }),
+      prisma.subscription.count({
+        where: { status: SubscriptionStatus.PENDING, provider: PaymentProvider.STRIPE },
+      }),
+      prisma.subscription.count({
+        where: { status: SubscriptionStatus.PENDING, provider: PaymentProvider.FIO },
+      }),
     ])
 
     const expectedMonthly = await prisma.subscription.aggregate({
@@ -161,6 +178,10 @@ router.get('/', async (_req: Request, res: Response) => {
         pledgesPending,
         subscriptionsActive: subsActive,
         subscriptionsPending: subsPending,
+        subscriptionsActiveStripe: subsActiveStripe,
+        subscriptionsActiveFio: subsActiveFio,
+        subscriptionsPendingStripe: subsPendingStripe,
+        subscriptionsPendingFio: subsPendingFio,
       },
     })
   } catch (e: any) {
