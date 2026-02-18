@@ -67,6 +67,13 @@ function csvEscape(v: any) {
   return s
 }
 
+/** Map provider to display method: STRIPE → CARD, FIO → BANK */
+function providerToMethod(provider: string | null | undefined): string {
+  const p = String(provider ?? '').toUpperCase()
+  if (p === 'FIO') return 'BANK'
+  return 'CARD' // STRIPE, PAYPAL, etc.
+}
+
 // ALL endpoints below require auth + role
 router.use(requireAuth, requireAdminOrModerator)
 
@@ -242,6 +249,7 @@ router.get('/payments', async (req: Request, res: Response) => {
         currency: p.currency,
         status: p.status,
         provider: String(p.provider ?? ''),
+        method: providerToMethod(p.provider),
         createdAt: p.createdAt,
         userEmail: p.subscription?.user?.email ?? null,
         animalId: p.subscription?.animalId ?? null,
@@ -254,6 +262,7 @@ router.get('/payments', async (req: Request, res: Response) => {
         currency: pp.currency || 'CZK',
         status: pp.status,
         provider: pp.provider ?? 'fio',
+        method: providerToMethod(pp.provider),
         createdAt: pp.createdAt,
         userEmail: pp.pledge?.email ?? null,
         animalId: pp.pledge?.animalId ?? null,
@@ -272,20 +281,24 @@ router.get('/payments', async (req: Request, res: Response) => {
 })
 
 // ───────────────────────────────────────────────────────────────
-// 2) PLEDGES (Detaily)
+// 2) PLEDGES (Detaily) – Pledge (PENDING) + Subscription (PENDING, FIO bank)
 // GET /api/admin/stats/pledges?from=YYYY-MM-DD&to=YYYY-MM-DD
 // ───────────────────────────────────────────────────────────────
 router.get('/pledges', async (req: Request, res: Response) => {
   try {
     const range = normalizeRange(req.query)
 
-    // ✅ only pending pledges
-    const where: any = { status: PS.PENDING }
-    if (range) where.createdAt = range
+    // Pending pledges
+    const pledgeWhere: any = { status: PS.PENDING }
+    if (range) pledgeWhere.createdAt = range
 
-    const [rows, agg] = await Promise.all([
+    // PENDING subscriptions (FIO bank transfers waiting for payment)
+    const subWhere: any = { status: SubscriptionStatus.PENDING, provider: PaymentProvider.FIO }
+    if (range) subWhere.createdAt = range
+
+    const [pledgeRows, pledgeAgg, pendingSubs] = await Promise.all([
       prisma.pledge.findMany({
-        where,
+        where: pledgeWhere,
         orderBy: { createdAt: 'desc' },
         select: {
           id: true,
@@ -297,21 +310,72 @@ router.get('/pledges', async (req: Request, res: Response) => {
           method: true,
           interval: true,
           providerId: true,
+          animal: { select: { jmeno: true, name: true } },
         },
       }),
       prisma.pledge.aggregate({
-        where,
+        where: pledgeWhere,
         _count: { _all: true },
         _sum: { amount: true },
       }),
+      prisma.subscription.findMany({
+        where: subWhere,
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          createdAt: true,
+          monthlyAmount: true,
+          variableSymbol: true,
+          user: { select: { email: true } },
+          animal: { select: { id: true, jmeno: true, name: true } },
+        },
+      }),
     ])
+
+    const pledgeItems = pledgeRows.map((p) => ({
+      id: p.id,
+      source: 'pledge' as const,
+      createdAt: p.createdAt,
+      email: p.email,
+      animalId: p.animalId,
+      animalName: p.animal?.jmeno || p.animal?.name || null,
+      amount: p.amount,
+      status: p.status,
+      method: (p.method ?? 'CARD') as string,
+      interval: p.interval,
+    }))
+
+    const subItems = pendingSubs.map((s) => ({
+      id: s.id,
+      source: 'subscription' as const,
+      createdAt: s.createdAt,
+      email: s.user?.email ?? null,
+      animalId: s.animal?.id ?? null,
+      animalName: s.animal?.jmeno || s.animal?.name || null,
+      amount: s.monthlyAmount ?? 0,
+      status: 'PENDING',
+      method: 'BANK' as const,
+      variableSymbol: s.variableSymbol,
+    }))
+
+    const rows = [...pledgeItems, ...subItems].sort(
+      (a, b) => +new Date(b.createdAt) - +new Date(a.createdAt)
+    )
+
+    const pledgeSum = pledgeAgg._sum.amount || 0
+    const subSum = pendingSubs.reduce((s, x) => s + (x.monthlyAmount || 0), 0)
 
     res.json({
       ok: true,
-      count: agg._count._all || 0,
-      sum: agg._sum.amount || 0,
+      count: rows.length,
+      sum: pledgeSum + subSum,
       rows,
-      byStatus: { PENDING: { count: agg._count._all || 0, sum: agg._sum.amount || 0 } },
+      byStatus: {
+        PENDING: {
+          count: rows.length,
+          sum: pledgeSum + subSum,
+        },
+      },
     })
   } catch (e: any) {
     console.error('GET /api/admin/stats/pledges error', e)

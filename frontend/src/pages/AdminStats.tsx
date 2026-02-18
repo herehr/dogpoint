@@ -447,7 +447,7 @@ export default function AdminStats({ embedded = false }: Props) {
               { key: 'createdAt', label: 'Datum' },
               { key: 'amount', label: 'Částka' },
               { key: 'status', label: 'Stav' },
-              { key: 'provider', label: 'Poskytovatel' },
+              { key: 'method', label: 'Metoda' },
               { key: 'userEmail', label: 'E-mail' },
               { key: 'animalName', label: 'Zvíře' },
               { key: 'source', label: 'Zdroj' },
@@ -469,10 +469,11 @@ export default function AdminStats({ embedded = false }: Props) {
             columns={[
               { key: 'createdAt', label: 'Datum' },
               { key: 'email', label: 'E-mail' },
-              { key: 'animalId', label: 'Zvíře' },
+              { key: 'animalName', label: 'Zvíře' },
               { key: 'amount', label: 'Částka' },
               { key: 'status', label: 'Stav' },
               { key: 'method', label: 'Metoda' },
+              { key: 'source', label: 'Zdroj' },
             ]}
           />
         </Paper>
@@ -577,7 +578,9 @@ function DataTable(props: any) {
                       ? r?.[c.key]
                         ? new Date(r[c.key]).toLocaleString()
                         : ''
-                      : String(r?.[c.key] ?? '')}
+                      : c.key === 'animalName'
+                        ? String(r?.animalName ?? r?.animalId ?? '')
+                        : String(r?.[c.key] ?? '')}
                   </TableCell>
                 ))}
               </TableRow>
