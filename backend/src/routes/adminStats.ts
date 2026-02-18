@@ -310,7 +310,6 @@ router.get('/pledges', async (req: Request, res: Response) => {
           method: true,
           interval: true,
           providerId: true,
-          animal: { select: { jmeno: true, name: true } },
         },
       }),
       prisma.pledge.aggregate({
@@ -332,13 +331,23 @@ router.get('/pledges', async (req: Request, res: Response) => {
       }),
     ])
 
+    const animalIds = [...new Set(pledgeRows.map((p) => p.animalId).filter(Boolean))]
+    const animals =
+      animalIds.length > 0
+        ? await prisma.animal.findMany({
+            where: { id: { in: animalIds } },
+            select: { id: true, jmeno: true, name: true },
+          })
+        : []
+    const animalMap = new Map(animals.map((a) => [a.id, a.jmeno || a.name || a.id]))
+
     const pledgeItems = pledgeRows.map((p) => ({
       id: p.id,
       source: 'pledge' as const,
       createdAt: p.createdAt,
       email: p.email,
       animalId: p.animalId,
-      animalName: p.animal?.jmeno || p.animal?.name || null,
+      animalName: animalMap.get(p.animalId) ?? p.animalId,
       amount: p.amount,
       status: p.status,
       method: (p.method ?? 'CARD') as string,
