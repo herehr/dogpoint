@@ -343,7 +343,7 @@ router.get('/pledges', async (req: Request, res: Response) => {
 
     const pledgeItems = pledgeRows.map((p) => ({
       id: p.id,
-      source: 'pledge' as const,
+      source: 'Karta (čeká platba)',
       createdAt: p.createdAt,
       email: p.email,
       animalId: p.animalId,
@@ -356,7 +356,7 @@ router.get('/pledges', async (req: Request, res: Response) => {
 
     const subItems = pendingSubs.map((s) => ({
       id: s.id,
-      source: 'subscription' as const,
+      source: 'Převod (čeká import)',
       createdAt: s.createdAt,
       email: s.user?.email ?? null,
       animalId: s.animal?.id ?? null,
