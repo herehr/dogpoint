@@ -74,7 +74,24 @@ export async function importFioTransactions(params: { fromISO: string; toISO: st
 
     const providerRef = `fio:${tx.movementId}`
 
-    // create payment if not already imported
+    // Dedupe by subscription + amount + paidAt date (FIO can return different movementIds for same tx)
+    const d = tx.bookedAt
+    const dayStart = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
+    const dayEnd = new Date(dayStart.getTime() + 86400000)
+    const existingSameDay = await prisma.payment.findFirst({
+      where: {
+        subscriptionId: sub.id,
+        provider: PaymentProvider.FIO,
+        amount: tx.amountCzk,
+        paidAt: { gte: dayStart, lt: dayEnd },
+      },
+    })
+    if (existingSameDay) {
+      skippedDuplicate++
+      continue
+    }
+
+    // create payment if not already imported (providerRef unique also catches same movementId)
     try {
       await prisma.payment.create({
         data: {
