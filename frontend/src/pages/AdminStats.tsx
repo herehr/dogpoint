@@ -475,6 +475,8 @@ export default function AdminStats({ embedded = false }: Props) {
             )}
             {stripeSyncResult && (
               <Typography variant="body2" sx={{ mb: 1 }}>
+                <strong>Stripe režim:</strong> {stripeSyncResult.stripeMode === 'live' ? 'LIVE (reálná data)' : stripeSyncResult.stripeMode === 'test' ? 'TEST (sandbox)' : stripeSyncResult.stripeMode ?? '?'}
+                {' · '}
                 <strong>Vytvořeno:</strong> {stripeSyncResult.created ?? 0} plateb
                 {typeof stripeSyncResult.subscriptionsCreated === 'number' && stripeSyncResult.subscriptionsCreated > 0 && (
                   <> · Předplatných vytvořeno: {stripeSyncResult.subscriptionsCreated}</>

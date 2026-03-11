@@ -366,9 +366,12 @@ const jsonRouter = Router()
 jsonRouter.use(express.json())
 
 jsonRouter.get('/ping', (_req: Request, res: Response) => {
+  const key = process.env.STRIPE_SECRET_KEY || process.env.STRIPE_SECRET || ''
+  const mode = key.startsWith('sk_live_') ? 'live' : key.startsWith('sk_test_') ? 'test' : key ? 'unknown' : 'missing'
   res.json({
     ok: true,
-    stripeKey: !!(process.env.STRIPE_SECRET_KEY || process.env.STRIPE_SECRET),
+    stripeKey: !!key,
+    stripeMode: mode,
     frontendBase: frontendBase(),
   })
 })

@@ -240,6 +240,8 @@ router.post('/stripe-sync-payments', async (_req: Request, res: Response) => {
       else hasMore = false
     }
 
+    const key = process.env.STRIPE_SECRET_KEY || process.env.STRIPE_SECRET || ''
+    const stripeMode = key.startsWith('sk_live_') ? 'live' : key.startsWith('sk_test_') ? 'test' : key ? 'unknown' : 'missing'
     return res.json({
       ok: true,
       created,
@@ -247,6 +249,7 @@ router.post('/stripe-sync-payments', async (_req: Request, res: Response) => {
       subscriptionsChecked: subs.length,
       ...(subsCreated > 0 ? { subscriptionsCreated: subsCreated } : {}),
       invoicesFetched,
+      stripeMode,
       errors: errors.length ? errors : undefined,
     })
   } catch (e: any) {
