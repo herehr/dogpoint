@@ -250,7 +250,7 @@ router.post('/stripe-sync-payments', async (_req: Request, res: Response) => {
       ok: true,
       created,
       skipped,
-      ...(skippedNoSub > 0 ? { skippedNoSub } : {}),
+      skippedNoSub,
       subscriptionsChecked: subs.length,
       ...(subsCreated > 0 ? { subscriptionsCreated: subsCreated } : {}),
       invoicesFetched,

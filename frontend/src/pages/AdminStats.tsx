@@ -440,7 +440,7 @@ export default function AdminStats({ embedded = false }: Props) {
                 {typeof stripeSyncResult.skipped === 'number' && (
                   <> · Přeskočeno (již existuje): {stripeSyncResult.skipped}</>
                 )}
-                {typeof stripeSyncResult.skippedNoSub === 'number' && stripeSyncResult.skippedNoSub > 0 && (
+                {typeof stripeSyncResult.skippedNoSub === 'number' && (
                   <> · Bez shody předplatného: {stripeSyncResult.skippedNoSub}</>
                 )}
                 {typeof stripeSyncResult.invoicesFetched === 'number' && (
