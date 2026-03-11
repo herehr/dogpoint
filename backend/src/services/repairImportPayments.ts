@@ -34,6 +34,27 @@ export async function backupPayments(): Promise<object[]> {
       },
     },
   })
+
+  // Store backup in PaymentBackup table
+  const snapshotAt = new Date()
+  if (payments.length > 0) {
+    await prisma.paymentBackup.createMany({
+      data: payments.map((p) => ({
+        snapshotAt,
+        originalId: p.id,
+        subscriptionId: p.subscriptionId,
+        provider: p.provider,
+        providerRef: p.providerRef,
+        amount: p.amount,
+        currency: p.currency || 'CZK',
+        status: p.status,
+        paidAt: p.paidAt,
+        failureReason: p.failureReason,
+        createdAt: p.createdAt,
+      })),
+    })
+  }
+
   return payments as object[]
 }
 

@@ -253,6 +253,23 @@ model Payment {
   @@index([status])
 }
 
+model PaymentBackup {
+  id             String   @id @default(cuid())
+  snapshotAt     DateTime @default(now())
+  originalId     String?
+  subscriptionId String
+  provider       String
+  providerRef    String?
+  amount         Int
+  currency       String   @default("CZK")
+  status         String
+  paidAt         DateTime?
+  failureReason  String?
+  createdAt      DateTime @default(now())
+
+  @@index([snapshotAt])
+}
+
 model Notification {
   id        String    @id @default(uuid())
   userId    String
