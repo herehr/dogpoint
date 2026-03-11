@@ -39,6 +39,7 @@ router.post('/stripe-sync-payments', async (_req: Request, res: Response) => {
     let created = 0
     let skipped = 0
     let skippedNoSub = 0
+    let skippedNoSubscription = 0
     let subsCreated = 0
     const errors: string[] = []
 
@@ -137,7 +138,10 @@ router.post('/stripe-sync-payments', async (_req: Request, res: Response) => {
       for (const inv of list.data) {
         const rawSub = (inv as any).subscription
         const stripeSubId = typeof rawSub === 'string' ? rawSub : rawSub?.id
-        if (!stripeSubId || !stripeSubId.startsWith('sub_')) continue
+        if (!stripeSubId || !stripeSubId.startsWith('sub_')) {
+          skippedNoSubscription++
+          continue
+        }
 
         let ourSubId = stripeSubToOurSub.get(stripeSubId)
         if (!ourSubId) {
@@ -265,6 +269,7 @@ router.post('/stripe-sync-payments', async (_req: Request, res: Response) => {
       created,
       skipped,
       skippedNoSub,
+      skippedNoSubscription,
       subscriptionsChecked: subs.length,
       ...(subsCreated > 0 ? { subscriptionsCreated: subsCreated } : {}),
       invoicesFetched,

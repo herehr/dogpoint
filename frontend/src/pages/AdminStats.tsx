@@ -443,6 +443,9 @@ export default function AdminStats({ embedded = false }: Props) {
                 {typeof stripeSyncResult.skippedNoSub === 'number' && (
                   <> · Bez shody předplatného: {stripeSyncResult.skippedNoSub}</>
                 )}
+                {typeof stripeSyncResult.skippedNoSubscription === 'number' && stripeSyncResult.skippedNoSubscription > 0 && (
+                  <> · Jednorázové (bez sub): {stripeSyncResult.skippedNoSubscription}</>
+                )}
                 {typeof stripeSyncResult.invoicesFetched === 'number' && (
                   <> · Faktur ze Stripe: {stripeSyncResult.invoicesFetched}</>
                 )}
