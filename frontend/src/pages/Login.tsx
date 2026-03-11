@@ -15,7 +15,7 @@ import {
 import Visibility from '@mui/icons-material/Visibility'
 import VisibilityOff from '@mui/icons-material/VisibilityOff'
 
-import { apiUrl, setAdminToken, setModeratorToken, setToken } from '../services/api'
+import { apiUrl, setAdminToken, setModeratorToken, setToken, setPasswordFirstTime } from '../services/api'
 import { login as apiLogin } from '../services/api'
 import { useAuth } from '../context/AuthContext'
 
@@ -31,6 +31,7 @@ export default function Login() {
   const [err, setErr] = useState<string | null>(null)
   const [info, setInfo] = useState<string | null>(null)
   const [sendingReset, setSendingReset] = useState<boolean>(false)
+  const [mode, setMode] = useState<'login' | 'setpw'>('login')
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -40,22 +41,31 @@ export default function Login() {
     setSubmitting(true)
 
     try {
+      if (mode === 'setpw') {
+        const res = await setPasswordFirstTime(email.trim().toLowerCase(), password)
+        const token = res?.token
+        const role = (res?.role || null) as any
+        if (role === 'ADMIN') setAdminToken(token)
+        else if (role === 'MODERATOR') setModeratorToken(token)
+        else setToken(token)
+        login(token, role)
+        navigate(role === 'ADMIN' ? '/admin' : role === 'MODERATOR' ? '/moderator' : '/user', {
+          replace: true,
+        })
+        return
+      }
+
       const res = await apiLogin(email.trim().toLowerCase(), password)
       const token = res?.token
       const role = (res?.role || null) as any
 
-      // ✅ store token persistently (localStorage-first)
       if (role === 'ADMIN') setAdminToken(token)
       else if (role === 'MODERATOR') setModeratorToken(token)
       else setToken(token)
 
-      // ✅ update AuthContext UI state
       login(token, role)
 
-      // redirect back if protected route sent us here
       const from = location?.state?.from?.pathname as string | undefined
-
-      // fallback by role
       const target = from
         ? from
         : role === 'ADMIN'
@@ -67,7 +77,10 @@ export default function Login() {
       navigate(target, { replace: true })
     } catch (e: any) {
       const msg = e?.message || ''
-      if (msg.includes('Invalid credentials')) {
+      if (msg.includes('PASSWORD_NOT_SET') || msg.includes('409')) {
+        setMode('setpw')
+        setErr('Tento účet ještě nemá nastavené heslo. Zadejte nové heslo níže.')
+      } else if (msg.includes('Invalid credentials')) {
         setErr(
           'Uuups… něco se nepovedlo. Zkontrolujte prosím svůj e-mail a heslo. ' +
             'Zapomněli jste heslo? Klikněte níže a pošleme vám odkaz pro jeho obnovení.',
@@ -143,13 +156,13 @@ export default function Login() {
           />
 
           <TextField
-            label="Heslo"
+            label={mode === 'setpw' ? 'Nové heslo' : 'Heslo'}
             type={showPw ? 'text' : 'password'}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
             fullWidth
-            autoComplete="current-password"
+            autoComplete={mode === 'setpw' ? 'new-password' : 'current-password'}
             InputProps={{
               endAdornment: (
                 <InputAdornment position="end">
@@ -166,18 +179,30 @@ export default function Login() {
           />
 
           <Button type="submit" variant="contained" disabled={submitting || !email || !password}>
-            {submitting ? 'Přihlašuji…' : 'Přihlásit'}
+            {submitting
+              ? mode === 'setpw'
+                ? 'Nastavuji…'
+                : 'Přihlašuji…'
+              : mode === 'setpw'
+                ? 'Nastavit heslo'
+                : 'Přihlásit'}
           </Button>
 
-          <Button
-            type="button"
-            variant="text"
-            onClick={onForgotPassword}
-            disabled={sendingReset || !email}
-            sx={{ alignSelf: 'flex-start' }}
-          >
-            {sendingReset ? 'Odesílám odkaz…' : 'Zapomněl(a) jsem heslo'}
-          </Button>
+          {mode === 'setpw' ? (
+            <Button type="button" variant="text" onClick={() => setMode('login')} sx={{ alignSelf: 'flex-start' }}>
+              Zpět na přihlášení
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              variant="text"
+              onClick={onForgotPassword}
+              disabled={sendingReset || !email}
+              sx={{ alignSelf: 'flex-start' }}
+            >
+              {sendingReset ? 'Odesílám odkaz…' : 'Zapomněl(a) jsem heslo'}
+            </Button>
+          )}
         </Stack>
       </Box>
     </Container>

@@ -31,7 +31,7 @@ import BlurBox from '../components/BlurBox'
 import { useAuth } from '../context/AuthContext'
 import SafeHTML from '../components/SafeHTML'
 import AfterPaymentPasswordDialog from '../components/AfterPaymentPasswordDialog'
-import { confirmStripeSession, cancelAdoption } from '../services/api'
+import { confirmStripeSession, cancelAdoption, setAuthToken } from '../services/api'
 import { apiUrl } from '../services/api'
 
 type Media = {
@@ -460,6 +460,7 @@ export default function AnimalDetail() {
         window.history.replaceState({}, '', clean)
 
         if (tokenStr) {
+          setAuthToken(tokenStr)
           login(tokenStr, 'USER')
           navigate('/user', { replace: true })
           return

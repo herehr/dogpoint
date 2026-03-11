@@ -561,8 +561,34 @@ export async function myAdoptedAnimals(): Promise<MyAdoptedItem[]> {
     // ignore
   }
 
-  const out = Array.from(byAnimal.values()).filter((it) => it.status !== 'CANCELED')
+  let out = Array.from(byAnimal.values()).filter((it) => it.status !== 'CANCELED')
   out.sort((a, b) => rank(b.status) - rank(a.status))
+
+  // Enrich items missing title/main (e.g. when /api/adoption/my failed or returned incomplete data)
+  const toEnrich = out.filter((it) => !it.title || !it.main)
+  if (toEnrich.length > 0) {
+    const enrichedMap = new Map<string, MyAdoptedItem>()
+    await Promise.all(
+      toEnrich.map(async (it) => {
+        try {
+          const a = await fetchAnimal(it.animalId)
+          const jmeno = (a as any)?.jmeno || (a as any)?.name
+          const main = (a as any)?.main ?? (a as any)?.galerie?.[0]?.url
+          enrichedMap.set(it.animalId, {
+            ...it,
+            title: it.title || jmeno || 'Zvíře',
+            jmeno: it.jmeno || jmeno,
+            name: it.name || (a as any)?.name,
+            main: it.main || main,
+          })
+        } catch {
+          enrichedMap.set(it.animalId, it)
+        }
+      })
+    )
+    out = out.map((it) => enrichedMap.get(it.animalId) || it)
+  }
+
   return out
 }
 

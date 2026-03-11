@@ -367,21 +367,27 @@ router.get('/my', checkAuth, async (req: Request, res: Response) => {
       },
       include: {
         animal: {
-          select: { id: true, jmeno: true, name: true, main: true },
+          include: {
+            galerie: { select: { url: true }, orderBy: { id: 'asc' }, take: 1 },
+          },
         },
       },
       orderBy: { startedAt: 'asc' },
     })
 
-    const items = subs.map((sub) => ({
-      subscriptionId: sub.id,
-      animalId: sub.animalId,
-      title: sub.animal?.jmeno || sub.animal?.name || 'Zvíře',
-      main: sub.animal?.main || undefined,
-      since: sub.startedAt,
-      status: sub.status,
-      isGiftRecipient: false,
-    }))
+    const items = subs.map((sub) => {
+      const animal = sub.animal as any
+      const main = animal?.main ?? animal?.galerie?.[0]?.url ?? undefined
+      return {
+        subscriptionId: sub.id,
+        animalId: sub.animalId,
+        title: sub.animal?.jmeno || sub.animal?.name || 'Zvíře',
+        main: main || undefined,
+        since: sub.startedAt,
+        status: sub.status,
+        isGiftRecipient: false,
+      }
+    })
 
     // 2) Gift recipient: animals where user is obdarovaný (by userId or email)
     const giftLinks = await prisma.subscriptionGiftRecipient.findMany({
@@ -392,7 +398,9 @@ router.get('/my', checkAuth, async (req: Request, res: Response) => {
         subscription: {
           include: {
             animal: {
-              select: { id: true, jmeno: true, name: true, main: true },
+              include: {
+                galerie: { select: { url: true }, orderBy: { id: 'asc' }, take: 1 },
+              },
             },
           },
         },
@@ -404,11 +412,13 @@ router.get('/my', checkAuth, async (req: Request, res: Response) => {
       if (!sub || sub.status !== SubscriptionStatus.ACTIVE || !sub.animal) continue
       const animalId = sub.animalId
       if (items.some((i) => i.animalId === animalId)) continue // already have it (own sub)
+      const animal = sub.animal as any
+      const main = animal?.main ?? animal?.galerie?.[0]?.url ?? undefined
       items.push({
         subscriptionId: sub.id,
         animalId,
         title: sub.animal?.jmeno || sub.animal?.name || 'Zvíře',
-        main: sub.animal?.main || undefined,
+        main: main || undefined,
         since: sub.startedAt,
         status: 'ACTIVE' as const,
         isGiftRecipient: true,
