@@ -548,17 +548,20 @@ export async function myAdoptedAnimals(): Promise<MyAdoptedItem[]> {
     }
   }
 
-  try {
-    const m = await me()
-    const subs = (m.subscriptions || []) as any[]
-    for (const s of subs) {
-      const st = (s.status || 'ACTIVE') as string
-      if (st === 'CANCELED') continue
-      if (!(st === 'ACTIVE' || st === 'PENDING')) continue
-      put(normalizeToMyAdoptedItem(s))
+  // Skip /me when no token – avoids 401 noise for anonymous users
+  if (getToken()) {
+    try {
+      const m = await me()
+      const subs = (m.subscriptions || []) as any[]
+      for (const s of subs) {
+        const st = (s.status || 'ACTIVE') as string
+        if (st === 'CANCELED') continue
+        if (!(st === 'ACTIVE' || st === 'PENDING')) continue
+        put(normalizeToMyAdoptedItem(s))
+      }
+    } catch {
+      // ignore
     }
-  } catch {
-    // ignore
   }
 
   let out = Array.from(byAnimal.values()).filter((it) => it.status !== 'CANCELED')
@@ -644,7 +647,7 @@ export async function getAdoptionMe(): Promise<AdoptionMeResponse> {
 
   let user: any = undefined
   try {
-    user = await me()
+    if (getToken()) user = await me()
   } catch {}
 
   return { ok: true, user, access }
