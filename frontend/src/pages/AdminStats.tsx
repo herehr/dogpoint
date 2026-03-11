@@ -105,6 +105,10 @@ export default function AdminStats({ embedded = false }: Props) {
   const [fioImportErr, setFioImportErr] = useState<string | null>(null)
   const [fioImportLoading, setFioImportLoading] = useState(false)
 
+  const [stripeSyncResult, setStripeSyncResult] = useState<any>(null)
+  const [stripeSyncErr, setStripeSyncErr] = useState<string | null>(null)
+  const [stripeSyncLoading, setStripeSyncLoading] = useState(false)
+
   const params = useMemo(() => {
     const p: Record<string, string> = {}
     if (tab !== 'animals') {
@@ -225,6 +229,31 @@ export default function AdminStats({ embedded = false }: Props) {
       setFioImportErr(e?.message || 'FIO import selhal')
     } finally {
       setFioImportLoading(false)
+    }
+  }
+
+  async function runStripeSync() {
+    setStripeSyncErr(null)
+    setStripeSyncResult(null)
+    setStripeSyncLoading(true)
+    try {
+      const t = token ?? getToken() ?? getAdminToken()
+      if (!t?.trim()) throw new Error('Nejste přihlášen jako admin.')
+      const res = await fetch(apiUrl('/api/admin/stripe-sync-payments'), {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
+        credentials: 'include',
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error((data as any)?.error || data?.detail || `HTTP ${res.status}`)
+      setStripeSyncResult(data)
+      loadAdoptionOverview()
+      loadStatsOverview()
+      if (tab === 'payments') load()
+    } catch (e: any) {
+      setStripeSyncErr(e?.message || 'Stripe sync selhal')
+    } finally {
+      setStripeSyncLoading(false)
     }
   }
 
@@ -369,6 +398,16 @@ export default function AdminStats({ embedded = false }: Props) {
                 {fioImportResult.skippedNoVS > 0 && (
                   <> · Bez VS: {fioImportResult.skippedNoVS}</>
                 )}
+                {typeof fioImportResult.fioSubsWithVS === 'number' && (
+                  <> · FIO předplatných s VS v DB: {fioImportResult.fioSubsWithVS}</>
+                )}
+                {Array.isArray(fioImportResult.sampleNoMatchVS) &&
+                  fioImportResult.sampleNoMatchVS.length > 0 && (
+                    <>
+                      {' '}
+                      · Příklad VS bez shody: {fioImportResult.sampleNoMatchVS.join(', ')}
+                    </>
+                  )}
               </Typography>
             )}
             <Button
@@ -378,6 +417,34 @@ export default function AdminStats({ embedded = false }: Props) {
             >
               {fioImportLoading ? 'Načítám…' : 'Stáhnout FIO – poslední měsíc'}
             </Button>
+
+            <Typography variant="subtitle2" sx={{ fontWeight: 800, mt: 2, mb: 1 }}>
+              Stripe sync
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+              Načte platby z Stripe API (všechny uhrazené faktury) do tabulky Payment (recurring platby).
+            </Typography>
+            {stripeSyncErr && (
+              <Alert severity="error" sx={{ mb: 1 }}>
+                {stripeSyncErr}
+              </Alert>
+            )}
+            {stripeSyncResult && (
+              <Typography variant="body2" sx={{ mb: 1 }}>
+                <strong>Vytvořeno:</strong> {stripeSyncResult.created ?? 0} plateb
+                {typeof stripeSyncResult.skipped === 'number' && (
+                  <> · Přeskočeno (již existuje): {stripeSyncResult.skipped}</>
+                )}
+              </Typography>
+            )}
+            <Button
+              variant="outlined"
+              onClick={runStripeSync}
+              disabled={stripeSyncLoading}
+            >
+              {stripeSyncLoading ? 'Načítám…' : 'Stripe sync – stáhnout platby'}
+            </Button>
+
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
               Endpoint: <code>/api/admin/stats/adoptions/export.csv</code>
             </Typography>

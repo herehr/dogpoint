@@ -204,12 +204,16 @@ router.get('/', async (_req: Request, res: Response) => {
 router.get('/payments', async (req: Request, res: Response) => {
   try {
     const range = normalizeRange(req.query)
-    const filter = range ? { createdAt: range } : {}
+    // Payment: filter by paidAt (when money arrived); fallback createdAt for records without paidAt
+    const paymentWhere = range
+      ? ({ OR: [{ paidAt: range }, { paidAt: null, createdAt: range }] } as any)
+      : {}
+    const pledgeFilter = range ? { createdAt: range } : {}
 
     const [subPayments, pledgePayments] = await Promise.all([
       prisma.payment.findMany({
-        where: filter as any,
-        orderBy: { createdAt: 'desc' },
+        where: paymentWhere,
+        orderBy: { paidAt: 'desc' },
         select: {
           id: true,
           amount: true,
@@ -217,6 +221,7 @@ router.get('/payments', async (req: Request, res: Response) => {
           status: true,
           provider: true,
           createdAt: true,
+          paidAt: true,
           subscription: {
             select: {
               animalId: true,
@@ -227,7 +232,7 @@ router.get('/payments', async (req: Request, res: Response) => {
         },
       }),
       prisma.pledgePayment.findMany({
-        where: filter as any,
+        where: pledgeFilter as any,
         orderBy: { createdAt: 'desc' },
         select: {
           id: true,
@@ -250,7 +255,7 @@ router.get('/payments', async (req: Request, res: Response) => {
         status: p.status,
         provider: String(p.provider ?? ''),
         method: providerToMethod(p.provider),
-        createdAt: p.createdAt,
+        createdAt: p.paidAt ?? p.createdAt,
         userEmail: p.subscription?.user?.email ?? null,
         animalId: p.subscription?.animalId ?? null,
         animalName: p.subscription?.animal?.jmeno || p.subscription?.animal?.name || null,

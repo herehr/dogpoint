@@ -92,8 +92,16 @@ export function normalizeFioTx(t: FioTransaction): NormalizedFioTx | null {
   if (!movementId || amountNum == null || !bookedAt) return null
 
   const currency = (colVal<string>(t.column14) || 'CZK').toUpperCase()
-  const vsRaw = colVal<string>(t.column5)
-  const variableSymbol = vsRaw ? String(vsRaw).replace(/\s/g, '').trim() : null
+  let vsRaw = colVal<string>(t.column5) ?? colVal<number>(t.column5)
+  if (vsRaw == null || vsRaw === '') {
+    // Fallback: FIO sometimes has VS in message/comment (e.g. "VS:5954027313" or "5954027313")
+    const msg = colVal<string>(t.column16) ?? ''
+    const cmt = colVal<string>(t.column25) ?? ''
+    const combined = `${msg} ${cmt}`
+    const m = combined.match(/\b595\d{7}\b/) // 595 + 7 digits (Dogpoint adoption format)
+    if (m) vsRaw = m[0]
+  }
+  const variableSymbol = vsRaw != null && vsRaw !== '' ? String(vsRaw).replace(/\s/g, '').trim() : null
 
   const msg = colVal<string>(t.column16)
   const cmt = colVal<string>(t.column25)

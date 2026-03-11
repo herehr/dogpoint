@@ -15,6 +15,10 @@ export type FioImportResult = {
   skippedNoVS: number
   skippedNoMatch: number
   skippedDuplicate: number
+  /** Count of FIO subscriptions with VS in DB (for debugging) */
+  fioSubsWithVS?: number
+  /** Sample VS that had no match (595* = adoption format) – for debugging */
+  sampleNoMatchVS?: string[]
 }
 
 /** Normalize VS for matching: remove spaces, strip leading zeros */
@@ -56,6 +60,7 @@ export async function importFioTransactions(params: { fromISO: string; toISO: st
   let skippedNoVS = 0
   let skippedNoMatch = 0
   let skippedDuplicate = 0
+  const noMatchVSamples: string[] = []
 
   for (const tx of incomingList) {
     const vs = normalizeVS(tx.variableSymbol)
@@ -67,6 +72,9 @@ export async function importFioTransactions(params: { fromISO: string; toISO: st
     const sub = vsToSub.get(vs)
     if (!sub) {
       skippedNoMatch++
+      if (vs.startsWith('595') && noMatchVSamples.length < 5) {
+        noMatchVSamples.push(vs)
+      }
       continue
     }
 
@@ -142,5 +150,7 @@ export async function importFioTransactions(params: { fromISO: string; toISO: st
     skippedNoVS,
     skippedNoMatch,
     skippedDuplicate,
+    fioSubsWithVS: fioSubs.length,
+    sampleNoMatchVS: noMatchVSamples.length ? noMatchVSamples : undefined,
   }
 }
