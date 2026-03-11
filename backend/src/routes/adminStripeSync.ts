@@ -38,6 +38,7 @@ router.post('/stripe-sync-payments', async (_req: Request, res: Response) => {
 
     let created = 0
     let skipped = 0
+    let subsCreated = 0
     const errors: string[] = []
 
     // Pass 1: per our subscriptions (resolve cs_→sub_, fetch invoices)
@@ -139,13 +140,61 @@ router.post('/stripe-sync-payments', async (_req: Request, res: Response) => {
 
         let ourSubId = stripeSubToOurSub.get(stripeSubId)
         if (!ourSubId) {
-          const sub = await prisma.subscription.findFirst({
+          let sub = await prisma.subscription.findFirst({
             where: { provider: 'STRIPE' as any, providerRef: stripeSubId },
             select: { id: true },
           })
-          if (!sub) continue
-          stripeSubToOurSub.set(stripeSubId, sub.id)
-          ourSubId = sub.id
+          if (!sub) {
+            // Create missing Subscription from Stripe (animalId from checkout session metadata)
+            try {
+              const stripeSub = await stripe.subscriptions.retrieve(stripeSubId, { expand: ['customer'] })
+              const customerId = typeof stripeSub.customer === 'string' ? stripeSub.customer : stripeSub.customer?.id
+              const customer = customerId ? await stripe.customers.retrieve(customerId) : null
+              const email = (customer as any)?.email?.trim()?.toLowerCase()
+              let animalId = (stripeSub.metadata as Record<string, string> | null)?.animalId
+              if (!animalId) {
+                const sessions = await stripe.checkout.sessions.list({ subscription: stripeSubId, limit: 1 })
+                animalId = (sessions.data[0]?.metadata as Record<string, string> | null)?.animalId
+              }
+              if (email && animalId) {
+                const animal = await prisma.animal.findUnique({ where: { id: animalId }, select: { id: true } })
+                if (!animal) continue
+                let user = await prisma.user.findUnique({ where: { email } })
+                if (!user) user = await prisma.user.create({ data: { email, role: 'USER' } as any })
+                sub = await prisma.subscription.findFirst({
+                  where: { userId: user.id, animalId, provider: 'STRIPE' },
+                  select: { id: true },
+                })
+                if (!sub) {
+                  const amountCZK = inv.amount_paid != null ? Math.round(Number(inv.amount_paid) / 100) : 100
+                  const paidAt =
+                    (inv as any).status_transitions?.paid_at != null
+                      ? new Date(Number((inv as any).status_transitions.paid_at) * 1000)
+                      : new Date()
+                  sub = await prisma.subscription.create({
+                    data: {
+                      userId: user.id,
+                      animalId,
+                      monthlyAmount: amountCZK,
+                      currency: 'CZK',
+                      provider: 'STRIPE',
+                      providerRef: stripeSubId,
+                      status: 'ACTIVE',
+                      startedAt: paidAt,
+                    } as any,
+                    select: { id: true },
+                  })
+                  subsCreated++
+                }
+              }
+            } catch (e) {
+              /* skip */
+            }
+          }
+          if (sub) {
+            stripeSubToOurSub.set(stripeSubId, sub.id)
+            ourSubId = sub.id
+          }
         }
 
         const subId = ourSubId
@@ -196,6 +245,7 @@ router.post('/stripe-sync-payments', async (_req: Request, res: Response) => {
       created,
       skipped,
       subscriptionsChecked: subs.length,
+      ...(subsCreated > 0 ? { subscriptionsCreated: subsCreated } : {}),
       invoicesFetched,
       errors: errors.length ? errors : undefined,
     })
