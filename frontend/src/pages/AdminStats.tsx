@@ -398,8 +398,8 @@ export default function AdminStats({ embedded = false }: Props) {
                 {fioImportResult.skippedNoVS > 0 && (
                   <> · Bez VS: {fioImportResult.skippedNoVS}</>
                 )}
-                {typeof fioImportResult.fioSubsWithVS === 'number' && (
-                  <> · FIO předplatných s VS v DB: {fioImportResult.fioSubsWithVS}</>
+                {typeof fioImportResult.subsWithVS === 'number' && (
+                  <> · Předplatných s VS v DB: {fioImportResult.subsWithVS}</>
                 )}
                 {Array.isArray(fioImportResult.sampleNoMatchVS) &&
                   fioImportResult.sampleNoMatchVS.length > 0 && (

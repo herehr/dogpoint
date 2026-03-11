@@ -15,17 +15,23 @@ export type FioImportResult = {
   skippedNoVS: number
   skippedNoMatch: number
   skippedDuplicate: number
-  /** Count of FIO subscriptions with VS in DB (for debugging) */
-  fioSubsWithVS?: number
+  /** Count of subscriptions with VS in DB (for debugging) */
+  subsWithVS?: number
   /** Sample VS that had no match (595* = adoption format) – for debugging */
   sampleNoMatchVS?: string[]
 }
 
-/** Normalize VS for matching: remove spaces, strip leading zeros */
+/** Normalize VS for matching: remove spaces, strip leading zeros, digits only for 595* */
 function normalizeVS(s: string | null | undefined): string {
   const t = (s ?? '').replace(/\s/g, '').trim()
   const n = t.replace(/^0+/, '')
   return n || '0'
+}
+
+/** Also return digits-only form for 595* (e.g. "595 710 3504" -> "5957103504") */
+function normalizeVSStrict(s: string | null | undefined): string {
+  const t = (s ?? '').replace(/\D/g, '').replace(/^0+/, '')
+  return t || '0'
 }
 
 export async function importFioTransactions(params: { fromISO: string; toISO: string }): Promise<FioImportResult> {
@@ -41,10 +47,11 @@ export async function importFioTransactions(params: { fromISO: string; toISO: st
   // Only INCOMING (positive amount) – adoptions are money received
   const incomingList = normalizedList.filter((tx) => tx.amountCzk > 0)
 
-  // Build map: normalized VS -> subscription (for flexible matching)
+  // Build map: normalized VS -> subscription (match any subscription with this VS)
+  // Include all providers: 595* VS can exist on FIO or STRIPE (e.g. user got bank PDF then paid by card)
   const fioSubs = await prisma.subscription.findMany({
-    where: { provider: PaymentProvider.FIO, variableSymbol: { not: null } },
-    select: { id: true, status: true, variableSymbol: true },
+    where: { variableSymbol: { not: null } },
+    select: { id: true, status: true, variableSymbol: true, provider: true },
   })
   const vsToSub = new Map<string, (typeof fioSubs)[0]>()
   for (const s of fioSubs) {
@@ -52,6 +59,7 @@ export async function importFioTransactions(params: { fromISO: string; toISO: st
     if (vs) {
       vsToSub.set(vs, s)
       vsToSub.set(normalizeVS(vs), s)
+      vsToSub.set(normalizeVSStrict(vs), s)
     }
   }
 
@@ -69,7 +77,7 @@ export async function importFioTransactions(params: { fromISO: string; toISO: st
       continue
     }
 
-    const sub = vsToSub.get(vs)
+    const sub = vsToSub.get(vs) ?? vsToSub.get(normalizeVSStrict(tx.variableSymbol))
     if (!sub) {
       skippedNoMatch++
       if (vs.startsWith('595') && noMatchVSamples.length < 5) {
@@ -150,7 +158,7 @@ export async function importFioTransactions(params: { fromISO: string; toISO: st
     skippedNoVS,
     skippedNoMatch,
     skippedDuplicate,
-    fioSubsWithVS: fioSubs.length,
+    subsWithVS: fioSubs.length,
     sampleNoMatchVS: noMatchVSamples.length ? noMatchVSamples : undefined,
   }
 }
