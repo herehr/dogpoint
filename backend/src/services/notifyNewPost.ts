@@ -48,7 +48,7 @@ export async function notifyUsersAboutNewPost(postId: string, opts: NotifyOption
     return { ok: false, reason: 'NO_ANIMAL' as const }
   }
 
-  // Find ACTIVE subscriptions for this animal
+  // Find ACTIVE subscriptions for this animal (subscribers + gift recipients)
   const subs = await prisma.subscription.findMany({
     where: {
       animalId,
@@ -56,12 +56,36 @@ export async function notifyUsersAboutNewPost(postId: string, opts: NotifyOption
     },
     include: {
       user: { select: { id: true, email: true } },
+      giftRecipients: {
+        include: {
+          user: { select: { id: true, email: true } },
+        },
+      },
     },
   })
 
-  const recipients = subs
-    .map((s) => s.user)
-    .filter((u): u is { id: string; email: string } => Boolean(u?.id && u?.email))
+  const recipientSet = new Map<string, { id: string; email: string }>()
+
+  for (const s of subs) {
+    if (s.user?.id && s.user?.email) {
+      recipientSet.set(s.user.id, { id: s.user.id, email: s.user.email })
+    }
+    for (const gr of s.giftRecipients || []) {
+      if (gr.user?.id && gr.user?.email) {
+        recipientSet.set(gr.user.id, { id: gr.user.id, email: gr.user.email })
+      } else if (gr.email) {
+        const u = await prisma.user.findUnique({
+          where: { email: gr.email },
+          select: { id: true, email: true },
+        })
+        if (u?.id && u?.email) {
+          recipientSet.set(u.id, { id: u.id, email: u.email })
+        }
+      }
+    }
+  }
+
+  const recipients = Array.from(recipientSet.values())
 
   if (recipients.length === 0) {
     return { ok: true, notified: 0, emailed: 0 }

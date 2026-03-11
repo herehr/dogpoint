@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Obdarovaní – Implementační plán</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      line-height: 1.6;
+      color: #1f2937;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 48px 40px;
+      background: #fff;
+    }
+
+    @media print {
+      body { padding: 24px; }
+      .no-print { display: none !important; }
+      a { color: #1f2937; text-decoration: none; }
+    }
+
+    h1 {
+      font-size: 1.75rem;
+      font-weight: 700;
+      color: #111827;
+      margin: 0 0 8px 0;
+      letter-spacing: -0.02em;
+    }
+
+    .subtitle {
+      font-size: 0.9rem;
+      color: #6b7280;
+      margin-bottom: 32px;
+    }
+
+    h2 {
+      font-size: 1.15rem;
+      font-weight: 600;
+      color: #111827;
+      margin: 28px 0 12px 0;
+      padding-bottom: 6px;
+      border-bottom: 2px solid #e5e7eb;
+    }
+
+    h3 {
+      font-size: 1rem;
+      font-weight: 600;
+      color: #374151;
+      margin: 20px 0 8px 0;
+    }
+
+    p {
+      margin: 0 0 12px 0;
+      color: #4b5563;
+    }
+
+    ul {
+      margin: 0 0 16px 0;
+      padding-left: 24px;
+      color: #4b5563;
+    }
+
+    li {
+      margin-bottom: 6px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 16px 0;
+      font-size: 0.9rem;
+    }
+
+    th, td {
+      padding: 10px 14px;
+      text-align: left;
+      border-bottom: 1px solid #e5e7eb;
+    }
+
+    th {
+      background: #f9fafb;
+      font-weight: 600;
+      color: #374151;
+    }
+
+    td { color: #4b5563; }
+
+    .phase { font-weight: 600; color: #374151; }
+
+    .hours {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .total-row {
+      font-weight: 600;
+      background: #f0fdf4;
+      color: #166534;
+    }
+
+    .total-row td { color: #166534; }
+
+    .note {
+      background: #fefce8;
+      border-left: 4px solid #eab308;
+      padding: 12px 16px;
+      margin: 16px 0;
+      font-size: 0.9rem;
+      color: #713f12;
+    }
+
+    .summary-box {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 20px;
+      margin: 20px 0;
+    }
+
+    .summary-box p:last-child { margin-bottom: 0; }
+
+    .no-print {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: #2563eb;
+      color: white;
+      padding: 12px 20px;
+      border-radius: 8px;
+      font-weight: 500;
+      box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+      cursor: pointer;
+      border: none;
+      font-size: 0.9rem;
+    }
+
+    .no-print:hover { background: #1d4ed8; }
+  </style>
+</head>
+<body>
+  <h1>Obdarovaní – Implementační plán</h1>
+  <p class="subtitle">Funkce darování adopce · DogPoint Adopce</p>
+
+  <h2>Přehled</h2>
+  <p>Umožnit patronům přidat k adopci jednoho nebo více „obdarovaných“ (příjemců daru). Obdarovaný vidí všechny příspěvky adoptovaného zvířete, ale nic dalšího – žádné platby, předplatné ani jiné funkce.</p>
+
+  <h2>Současná architektura</h2>
+  <ul>
+    <li><strong>Přístup:</strong> <code>GET /api/adoption/me</code> vrací <code>access: { [animalId]: true }</code> pro zvířata, k nimž má uživatel aktivní předplatné.</li>
+    <li><strong>Příspěvky:</strong> Načítají se z <code>/api/posts/public</code>; rozhraní je zobrazí jen tehdy, když <code>hasAccess(animalId)</code> je true.</li>
+    <li><strong>Notifikace:</strong> <code>notifyUsersAboutNewPost</code> notifikuje uživatele s aktivním předplatným pro dané zvíře.</li>
+  </ul>
+
+  <h2>Co je potřeba udělat</h2>
+
+  <h3>1. Databáze</h3>
+  <ul>
+    <li>Nový model: <code>SubscriptionGiftRecipient</code> (nebo <code>GiftRecipient</code>):
+      <ul>
+        <li><code>subscriptionId</code> → předplatné</li>
+        <li><code>email</code> (povinné, pro pozvánku)</li>
+        <li><code>userId</code> (volitelné, nastaví se při registraci)</li>
+        <li><code>displayName</code> (volitelné)</li>
+        <li><code>createdAt</code></li>
+      </ul>
+    </li>
+    <li>Migrace pro přidání tabulky a indexů.</li>
+  </ul>
+
+  <h3>2. Backend</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Úkol</th>
+        <th>Popis</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Rozšířit getMe</strong></td>
+        <td>Do <code>access</code> zahrnout všechna <code>animalId</code>, kde je uživatel obdarovaným u aktivního předplatného (shoda podle <code>userId</code> nebo <code>email</code>).</td>
+      </tr>
+      <tr>
+        <td><strong>Rozšířit notifyNewPost</strong></td>
+        <td>Zahrnout obdarované do seznamu notifikací (v aplikaci + e-mail).</td>
+      </tr>
+      <tr>
+        <td><strong>API pro obdarované</strong></td>
+        <td>CRUD operace pro obdarované u předplatného: seznam, přidat (e-mail), odebrat. Pouze majitel předplatného může spravovat.</td>
+      </tr>
+      <tr>
+        <td><strong>Propojení při registraci</strong></td>
+        <td>Při registraci uživatele s pozvaným e-mailem propojit <code>userId</code> v <code>SubscriptionGiftRecipient</code>.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>3. Frontend</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Úkol</th>
+        <th>Popis</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Uživatelský dashboard</strong></td>
+        <td>Sekce „Darovat adopci“ / „Obdarovaní“ u každého adoptovaného zvířete: přidat/odebrat obdarované podle e-mailu.</td>
+      </tr>
+      <tr>
+        <td><strong>Přístup</strong></td>
+        <td>Bez změn, pokud backend vrací správnou mapu <code>access</code>.</td>
+      </tr>
+      <tr>
+        <td><strong>Pozvánkový flow</strong></td>
+        <td>E-mail s pozvánkou a odkazem na registraci (nebo magic link).</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>4. Okrajové případy</h3>
+  <ul>
+    <li>Omezení počtu obdarovaných na předplatné (např. 5).</li>
+    <li>Pouze patron může přidávat/odebírat obdarované.</li>
+    <li>Při zrušení předplatného obdarovaní ztratí přístup.</li>
+    <li>Obdarovaný musí mít uživatelský účet (registrace/přihlášení), aby viděl příspěvky.</li>
+  </ul>
+
+  <h2>Odhad hodin</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Fáze</th>
+        <th class="hours">Hodiny</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="phase">Databázové schéma + migrace</td>
+        <td class="hours">0,5 – 1</td>
+      </tr>
+      <tr>
+        <td class="phase">Backend: rozšíření getMe + notifyNewPost</td>
+        <td class="hours">1 – 1,5</td>
+      </tr>
+      <tr>
+        <td class="phase">Backend: CRUD API pro obdarované</td>
+        <td class="hours">1,5 – 2</td>
+      </tr>
+      <tr>
+        <td class="phase">Backend: propojení userId při registraci</td>
+        <td class="hours">0,5 – 1</td>
+      </tr>
+      <tr>
+        <td class="phase">Frontend: UI pro obdarované v dashboardu</td>
+        <td class="hours">2 – 3</td>
+      </tr>
+      <tr>
+        <td class="phase">Šablona pozvánkového e-mailu + odesílání</td>
+        <td class="hours">0,5 – 1</td>
+      </tr>
+      <tr>
+        <td class="phase">Testování, okrajové případy, české texty</td>
+        <td class="hours">1 – 2</td>
+      </tr>
+      <tr class="total-row">
+        <td><strong>Celkem (základní funkce)</strong></td>
+        <td class="hours"><strong>~8 – 11 hodin</strong></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Volitelné rozšíření</h3>
+  <ul>
+    <li>Magic-link pozvánka (bez hesla při první návštěvě): +2–3 h</li>
+    <li>Admin přehled obdarovaných: +1 h</li>
+    <li>Robustnější validace a zpracování chyb: +1 h</li>
+  </ul>
+
+  <h2>Shrnutí</h2>
+  <div class="summary-box">
+    <p><strong>Základ:</strong> Nová tabulka, backend přístup + notifikace + CRUD API, frontend UI, pozvánkový e-mail.</p>
+    <p><strong>Výsledek:</strong> Patron přidává obdarované podle e-mailu; obdarovaní se zaregistrují a vidí pouze příspěvky adoptovaného zvířete.</p>
+    <p><strong>Náročnost:</strong> ~8–11 hodin pro základní funkci.</p>
+  </div>
+
+  <p class="note"><strong>Jak uložit jako PDF:</strong> Použijte funkci Tisk v prohlížeči (Ctrl+P / Cmd+P) a zvolte „Uložit jako PDF“ nebo „Tisk do PDF“ jako cíl.</p>
+
+  <button class="no-print" onclick="window.print()">Uložit jako PDF</button>
+
+  <script>
+    window.onbeforeprint = () => document.querySelector('.no-print')?.classList.add('hidden');
+    window.onafterprint = () => document.querySelector('.no-print')?.classList.remove('hidden');
+  </script>
+</body>
+</html>

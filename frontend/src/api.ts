@@ -296,13 +296,19 @@ export async function listPostsPublic(params?: { animalId?: string; limit?: numb
 export async function createPost(post: {
   animalId: string
   title: string
-  text: string
+  text?: string
+  body?: string
   media?: { key: string; type: 'image' | 'video' }[]
 }) {
+  const payload = {
+    ...post,
+    body: post.body ?? post.text,
+  }
+  delete (payload as any).text
   const res = await fetch(apiUrl('/api/posts'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeader() },
-    body: JSON.stringify(post),
+    body: JSON.stringify(payload),
   })
   if (!res.ok) {
     throw new Error(`API ${res.status}: ${(await res.text().catch(() => '')) || res.statusText}`)

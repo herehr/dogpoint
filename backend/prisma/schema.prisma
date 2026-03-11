@@ -21,9 +21,10 @@ model User {
   animalsCreated  Animal[]       @relation("AnimalCreatedBy")
   notifications   Notification[]
   postsApproved   Post[]         @relation("PostApprovedBy")
-  posts           Post[]         @relation("AuthorPosts")
-  postsCreated    Post[]         @relation("PostCreatedBy")
-  subscriptions   Subscription[]
+  posts                 Post[]         @relation("AuthorPosts")
+  postsCreated          Post[]         @relation("PostCreatedBy")
+  subscriptions         Subscription[]
+  giftRecipientLinks    SubscriptionGiftRecipient[]
 
   firstName String?
   lastName  String?
@@ -203,9 +204,10 @@ model Subscription {
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 
-  payments Payment[]
-  animal   Animal    @relation(fields: [animalId], references: [id], onDelete: Cascade)
-  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  payments         Payment[]
+  giftRecipients   SubscriptionGiftRecipient[]
+  animal           Animal    @relation(fields: [animalId], references: [id], onDelete: Cascade)
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, animalId])
   @@index([userId])
@@ -214,6 +216,23 @@ model Subscription {
   @@index([pendingSince])
   @@index([tempAccessUntil])
   @@index([graceUntil])
+}
+
+model SubscriptionGiftRecipient {
+  id             String   @id @default(cuid())
+  subscriptionId String
+  email          String
+  userId         String?
+  displayName    String?
+  createdAt      DateTime @default(now())
+
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  user         User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([subscriptionId, email])
+  @@index([subscriptionId])
+  @@index([userId])
+  @@index([email])
 }
 
 model Payment {

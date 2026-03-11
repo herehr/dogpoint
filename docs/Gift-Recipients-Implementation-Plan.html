@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gift Recipients Feature – Implementation Plan</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      line-height: 1.6;
+      color: #1f2937;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 48px 40px;
+      background: #fff;
+    }
+
+    @media print {
+      body { padding: 24px; }
+      .no-print { display: none !important; }
+      a { color: #1f2937; text-decoration: none; }
+    }
+
+    h1 {
+      font-size: 1.75rem;
+      font-weight: 700;
+      color: #111827;
+      margin: 0 0 8px 0;
+      letter-spacing: -0.02em;
+    }
+
+    .subtitle {
+      font-size: 0.9rem;
+      color: #6b7280;
+      margin-bottom: 32px;
+    }
+
+    h2 {
+      font-size: 1.15rem;
+      font-weight: 600;
+      color: #111827;
+      margin: 28px 0 12px 0;
+      padding-bottom: 6px;
+      border-bottom: 2px solid #e5e7eb;
+    }
+
+    h3 {
+      font-size: 1rem;
+      font-weight: 600;
+      color: #374151;
+      margin: 20px 0 8px 0;
+    }
+
+    p {
+      margin: 0 0 12px 0;
+      color: #4b5563;
+    }
+
+    ul {
+      margin: 0 0 16px 0;
+      padding-left: 24px;
+      color: #4b5563;
+    }
+
+    li {
+      margin-bottom: 6px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 16px 0;
+      font-size: 0.9rem;
+    }
+
+    th, td {
+      padding: 10px 14px;
+      text-align: left;
+      border-bottom: 1px solid #e5e7eb;
+    }
+
+    th {
+      background: #f9fafb;
+      font-weight: 600;
+      color: #374151;
+    }
+
+    td { color: #4b5563; }
+
+    .phase { font-weight: 600; color: #374151; }
+
+    .hours {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .total-row {
+      font-weight: 600;
+      background: #f0fdf4;
+      color: #166534;
+    }
+
+    .total-row td { color: #166534; }
+
+    .note {
+      background: #fefce8;
+      border-left: 4px solid #eab308;
+      padding: 12px 16px;
+      margin: 16px 0;
+      font-size: 0.9rem;
+      color: #713f12;
+    }
+
+    .summary-box {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 20px;
+      margin: 20px 0;
+    }
+
+    .summary-box p:last-child { margin-bottom: 0; }
+
+    .no-print {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: #2563eb;
+      color: white;
+      padding: 12px 20px;
+      border-radius: 8px;
+      font-weight: 500;
+      box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+      cursor: pointer;
+      border: none;
+      font-size: 0.9rem;
+    }
+
+    .no-print:hover { background: #1d4ed8; }
+  </style>
+</head>
+<body>
+  <h1>Gift Recipients Feature</h1>
+  <p class="subtitle">Implementation Plan · DogPoint Adopce</p>
+
+  <h2>Overview</h2>
+  <p>Allow subscribers to attach one or more &ldquo;non-donors&rdquo; (gift recipients) to their adoption. The gift recipient can see all posts of the adopted animal, but nothing else (no payments, subscriptions, etc.).</p>
+
+  <h2>Current Architecture</h2>
+  <ul>
+    <li><strong>Access:</strong> <code>GET /api/adoption/me</code> returns <code>access: { [animalId]: true }</code> for animals where the user has an ACTIVE subscription.</li>
+    <li><strong>Posts:</strong> Loaded from <code>/api/posts/public</code>; the UI only displays them when <code>hasAccess(animalId)</code> is true.</li>
+    <li><strong>Notifications:</strong> <code>notifyUsersAboutNewPost</code> notifies users with ACTIVE subscriptions for that animal.</li>
+  </ul>
+
+  <h2>What Needs to Be Done</h2>
+
+  <h3>1. Database</h3>
+  <ul>
+    <li>New model: <code>SubscriptionGiftRecipient</code> (or <code>GiftRecipient</code>):
+      <ul>
+        <li><code>subscriptionId</code> → Subscription</li>
+        <li><code>email</code> (required, for invite)</li>
+        <li><code>userId</code> (optional, set when they register)</li>
+        <li><code>displayName</code> (optional)</li>
+        <li><code>createdAt</code></li>
+      </ul>
+    </li>
+    <li>Migration to add the table and indexes.</li>
+  </ul>
+
+  <h3>2. Backend</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Task</th>
+        <th>Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Extend getMe</strong></td>
+        <td>Include in <code>access</code> all <code>animalId</code>s where the user is a gift recipient of an ACTIVE subscription (match by <code>userId</code> or <code>email</code>).</td>
+      </tr>
+      <tr>
+        <td><strong>Extend notifyNewPost</strong></td>
+        <td>Include gift recipients in the notification list (in-app + email).</td>
+      </tr>
+      <tr>
+        <td><strong>Gift recipient API</strong></td>
+        <td>CRUD for gift recipients per subscription: list, add (email), remove. Only the subscription owner can manage them.</td>
+      </tr>
+      <tr>
+        <td><strong>Link on registration</strong></td>
+        <td>When a user registers with an invited email, link <code>userId</code> in <code>SubscriptionGiftRecipient</code>.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>3. Frontend</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Task</th>
+        <th>Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>User dashboard</strong></td>
+        <td>Section &ldquo;Darovat adopci&rdquo; / &ldquo;Obdarovaní&rdquo; per adopted animal: add/remove gift recipients by email.</td>
+      </tr>
+      <tr>
+        <td><strong>Access</strong></td>
+        <td>No change needed if backend returns the correct <code>access</code> map.</td>
+      </tr>
+      <tr>
+        <td><strong>Invite flow</strong></td>
+        <td>Invite email with link to register (or magic link).</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>4. Edge Cases</h3>
+  <ul>
+    <li>Limit gift recipients per subscription (e.g. 5).</li>
+    <li>Only the subscriber can add/remove recipients.</li>
+    <li>If the subscription is canceled, gift recipients lose access.</li>
+    <li>Gift recipient must have a User account (register/login) to see posts.</li>
+  </ul>
+
+  <h2>Hours Estimate</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Phase</th>
+        <th class="hours">Hours</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="phase">Database schema + migration</td>
+        <td class="hours">0.5 – 1</td>
+      </tr>
+      <tr>
+        <td class="phase">Backend: extend getMe + notifyNewPost</td>
+        <td class="hours">1 – 1.5</td>
+      </tr>
+      <tr>
+        <td class="phase">Backend: gift recipient CRUD API</td>
+        <td class="hours">1.5 – 2</td>
+      </tr>
+      <tr>
+        <td class="phase">Backend: link userId on registration</td>
+        <td class="hours">0.5 – 1</td>
+      </tr>
+      <tr>
+        <td class="phase">Frontend: gift recipients UI in user dashboard</td>
+        <td class="hours">2 – 3</td>
+      </tr>
+      <tr>
+        <td class="phase">Invite email template + sending</td>
+        <td class="hours">0.5 – 1</td>
+      </tr>
+      <tr>
+        <td class="phase">Testing, edge cases, Czech copy</td>
+        <td class="hours">1 – 2</td>
+      </tr>
+      <tr class="total-row">
+        <td><strong>Total (core feature)</strong></td>
+        <td class="hours"><strong>~8 – 11 hours</strong></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Optional Extras</h3>
+  <ul>
+    <li>Magic-link invite (no password for first visit): +2–3 h</li>
+    <li>Admin view of gift recipients: +1 h</li>
+    <li>More robust validation and error handling: +1 h</li>
+  </ul>
+
+  <h2>Summary</h2>
+  <div class="summary-box">
+    <p><strong>Core:</strong> New table, backend access + notifications + CRUD API, frontend UI, invite email.</p>
+    <p><strong>Result:</strong> Subscriber adds gift recipients by email; recipients register and see posts for the adopted animal only.</p>
+    <p><strong>Effort:</strong> ~8–11 hours for the core feature.</p>
+  </div>
+
+  <p class="note"><strong>How to save as PDF:</strong> Use your browser&rsquo;s Print function (Ctrl+P / Cmd+P) and choose &ldquo;Save as PDF&rdquo; or &ldquo;Print to PDF&rdquo; as the destination.</p>
+
+  <button class="no-print" onclick="window.print()">Save as PDF</button>
+
+  <script>
+    // Auto-hide print button when printing
+    window.onbeforeprint = () => document.querySelector('.no-print')?.classList.add('hidden');
+    window.onafterprint = () => document.querySelector('.no-print')?.classList.remove('hidden');
+  </script>
+</body>
+</html>

@@ -346,12 +346,20 @@ router.post('/bank/start', async (req: Request, res: Response) => {
  * GET /api/adoption/my
  * Returns adoptions for logged-in user.
  * Includes ACTIVE and PENDING (so BANK pending shows too).
+ * Also includes animals where user is a gift recipient (obdarovaný).
  */
 router.get('/my', checkAuth, async (req: Request, res: Response) => {
   try {
     const userId = getUserId(req)
     if (!userId) return res.status(401).json({ error: 'Not authenticated' })
 
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { email: true },
+    })
+    const userEmail = user?.email?.toLowerCase().trim() || ''
+
+    // 1) Own subscriptions (ACTIVE + PENDING)
     const subs = await prisma.subscription.findMany({
       where: {
         userId,
@@ -371,8 +379,41 @@ router.get('/my', checkAuth, async (req: Request, res: Response) => {
       title: sub.animal?.jmeno || sub.animal?.name || 'Zvíře',
       main: sub.animal?.main || undefined,
       since: sub.startedAt,
-      status: sub.status, // ACTIVE | PENDING
+      status: sub.status,
+      isGiftRecipient: false,
     }))
+
+    // 2) Gift recipient: animals where user is obdarovaný (by userId or email)
+    const giftLinks = await prisma.subscriptionGiftRecipient.findMany({
+      where: userEmail
+        ? { OR: [{ userId }, { email: userEmail }] }
+        : { userId },
+      include: {
+        subscription: {
+          include: {
+            animal: {
+              select: { id: true, jmeno: true, name: true, main: true },
+            },
+          },
+        },
+      },
+    })
+
+    for (const link of giftLinks) {
+      const sub = link.subscription
+      if (!sub || sub.status !== SubscriptionStatus.ACTIVE || !sub.animal) continue
+      const animalId = sub.animalId
+      if (items.some((i) => i.animalId === animalId)) continue // already have it (own sub)
+      items.push({
+        subscriptionId: sub.id,
+        animalId,
+        title: sub.animal?.jmeno || sub.animal?.name || 'Zvíře',
+        main: sub.animal?.main || undefined,
+        since: sub.startedAt,
+        status: 'ACTIVE' as const,
+        isGiftRecipient: true,
+      })
+    }
 
     return res.json(items)
   } catch (e: any) {

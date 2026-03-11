@@ -570,6 +570,38 @@ export async function cancelAdoption(animalId: string): Promise<{ ok: true }> {
   return postJSON<{ ok: true }>('/api/adoption/cancel', { animalId })
 }
 
+/* ──────────────────────────────────────────────────────────
+   Gift recipients (obdarovaní)
+─────────────────────────────────────────────────────────── */
+
+export type GiftRecipient = {
+  id: string
+  email: string
+  displayName?: string | null
+  userId?: string | null
+  createdAt: string
+}
+
+export async function listGiftRecipients(subscriptionId: string): Promise<GiftRecipient[]> {
+  return getJSON<GiftRecipient[]>(`/api/subscriptions/${subscriptionId}/gift-recipients`)
+}
+
+export async function addGiftRecipient(
+  subscriptionId: string,
+  data: { email: string; displayName?: string }
+): Promise<GiftRecipient> {
+  return postJSON<GiftRecipient>(`/api/subscriptions/${subscriptionId}/gift-recipients`, data)
+}
+
+export async function removeGiftRecipient(
+  subscriptionId: string,
+  recipientId: string
+): Promise<{ ok: boolean }> {
+  return delJSON<{ ok: boolean }>(
+    `/api/subscriptions/${subscriptionId}/gift-recipients/${recipientId}`
+  )
+}
+
 export type AdoptionMeResponse = {
   ok: boolean
   user?: { id: string; email: string; role?: string }

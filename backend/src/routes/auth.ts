@@ -35,10 +35,20 @@ const APP_BASE_URL = process.env.APP_BASE_URL || 'https://patron.dog-point.cz'
    ========================================================= */
 
 function safeLinkPledges(userId: string, email: string, label: string) {
-  // Never block login/register due to backfill/linking. Log and continue.
   linkPaidOrRecentPledgesToUser(userId, email).catch((e: any) => {
     console.error(`[auth/${label}] linkPaidOrRecentPledgesToUser failed:`, e?.message || e)
   })
+}
+
+function safeLinkGiftRecipients(userId: string, email: string, label: string) {
+  prisma.subscriptionGiftRecipient
+    .updateMany({
+      where: { email: email.toLowerCase().trim(), userId: null },
+      data: { userId },
+    })
+    .catch((e: any) => {
+      console.error(`[auth/${label}] linkGiftRecipients failed:`, e?.message || e)
+    })
 }
 
 /* =========================================================
@@ -112,8 +122,8 @@ router.post('/login', async (req: Request, res: Response) => {
     const ok = await bcrypt.compare(password, user.passwordHash)
     if (!ok) return res.status(401).json({ error: 'Invalid credentials' })
 
-    // ✅ do not block auth if this fails
     safeLinkPledges(user.id, user.email, 'login')
+    safeLinkGiftRecipients(user.id, user.email, 'login')
 
     const token = signToken({ id: user.id, role: user.role, email: user.email })
     res.json({ token, role: user.role })
@@ -148,8 +158,8 @@ router.post('/set-password-first-time', async (req: Request, res: Response) => {
       data: { passwordHash },
     })
 
-    // ✅ do not block auth if this fails
     safeLinkPledges(updated.id, updated.email, 'set-password-first-time')
+    safeLinkGiftRecipients(updated.id, updated.email, 'set-password-first-time')
 
     const token = signToken({ id: updated.id, role: updated.role, email: updated.email })
     res.json({ ok: true, token, role: updated.role })
@@ -183,8 +193,8 @@ router.post('/register-after-payment', async (req: Request, res: Response) => {
       user = await prisma.user.update({ where: { id: user.id }, data: { passwordHash } })
     }
 
-    // ✅ do not block auth if this fails
     safeLinkPledges(user.id, user.email, 'register-after-payment')
+    safeLinkGiftRecipients(user.id, user.email, 'register-after-payment')
 
     const token = signToken({ id: user.id, role: user.role, email: user.email })
     res.json({ ok: true, token, role: user.role })
@@ -215,8 +225,8 @@ router.post('/claim-paid', async (req: Request, res: Response) => {
     let user = await prisma.user.findUnique({ where: { email } })
     if (!user) user = await prisma.user.create({ data: { email, role: Role.USER } })
 
-    // ✅ do not block auth if this fails
     safeLinkPledges(user.id, user.email, 'claim-paid')
+    safeLinkGiftRecipients(user.id, user.email, 'claim-paid')
 
     const token = signToken({ id: user.id, role: user.role, email: user.email })
     res.json({ ok: true, token, role: user.role })

@@ -287,7 +287,9 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
       return
     }
 
-    const { animalId, title, body, active } = (req.body || {}) as any
+    const raw = (req.body || {}) as any
+    const body = raw.body ?? raw.text
+    const { animalId, title, active } = raw
     const media = normalizeMedia(req.body)
 
     if (!animalId) return void res.status(400).json({ error: 'animalId required' })
