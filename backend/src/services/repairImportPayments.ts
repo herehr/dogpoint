@@ -214,6 +214,20 @@ export async function runStripeSync(): Promise<{ created: number }> {
               const sessions = await stripe.checkout.sessions.list({ subscription: stripeSubId, limit: 1 })
               animalId = (sessions.data[0]?.metadata as Record<string, string> | null)?.animalId
             }
+            if (!animalId) {
+              animalId = (inv.metadata as Record<string, string> | null)?.animalId
+            }
+            if (!animalId) {
+              const subInvoices = await stripe.invoices.list({
+                subscription: stripeSubId,
+                status: 'paid',
+                limit: 100,
+              })
+              const oldest = subInvoices.data.sort(
+                (a, b) => (a.created || 0) - (b.created || 0)
+              )[0]
+              animalId = oldest ? ((oldest.metadata as Record<string, string> | null)?.animalId || undefined) : undefined
+            }
             if (email && animalId) {
               const animal = await prisma.animal.findUnique({ where: { id: animalId }, select: { id: true } })
               if (!animal) continue
