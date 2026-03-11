@@ -1,7 +1,8 @@
 // backend/src/routes/adminStats.ts
 import { Router, Request, Response, NextFunction } from 'express'
 import { prisma } from '../prisma'
-import { requireAuth } from '../middleware/authJwt'
+import { requireAuth, requireAdmin } from '../middleware/authJwt'
+import { runRepairImport } from '../services/repairImportPayments'
 import {
   Role,
   PaymentStatus as PS,
@@ -76,6 +77,21 @@ function providerToMethod(provider: string | null | undefined): string {
 
 // ALL endpoints below require auth + role
 router.use(requireAuth, requireAdminOrModerator)
+
+// ───────────────────────────────────────────────────────────────
+// REPAIR IMPORT (Admin only, one-time)
+// POST /api/admin/stats/repair-import-payments
+// Backup + FIO + Stripe import from 2025-12-01 to today
+// ───────────────────────────────────────────────────────────────
+router.post('/repair-import-payments', requireAdmin, async (_req: Request, res: Response) => {
+  try {
+    const result = await runRepairImport()
+    return res.json(result)
+  } catch (e: any) {
+    console.error('[repair-import-payments]', e)
+    return res.status(500).json({ error: e?.message || 'Repair import failed' })
+  }
+})
 
 // ───────────────────────────────────────────────────────────────
 // 0) KPI OVERVIEW

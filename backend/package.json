@@ -18,6 +18,7 @@
     "migrate:dev": "prisma migrate dev --schema=./prisma/schema.prisma",
     "db:push": "prisma db push --schema=./prisma/schema.prisma",
     "db:seed": "prisma db seed --schema=./prisma/schema.prisma",
+    "repair:import-payments": "ts-node scripts/repair-import-payments.ts",
     "prisma:generate": "prisma generate --schema=./prisma/schema.prisma",
     "start:prod": "node dist/index.js"
   },

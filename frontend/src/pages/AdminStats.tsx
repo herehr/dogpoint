@@ -109,6 +109,10 @@ export default function AdminStats({ embedded = false }: Props) {
   const [stripeSyncErr, setStripeSyncErr] = useState<string | null>(null)
   const [stripeSyncLoading, setStripeSyncLoading] = useState(false)
 
+  const [repairResult, setRepairResult] = useState<any>(null)
+  const [repairErr, setRepairErr] = useState<string | null>(null)
+  const [repairLoading, setRepairLoading] = useState(false)
+
   const params = useMemo(() => {
     const p: Record<string, string> = {}
     if (tab !== 'animals') {
@@ -230,6 +234,46 @@ export default function AdminStats({ embedded = false }: Props) {
     } finally {
       setFioImportLoading(false)
     }
+  }
+
+  async function runRepairImport() {
+    setRepairErr(null)
+    setRepairResult(null)
+    setRepairLoading(true)
+    try {
+      const t = token ?? getToken() ?? getAdminToken()
+      if (!t?.trim()) throw new Error('Nejste přihlášen jako admin.')
+      const res = await fetch(apiUrl('/api/admin/stats/repair-import-payments'), {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
+        credentials: 'include',
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error((data as any)?.error || data?.detail || `HTTP ${res.status}`)
+      setRepairResult(data)
+      loadAdoptionOverview()
+      loadStatsOverview()
+      if (tab === 'payments') load()
+    } catch (e: any) {
+      setRepairErr(e?.message || 'Repair import selhal')
+    } finally {
+      setRepairLoading(false)
+    }
+  }
+
+  function downloadRepairBackup() {
+    if (!repairResult?.backup) return
+    const blob = new Blob([JSON.stringify(repairResult.backup, null, 2)], {
+      type: 'application/json',
+    })
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `payments-backup-${repairResult.toDate || new Date().toISOString().slice(0, 10)}.json`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    window.URL.revokeObjectURL(url)
   }
 
   async function runStripeSync() {
@@ -443,6 +487,37 @@ export default function AdminStats({ embedded = false }: Props) {
               disabled={stripeSyncLoading}
             >
               {stripeSyncLoading ? 'Načítám…' : 'Stripe sync – stáhnout platby'}
+            </Button>
+
+            <Typography variant="subtitle2" sx={{ fontWeight: 800, mt: 2, mb: 1 }}>
+              Jednorázový repair import (1.12.2025 – dnes)
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+              Záloha plateb + FIO import + Stripe sync. Bez duplicit. Pouze ADMIN.
+            </Typography>
+            {repairErr && (
+              <Alert severity="error" sx={{ mb: 1 }}>
+                {repairErr}
+              </Alert>
+            )}
+            {repairResult && (
+              <Typography variant="body2" sx={{ mb: 1 }}>
+                <strong>Záloha:</strong> {repairResult.backupCount} plateb
+                {repairResult.fioCreated > 0 && <> · FIO vytvořeno: {repairResult.fioCreated}</>}
+                {repairResult.stripeCreated > 0 && <> · Stripe vytvořeno: {repairResult.stripeCreated}</>}
+                {' · '}
+                <Button size="small" variant="text" onClick={downloadRepairBackup}>
+                  Stáhnout zálohu JSON
+                </Button>
+              </Typography>
+            )}
+            <Button
+              variant="outlined"
+              color="secondary"
+              onClick={runRepairImport}
+              disabled={repairLoading}
+            >
+              {repairLoading ? 'Načítám…' : 'Repair import – záloha + FIO + Stripe'}
             </Button>
 
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>

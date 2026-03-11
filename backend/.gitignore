@@ -37,6 +37,7 @@ backend/prisma/migrations/test/
 *.dump
 *.sql
 backup_*.dump
+backups/
 
 # Frontend (Vite/React)
 frontend/node_modules/
