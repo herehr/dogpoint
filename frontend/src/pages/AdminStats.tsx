@@ -484,6 +484,12 @@ export default function AdminStats({ embedded = false }: Props) {
                 {typeof stripeSyncResult.skipped === 'number' && (
                   <> · Přeskočeno (již existuje): {stripeSyncResult.skipped}</>
                 )}
+                {typeof stripeSyncResult.skippedNoSub === 'number' && stripeSyncResult.skippedNoSub > 0 && (
+                  <> · Bez shody předplatného: {stripeSyncResult.skippedNoSub}</>
+                )}
+                {typeof stripeSyncResult.invoicesFetched === 'number' && (
+                  <> · Faktur ze Stripe: {stripeSyncResult.invoicesFetched}</>
+                )}
               </Typography>
             )}
             <Button

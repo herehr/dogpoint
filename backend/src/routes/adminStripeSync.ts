@@ -38,6 +38,7 @@ router.post('/stripe-sync-payments', async (_req: Request, res: Response) => {
 
     let created = 0
     let skipped = 0
+    let skippedNoSub = 0
     let subsCreated = 0
     const errors: string[] = []
 
@@ -198,7 +199,10 @@ router.post('/stripe-sync-payments', async (_req: Request, res: Response) => {
         }
 
         const subId = ourSubId
-        if (!subId) continue
+        if (!subId) {
+          skippedNoSub++
+          continue
+        }
 
         const providerRef = inv.id
         const existing = await prisma.payment.findFirst({
@@ -246,6 +250,7 @@ router.post('/stripe-sync-payments', async (_req: Request, res: Response) => {
       ok: true,
       created,
       skipped,
+      ...(skippedNoSub > 0 ? { skippedNoSub } : {}),
       subscriptionsChecked: subs.length,
       ...(subsCreated > 0 ? { subscriptionsCreated: subsCreated } : {}),
       invoicesFetched,
