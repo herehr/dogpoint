@@ -1,14 +1,17 @@
 /**
- * One-time repair: backup + FIO + Stripe import (2025-12-01 to today).
+ * One-time repair: backup + FIO + Stripe import.
  * Used by API route and CLI script.
+ *
+ * FIO: Data older than 90 days requires strong auth in internet banking.
+ * We limit to last 90 days to avoid 422; for older data, authorize in FIO and run again.
  */
 import Stripe from 'stripe'
 import { prisma } from '../prisma'
 import { PaymentStatus } from '@prisma/client'
 import { importFioTransactions } from './fioImport'
 
-const FROM_DATE = '2025-12-01'
 const FIO_CHUNK_DAYS = 90
+const FIO_MAX_DAYS_WITHOUT_AUTH = 80
 
 function todayISO(): string {
   return new Date().toISOString().slice(0, 10)
@@ -18,6 +21,12 @@ function addDays(d: Date, days: number): Date {
   const out = new Date(d)
   out.setDate(out.getDate() + days)
   return out
+}
+
+function fioFromDate(): Date {
+  const to = new Date()
+  const from = addDays(to, -FIO_MAX_DAYS_WITHOUT_AUTH)
+  return from
 }
 
 export async function backupPayments(): Promise<object[]> {
@@ -69,7 +78,7 @@ export async function runFioImport(): Promise<{ created: number }> {
   if (!token) return { created: 0 }
 
   let totalCreated = 0
-  let from = new Date(FROM_DATE)
+  let from = fioFromDate()
   const to = new Date()
 
   while (from <= to) {
@@ -196,7 +205,7 @@ export async function runRepairImport(): Promise<RepairImportResult> {
     backup,
     fioCreated: fioResult.created,
     stripeCreated: stripeResult.created,
-    fromDate: FROM_DATE,
+    fromDate: fioFromDate().toISOString().slice(0, 10),
     toDate: todayISO(),
   }
 }
