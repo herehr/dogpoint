@@ -479,6 +479,8 @@ export type MyAdoptedItem = {
   main?: string
   since?: string
   status?: 'ACTIVE' | 'PENDING' | 'CANCELED'
+  subscriptionId?: string
+  isGiftRecipient?: boolean
 }
 
 function normalizeToMyAdoptedItem(x: any): MyAdoptedItem | null {
@@ -507,6 +509,8 @@ function normalizeToMyAdoptedItem(x: any): MyAdoptedItem | null {
     name: x.name || animal.name,
     main,
     since: since ? String(since) : undefined,
+    subscriptionId: x.subscriptionId ?? x.subscription?.id ?? x.id,
+    isGiftRecipient: x.isGiftRecipient === true,
   }
 }
 
@@ -528,13 +532,16 @@ export async function myAdoptedAnimals(): Promise<MyAdoptedItem[]> {
       return
     }
     const best = rank(it.status) > rank(prev.status) ? it : prev
+    const other = best === it ? prev : it
     byAnimal.set(it.animalId, {
       ...best,
-      title: best.title || (best === it ? prev.title : it.title),
-      main: best.main || (best === it ? prev.main : it.main),
-      since: best.since || (best === it ? prev.since : it.since),
-      jmeno: best.jmeno || (best === it ? prev.jmeno : it.jmeno),
-      name: best.name || (best === it ? prev.name : it.name),
+      title: best.title || other.title,
+      main: best.main || other.main,
+      since: best.since || other.since,
+      jmeno: best.jmeno || other.jmeno,
+      name: best.name || other.name,
+      subscriptionId: best.subscriptionId || other.subscriptionId,
+      isGiftRecipient: best.isGiftRecipient ?? other.isGiftRecipient,
     })
   }
 

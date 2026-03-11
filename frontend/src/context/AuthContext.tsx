@@ -96,7 +96,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setRole(u.role)
       safeSetRole(u.role)
     } catch (e) {
-      console.warn('[AuthContext] me() failed → logout', e)
+      // 401/Unauthorized is expected when token expired or invalid – silent logout
+      const msg = String((e as Error)?.message || '')
+      if (!/unauthorized|401/i.test(msg)) {
+        console.warn('[AuthContext] me() failed → logout', e)
+      }
       logout()
     }
   }
