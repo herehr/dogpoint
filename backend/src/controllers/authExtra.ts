@@ -136,9 +136,12 @@ export async function linkPaidOrRecentPledgesToUser(
       }
 
       // 4) For PAID pledges, create a Payment row (idempotent per providerRef)
+      // Skip for Stripe checkout sessions (cs_*) – invoice.paid webhook already creates Payment
       if (pledgeIsPaid) {
         const providerRef = pledge.providerId ?? `pledge:${pledge.id}`
-
+        if (typeof providerRef === 'string' && providerRef.startsWith('cs_')) {
+          // Stripe checkout – webhook handles Payment creation
+        } else {
         try {
           const existing = await prisma.payment.findFirst({
             where: { subscriptionId: sub.id, providerRef },
@@ -158,6 +161,7 @@ export async function linkPaidOrRecentPledgesToUser(
           }
         } catch (err) {
           console.error('[linkPaidOrRecentPledgesToUser] create payment failed:', err)
+        }
         }
 
         // 5) Mark pledge as PAID and note that it was linked
