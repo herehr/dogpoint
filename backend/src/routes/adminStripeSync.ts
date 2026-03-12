@@ -136,7 +136,11 @@ router.post('/stripe-sync-payments', async (_req: Request, res: Response) => {
       invoicesFetched += list.data.length
 
       for (const inv of list.data) {
-        const rawSub = (inv as any).subscription
+        let rawSub = (inv as any).subscription
+        if (!rawSub) {
+          const parent = (inv as any).parent
+          rawSub = parent?.subscription_details?.subscription
+        }
         const stripeSubId = typeof rawSub === 'string' ? rawSub : rawSub?.id
         if (!stripeSubId || !stripeSubId.startsWith('sub_')) {
           skippedNoSubscription++
