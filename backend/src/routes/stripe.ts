@@ -315,7 +315,11 @@ rawRouter.post('/webhook', express.raw({ type: 'application/json' }), async (req
     // Recurring (and first) Stripe payments: store in Payment table for reporting
     if (event.type === 'invoice.paid') {
       const invoice = event.data.object as Stripe.Invoice
-      const rawSub = (invoice as any).subscription
+      let rawSub = (invoice as any).subscription
+      if (!rawSub) {
+        const parent = (invoice as any).parent
+        rawSub = parent?.subscription_details?.subscription
+      }
       const stripeSubId = typeof rawSub === 'string' ? rawSub : rawSub?.id
       if (!stripeSubId) {
         res.json({ received: true })
