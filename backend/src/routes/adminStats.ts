@@ -246,6 +246,7 @@ router.get('/payments', async (req: Request, res: Response) => {
           currency: true,
           status: true,
           provider: true,
+          providerRef: true,
           createdAt: true,
           paidAt: true,
           subscription: {
@@ -266,6 +267,7 @@ router.get('/payments', async (req: Request, res: Response) => {
           currency: true,
           status: true,
           provider: true,
+          providerId: true,
           createdAt: true,
           pledge: { select: { email: true, animalId: true } },
         },
@@ -280,6 +282,7 @@ router.get('/payments', async (req: Request, res: Response) => {
         currency: p.currency,
         status: p.status,
         provider: String(p.provider ?? ''),
+        providerRef: p.providerRef ?? null,
         method: providerToMethod(p.provider),
         createdAt: p.paidAt ?? p.createdAt,
         userEmail: p.subscription?.user?.email ?? null,
@@ -293,6 +296,7 @@ router.get('/payments', async (req: Request, res: Response) => {
         currency: pp.currency || 'CZK',
         status: pp.status,
         provider: pp.provider ?? 'fio',
+        providerRef: pp.providerId ?? null,
         method: providerToMethod(pp.provider),
         createdAt: pp.createdAt,
         userEmail: pp.pledge?.email ?? null,
@@ -303,7 +307,10 @@ router.get('/payments', async (req: Request, res: Response) => {
 
     const total = rows.reduce((s, r) => s + (String(r.status || '').toUpperCase() === 'PAID' ? (r.amount ?? 0) : 0), 0)
 
-    res.json({ ok: true, count: rows.length, total, rows })
+    // Count only payments where providerRef starts with "in_" (Stripe invoice)
+    const countIn = rows.filter((r) => String((r as any).providerRef ?? '').startsWith('in_')).length
+
+    res.json({ ok: true, count: countIn, total, rows })
   } catch (e: any) {
     console.error('GET /api/admin/stats/payments error', e)
     const msg = e?.message || String(e)
