@@ -43,9 +43,17 @@ router.get('/overview', async (_req: Request, res: Response) => {
     const thisM = monthRangeUTC(now)
     const prevM = prevMonthRangeUTC(now)
 
+    // Stats: only FIO + STRIPE with in_ (invoice id), exclude cs_ (checkout session)
+    const statsPaymentFilter = {
+      OR: [
+        { provider: 'FIO' as const },
+        { provider: 'STRIPE' as const, providerRef: { startsWith: 'in_' } },
+      ],
+    }
+
     // Total sum of all PAID payments (all time)
     const totalAgg = await prisma.payment.aggregate({
-      where: { status: PS.PAID },
+      where: { status: PS.PAID, ...statsPaymentFilter },
       _sum: { amount: true },
       _count: { _all: true },
     })
@@ -57,16 +65,26 @@ router.get('/overview', async (_req: Request, res: Response) => {
     // (If you also want pledge payments included, tell me and I’ll add them safely.)
     const thisMonthWhere = {
       status: PS.PAID,
-      OR: [
-        { paidAt: { gte: thisM.from, lt: thisM.to } },
-        { paidAt: null, createdAt: { gte: thisM.from, lt: thisM.to } },
+      AND: [
+        statsPaymentFilter,
+        {
+          OR: [
+            { paidAt: { gte: thisM.from, lt: thisM.to } },
+            { paidAt: null, createdAt: { gte: thisM.from, lt: thisM.to } },
+          ],
+        },
       ],
     }
     const prevMonthWhere = {
       status: PS.PAID,
-      OR: [
-        { paidAt: { gte: prevM.from, lt: prevM.to } },
-        { paidAt: null, createdAt: { gte: prevM.from, lt: prevM.to } },
+      AND: [
+        statsPaymentFilter,
+        {
+          OR: [
+            { paidAt: { gte: prevM.from, lt: prevM.to } },
+            { paidAt: null, createdAt: { gte: prevM.from, lt: prevM.to } },
+          ],
+        },
       ],
     }
     const [thisMonthAgg, prevMonthAgg] = await Promise.all([

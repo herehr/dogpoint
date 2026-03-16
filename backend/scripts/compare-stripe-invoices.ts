@@ -67,24 +67,44 @@ async function main() {
     return s + (Number.isFinite(amt) ? amt : 0)
   }, 0)
 
-  // Fetch Payment records (STRIPE, PAID) - providerRef = invoice id
-  const payments = await prisma.payment.findMany({
-    where: { provider: 'STRIPE', status: 'PAID' },
-    select: { providerRef: true, amount: true },
+  // Fetch ALL Payment records (STRIPE + FIO)
+  const allPayments = await prisma.payment.findMany({
+    where: { status: 'PAID' },
+    select: { provider: true, providerRef: true, amount: true },
   })
 
-  const dbIds = new Set(payments.map((p) => p.providerRef).filter(Boolean))
-  const totalDbCzk = payments.reduce((s, p) => s + (p.amount || 0), 0)
+  const stripePayments = allPayments.filter((p) => p.provider === 'STRIPE')
+  const fioPayments = allPayments.filter((p) => p.provider === 'FIO')
+  const stripeInvoices = stripePayments.filter((p) => p.providerRef?.startsWith('in_'))
+  const stripeCsSessions = stripePayments.filter((p) => p.providerRef?.startsWith('cs_'))
+
+  const dbIds = new Set(stripeInvoices.map((p) => p.providerRef).filter(Boolean))
+  const totalStripeCzk = stripePayments.reduce((s, p) => s + (p.amount || 0), 0)
+  const totalFioCzk = fioPayments.reduce((s, p) => s + (p.amount || 0), 0)
+  const totalDbCzk = totalStripeCzk + totalFioCzk
+  const csSumCzk = stripeCsSessions.reduce((s, p) => s + (p.amount || 0), 0)
 
   // Missing: in CSV (paid) but not in DB
   const missing = paidInvoices.filter((r) => r.id && !dbIds.has(r.id))
 
-  // Extra: in DB but not in CSV (could be from different export range)
-  const extra = payments.filter((p) => p.providerRef && !paidIds.has(p.providerRef))
+  // Extra Stripe: in DB but not in CSV (cs_ = wrong/duplicate, in_ = maybe different export range)
+  const extraInvoices = stripeInvoices.filter((p) => p.providerRef && !paidIds.has(p.providerRef))
 
-  console.log('=== Stripe invoices vs Payment table ===\n')
-  console.log('CSV (paid):', paidInvoices.length, 'invoices,', totalCsvPaid.toFixed(2), 'CZK')
-  console.log('DB (STRIPE PAID):', payments.length, 'payments,', totalDbCzk, 'CZK')
+  console.log('=== Stripe CSV vs Payment table ===\n')
+  console.log('CSV (paid):', paidInvoices.length, 'invoices,', totalCsvPaid.toFixed(0), 'CZK')
+  console.log('')
+  console.log('DB breakdown:')
+  console.log('  STRIPE (in_ invoices):', stripeInvoices.length, 'payments,', stripeInvoices.reduce((s, p) => s + (p.amount || 0), 0), 'CZK')
+  console.log('  STRIPE (cs_ sessions – WRONG, duplicates):', stripeCsSessions.length, 'payments,', csSumCzk, 'CZK')
+  console.log('  FIO:', fioPayments.length, 'payments,', totalFioCzk, 'CZK')
+  console.log('  TOTAL DB:', allPayments.length, 'payments,', totalDbCzk, 'CZK')
+  console.log('')
+  console.log('Expected Stripe total (from CSV):', totalCsvPaid.toFixed(0), 'CZK')
+  console.log('DB has', totalStripeCzk, 'CZK from Stripe. Diff:', (totalStripeCzk - totalCsvPaid).toFixed(0), 'CZK')
+  if (stripeCsSessions.length > 0) {
+    console.log('')
+    console.log('>>> Remove cs_ payments to fix double-counting. Run: npx ts-node scripts/remove-cs-payments.ts')
+  }
   console.log('')
   console.log('Missing in DB (in CSV but not imported):', missing.length)
   if (missing.length > 0) {
@@ -102,11 +122,11 @@ async function main() {
     })
   }
   console.log('')
-  console.log('In DB but not in CSV (possibly different date range):', extra.length)
-  if (extra.length > 0 && extra.length <= 20) {
-    extra.forEach((p) => console.log('    ', p.providerRef, p.amount, 'CZK'))
-  } else if (extra.length > 20) {
-    console.log('  (first 10):', extra.slice(0, 10).map((p) => p.providerRef).join(', '))
+  console.log('In DB (in_) but not in CSV (different export range?):', extraInvoices.length)
+  if (extraInvoices.length > 0 && extraInvoices.length <= 20) {
+    extraInvoices.forEach((p) => console.log('    ', p.providerRef, p.amount, 'CZK'))
+  } else if (extraInvoices.length > 20) {
+    console.log('  (first 10):', extraInvoices.slice(0, 10).map((p) => p.providerRef).join(', '))
   }
 
   await prisma.$disconnect()

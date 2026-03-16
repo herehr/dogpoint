@@ -22,6 +22,14 @@ const router = Router()
 
 const BUILD = 'dev-adminStats-2026-02-03'
 
+// Stats: only FIO + STRIPE with in_ (invoice id), exclude cs_ (checkout session)
+const statsPaymentWhere = {
+  OR: [
+    { provider: PaymentProvider.FIO },
+    { provider: PaymentProvider.STRIPE, providerRef: { startsWith: 'in_' } },
+  ],
+}
+
 // ───────────────────────────────────────────────────────────────
 // Debug endpoints (no auth)
 // ───────────────────────────────────────────────────────────────
@@ -144,6 +152,7 @@ router.get('/', async (_req: Request, res: Response) => {
       prisma.payment.aggregate({
         where: {
           status: PS.PAID,
+          ...statsPaymentWhere,
           paidAt: { gte: startOfThisMonth },
         },
         _sum: { amount: true },
@@ -152,6 +161,7 @@ router.get('/', async (_req: Request, res: Response) => {
       prisma.payment.aggregate({
         where: {
           status: PS.PAID,
+          ...statsPaymentWhere,
           paidAt: { gte: startOfLastMonth, lt: startOfThisMonth },
         },
         _sum: { amount: true },
@@ -222,8 +232,8 @@ router.get('/payments', async (req: Request, res: Response) => {
     const range = normalizeRange(req.query)
     // Payment: filter by paidAt (when money arrived); fallback createdAt for records without paidAt
     const paymentWhere = range
-      ? ({ OR: [{ paidAt: range }, { paidAt: null, createdAt: range }] } as any)
-      : {}
+      ? { AND: [statsPaymentWhere, { OR: [{ paidAt: range }, { paidAt: null, createdAt: range }] } as any] }
+      : statsPaymentWhere
     const pledgeFilter = range ? { createdAt: range } : {}
 
     const [subPayments, pledgePayments] = await Promise.all([
@@ -491,10 +501,11 @@ router.get('/animals', async (_req: Request, res: Response) => {
       select: { animalId: true, monthlyAmount: true, userId: true },
     })
 
-    // paid subscription payments
+    // paid subscription payments (stats: only in_ for STRIPE)
     const paidSubPayments = await prisma.payment.findMany({
       where: {
         status: PS.PAID,
+        ...statsPaymentWhere,
         subscription: { animalId: { in: animalIds } },
       },
       select: { amount: true, subscription: { select: { animalId: true } } },
@@ -579,8 +590,8 @@ router.get('/adoptions/overview', async (_req: Request, res: Response) => {
     const [promisedCount, promisedAgg, paidAgg, paidCount] = await Promise.all([
       prisma.subscription.count({ where: promisedWhere }),
       prisma.subscription.aggregate({ where: promisedWhere, _sum: { monthlyAmount: true } }),
-      prisma.payment.aggregate({ where: { status: PS.PAID }, _sum: { amount: true } }),
-      prisma.payment.count({ where: { status: PS.PAID } }),
+      prisma.payment.aggregate({ where: { status: PS.PAID, ...statsPaymentWhere }, _sum: { amount: true } }),
+      prisma.payment.count({ where: { status: PS.PAID, ...statsPaymentWhere } }),
     ])
 
     return res.json({
