@@ -18,6 +18,16 @@ import {
   TableBody,
   Box,
 } from '@mui/material'
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from 'recharts'
 import { useAuth } from '../context/AuthContext'
 import { getJSON, qs, apiUrl, getToken } from '../services/api'
 
@@ -117,6 +127,34 @@ export default function AdminStats({ embedded = false }: Props) {
     }
     return p
   }, [range, tab])
+
+  const incomeByProviderChart = useMemo(() => {
+    const rows = payments?.rows || []
+    const monthMap = new Map<string, { stripe: number; fio: number }>()
+    const monthNames = ['Led', 'Úno', 'Bře', 'Dub', 'Kvě', 'Čvn', 'Čvc', 'Srp', 'Zář', 'Říj', 'Lis', 'Pro']
+    for (const r of rows) {
+      if (String(r?.status ?? '').toUpperCase() !== 'PAID') continue
+      const amt = Number(r?.amount ?? 0) || 0
+      if (amt <= 0) continue
+      const d = r?.createdAt ? new Date(r.createdAt) : null
+      if (!d || isNaN(d.getTime())) continue
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+      const prov = String(r?.provider ?? '').toUpperCase()
+      const isStripe = prov === 'STRIPE'
+      const isFio = prov === 'FIO'
+      if (!monthMap.has(key)) monthMap.set(key, { stripe: 0, fio: 0 })
+      const entry = monthMap.get(key)!
+      if (isStripe) entry.stripe += amt
+      else if (isFio) entry.fio += amt
+    }
+    return Array.from(monthMap.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, v]) => {
+        const [y, m] = key.split('-')
+        const monthLabel = `${monthNames[parseInt(m, 10) - 1]} ${y}`
+        return { month: monthLabel, STRIPE: v.stripe, FIO: v.fio }
+      })
+  }, [payments?.rows])
 
   const endpoint = useMemo(() => {
     if (tab === 'payments') return '/api/admin/stats/payments'
@@ -520,6 +558,25 @@ export default function AdminStats({ embedded = false }: Props) {
             <Stat label="Počet" value={payments?.count ?? '—'} />
             <Stat label="Součet (CZK)" value={payments?.total ?? '—'} />
           </Stack>
+
+          {incomeByProviderChart.length > 0 && (
+            <Box sx={{ width: '100%', height: 320, mb: 3 }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 1 }}>
+                Příjem podle platební metody (STRIPE / FIO)
+              </Typography>
+              <ResponsiveContainer width="100%" height={280}>
+                <BarChart data={incomeByProviderChart} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="month" tick={{ fontSize: 12 }} />
+                  <YAxis tick={{ fontSize: 12 }} tickFormatter={(v) => `${v} Kč`} />
+                  <Tooltip formatter={(v) => `${Number(v ?? 0).toLocaleString('cs-CZ')} Kč`} />
+                  <Legend />
+                  <Bar dataKey="STRIPE" stackId="a" fill="#635BFF" name="STRIPE (karta)" />
+                  <Bar dataKey="FIO" stackId="a" fill="#0EA5E9" name="FIO (bankovní převod)" />
+                </BarChart>
+              </ResponsiveContainer>
+            </Box>
+          )}
 
           <DataTable
             loading={loading}
