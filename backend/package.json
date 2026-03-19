@@ -19,6 +19,7 @@
     "db:push": "prisma db push --schema=./prisma/schema.prisma",
     "db:seed": "prisma db seed --schema=./prisma/schema.prisma",
     "repair:import-payments": "ts-node scripts/repair-import-payments.ts",
+    "activate-subscription": "ts-node scripts/activate-subscription.ts",
     "stripe:compare": "ts-node scripts/compare-stripe-invoices.ts",
     "stripe:import-csv": "ts-node scripts/import-stripe-invoices-csv.ts",
     "prisma:generate": "prisma generate --schema=./prisma/schema.prisma",

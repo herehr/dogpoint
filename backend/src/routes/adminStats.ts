@@ -3,6 +3,7 @@ import { Router, Request, Response, NextFunction } from 'express'
 import { prisma } from '../prisma'
 import { requireAuth, requireAdmin } from '../middleware/authJwt'
 import { runRepairImport } from '../services/repairImportPayments'
+import { sendMonthlyStatsEmail } from '../services/monthlyStatsEmail'
 import {
   Role,
   PaymentStatus as PS,
@@ -98,6 +99,53 @@ router.post('/repair-import-payments', requireAdmin, async (_req: Request, res: 
   } catch (e: any) {
     console.error('[repair-import-payments]', e)
     return res.status(500).json({ error: e?.message || 'Repair import failed' })
+  }
+})
+
+// POST /api/admin/stats/send-monthly-email – manually trigger monthly stats email (for testing)
+router.post('/send-monthly-email', requireAdmin, async (_req: Request, res: Response) => {
+  try {
+    const to = process.env.STATS_EMAIL_RECIPIENT?.trim()
+    if (!to) {
+      return res.status(400).json({ error: 'STATS_EMAIL_RECIPIENT not configured' })
+    }
+    const result = await sendMonthlyStatsEmail(to)
+    if (!result.ok) {
+      return res.status(500).json({ error: result.error || 'Failed to send' })
+    }
+    return res.json({ ok: true, sentTo: to })
+  } catch (e: any) {
+    console.error('[send-monthly-email]', e)
+    return res.status(500).json({ error: e?.message || 'Failed to send' })
+  }
+})
+
+// POST /api/admin/stats/activate-subscription – activate subscription by ID (repair FIO payment mismatch)
+router.post('/activate-subscription', requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const subscriptionId = (req.body?.subscriptionId || req.body?.id || '').toString().trim()
+    if (!subscriptionId) {
+      return res.status(400).json({ error: 'subscriptionId required' })
+    }
+    const sub = await prisma.subscription.findUnique({
+      where: { id: subscriptionId },
+      select: { id: true, status: true, variableSymbol: true, provider: true },
+    })
+    if (!sub) {
+      return res.status(404).json({ error: 'Subscription not found' })
+    }
+    if (sub.status === SubscriptionStatus.ACTIVE) {
+      return res.json({ ok: true, message: 'Already ACTIVE', subscriptionId })
+    }
+    await prisma.subscription.update({
+      where: { id: subscriptionId },
+      data: { status: SubscriptionStatus.ACTIVE },
+    })
+    console.log('[activate-subscription]', { subscriptionId, was: sub.status, provider: sub.provider })
+    return res.json({ ok: true, message: 'Activated', subscriptionId })
+  } catch (e: any) {
+    console.error('[activate-subscription]', e)
+    return res.status(500).json({ error: e?.message || 'Failed to activate' })
   }
 })
 
