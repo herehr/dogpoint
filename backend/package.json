@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "ts-node-dev src/index.ts",
-    "clean": "rimraf dist",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "typecheck": "tsc --noEmit",
     "build": "tsc",
     "start": "node dist/index.js",
@@ -63,7 +63,6 @@
     "cross-env": "^10.0.0",
     "dotenv-cli": "^11.0.0",
     "prisma": "^6.16.2",
-    "rimraf": "^6.0.1",
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.5.4"
