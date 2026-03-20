@@ -9,6 +9,7 @@ import {
   ContentStatus,
   SubscriptionStatus,
   PaymentProvider,
+  ShareInviteStatus,
 } from '@prisma/client'
 
 const router = Router()
@@ -127,6 +128,47 @@ router.post('/activate-subscription', requireAdmin, async (req: Request, res: Re
   } catch (e: any) {
     console.error('[activate-subscription]', e)
     return res.status(500).json({ error: e?.message || 'Failed to activate' })
+  }
+})
+
+// GET /api/admin/stats/share-invites – metrics for donor invite system
+router.get('/share-invites', async (_req: Request, res: Response) => {
+  try {
+    const [totalSent, accepted, pending, declined, expired] = await Promise.all([
+      prisma.shareInvite.count(),
+      prisma.shareInvite.count({ where: { status: ShareInviteStatus.ACCEPTED } }),
+      prisma.shareInvite.count({ where: { status: ShareInviteStatus.PENDING } }),
+      prisma.shareInvite.count({ where: { status: ShareInviteStatus.DECLINED } }),
+      prisma.shareInvite.count({ where: { status: ShareInviteStatus.EXPIRED } }),
+    ])
+    const byAnimal = await prisma.shareInvite.groupBy({
+      by: ['animalId'],
+      _count: { id: true },
+      where: { status: ShareInviteStatus.ACCEPTED },
+    })
+    const animalIds = byAnimal.map((b) => b.animalId)
+    const animals = await prisma.animal.findMany({
+      where: { id: { in: animalIds } },
+      select: { id: true, jmeno: true, name: true },
+    })
+    const nameById = new Map(animals.map((a) => [a.id, a.jmeno || a.name || a.id]))
+    const perAnimal = byAnimal
+      .map((b) => ({ animalId: b.animalId, animalName: nameById.get(b.animalId) || b.animalId, accepted: b._count.id }))
+      .sort((a, b) => b.accepted - a.accepted)
+      .slice(0, 20)
+
+    return res.json({
+      ok: true,
+      totalSent,
+      accepted,
+      pending,
+      declined,
+      expired,
+      perAnimal,
+    })
+  } catch (e: any) {
+    console.error('GET /api/admin/stats/share-invites error', e)
+    return res.status(500).json({ error: 'internal error' })
   }
 })
 

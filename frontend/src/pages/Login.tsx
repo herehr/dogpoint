@@ -49,9 +49,15 @@ export default function Login() {
         else if (role === 'MODERATOR') setModeratorToken(token)
         else setToken(token)
         login(token, role)
-        navigate(role === 'ADMIN' ? '/admin' : role === 'MODERATOR' ? '/moderator' : '/user', {
-          replace: true,
-        })
+        const sp = new URLSearchParams(location.search || '')
+        const nextPw = sp.get('next') || sp.get('redirect')
+        const fromPw = location?.state?.from?.pathname as string | undefined
+        const targetPw =
+          nextPw && nextPw.startsWith('/')
+            ? nextPw
+            : fromPw ||
+              (role === 'ADMIN' ? '/admin' : role === 'MODERATOR' ? '/moderator' : '/user')
+        navigate(targetPw, { replace: true })
         return
       }
 
@@ -65,14 +71,19 @@ export default function Login() {
 
       login(token, role)
 
+      const searchParams = new URLSearchParams(location.search || '')
+      const nextParam = searchParams.get('next') || searchParams.get('redirect')
       const from = location?.state?.from?.pathname as string | undefined
-      const target = from
-        ? from
-        : role === 'ADMIN'
-          ? '/admin'
-          : role === 'MODERATOR'
-            ? '/moderator'
-            : '/user'
+      const target =
+        nextParam && nextParam.startsWith('/')
+          ? nextParam
+          : from
+            ? from
+            : role === 'ADMIN'
+              ? '/admin'
+              : role === 'MODERATOR'
+                ? '/moderator'
+                : '/user'
 
       navigate(target, { replace: true })
     } catch (e: any) {

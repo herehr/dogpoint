@@ -31,8 +31,14 @@ import BlurBox from '../components/BlurBox'
 import { useAuth } from '../context/AuthContext'
 import SafeHTML from '../components/SafeHTML'
 import AfterPaymentPasswordDialog from '../components/AfterPaymentPasswordDialog'
-import { confirmStripeSession, cancelAdoption, setAuthToken } from '../services/api'
+import {
+  confirmStripeSession,
+  cancelAdoption,
+  setAuthToken,
+  getMySubscriptionForAnimal,
+} from '../services/api'
 import { apiUrl } from '../services/api'
+import ShareInviteDialog from '../components/ShareInviteDialog'
 
 type Media = {
   url: string
@@ -278,8 +284,11 @@ export default function AnimalDetail() {
   const navigate = useNavigate()
 
   const { hasAccess, grantAccess, resetAccess } = useAccess()
-  const { role, login } = useAuth()
+  const { role, login, user, token: authToken } = useAuth()
   const isStaff = role === 'ADMIN' || role === 'MODERATOR'
+
+  const [mySubscriptionId, setMySubscriptionId] = useState<string | null>(null)
+  const [shareOpen, setShareOpen] = useState(false)
 
   const [animal, setAnimal] = useState<LocalAnimal | null>(null)
   const [loading, setLoading] = useState(true)
@@ -332,6 +341,23 @@ export default function AnimalDetail() {
       window.history.replaceState({}, '', clean)
     }
   }, [id, location.search, grantAccess])
+
+  useEffect(() => {
+    if (!id || !user || !authToken || isStaff) {
+      setMySubscriptionId(null)
+      return
+    }
+    let alive = true
+    getMySubscriptionForAnimal(id)
+      .then((r) => {
+        if (!alive) return
+        setMySubscriptionId(r.adopted && r.subscriptionId ? r.subscriptionId : null)
+      })
+      .catch(() => alive && setMySubscriptionId(null))
+    return () => {
+      alive = false
+    }
+  }, [id, user, authToken, isStaff])
 
   // load animal
   useEffect(() => {
@@ -608,8 +634,13 @@ export default function AnimalDetail() {
           </Box>
         )}
 
-        <Stack direction="row" spacing={1} alignItems="center">
+        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
           <Chip label={age} />
+          {!isStaff && isUnlocked && mySubscriptionId && (
+            <Button variant="text" size="small" color="inherit" onClick={() => setShareOpen(true)}>
+              Sdílet se známým
+            </Button>
+          )}
           {!isStaff && isUnlocked && (
             <Button variant="outlined" color="error" size="small" onClick={onCancelAdoption}>
               Zrušit adopci
@@ -846,6 +877,15 @@ export default function AnimalDetail() {
           navigate('/user', { replace: true })
         }}
       />
+
+      {mySubscriptionId && id && (
+        <ShareInviteDialog
+          open={shareOpen}
+          onClose={() => setShareOpen(false)}
+          subscriptionId={mySubscriptionId}
+          animalName={title}
+        />
+      )}
     </Container>
   )
 }

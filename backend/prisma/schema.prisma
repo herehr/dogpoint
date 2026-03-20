@@ -39,6 +39,8 @@ model User {
   taxProfile TaxProfile?
   taxTokens  TaxRequestToken[]
 
+  sentShareInvites ShareInvite[] @relation("ShareInviteSender")
+
   @@index([email])
 }
 
@@ -65,6 +67,7 @@ model Animal {
   notifications    Notification[]
   posts            Post[]
   subscriptions    Subscription[]
+  shareInvites     ShareInvite[]
 
   @@index([status])
 }
@@ -206,6 +209,7 @@ model Subscription {
 
   payments         Payment[]
   giftRecipients   SubscriptionGiftRecipient[]
+  shareInvites     ShareInvite[]
   animal           Animal    @relation(fields: [animalId], references: [id], onDelete: Cascade)
   user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -233,6 +237,30 @@ model SubscriptionGiftRecipient {
   @@index([subscriptionId])
   @@index([userId])
   @@index([email])
+}
+
+model ShareInvite {
+  id               String            @id @default(cuid())
+  senderId         String
+  subscriptionId   String
+  animalId         String
+  recipientEmail   String
+  message          String?
+  reason           String?
+  status           ShareInviteStatus @default(PENDING)
+  token            String            @unique
+  expiresAt        DateTime
+  createdAt        DateTime          @default(now())
+  acceptedAt       DateTime?
+
+  sender       User         @relation("ShareInviteSender", fields: [senderId], references: [id], onDelete: Cascade)
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  animal       Animal       @relation(fields: [animalId], references: [id], onDelete: Cascade)
+
+  @@index([subscriptionId])
+  @@index([recipientEmail])
+  @@index([senderId])
+  @@index([status])
 }
 
 model Payment {
@@ -399,4 +427,11 @@ enum ContentStatus {
   PENDING_REVIEW
   PUBLISHED
   REJECTED
+}
+
+enum ShareInviteStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  EXPIRED
 }

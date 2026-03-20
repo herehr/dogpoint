@@ -3,6 +3,12 @@ import { Router, Request, Response } from 'express'
 import { prisma } from '../prisma'
 import { checkAuth } from '../middleware/checkAuth'
 import { SubscriptionStatus } from '@prisma/client'
+import {
+  createShareInvite,
+  previewShareInvite,
+  acceptShareInvite,
+  declineShareInvite,
+} from '../services/shareInviteService'
 
 const router = Router()
 
@@ -488,6 +494,90 @@ router.post('/seen', checkAuth, async (req: Request, res: Response) => {
   } catch (e: any) {
     console.error('[adoption/seen] error:', e?.message || e)
     return res.status(500).json({ error: 'Failed to mark seen' })
+  }
+})
+
+/* =========================================================
+   Share invite (Sdílet se známým)
+========================================================= */
+
+router.post('/share-invite', checkAuth, async (req: Request, res: Response) => {
+  try {
+    const userId = getUserId(req)
+    if (!userId) return res.status(401).json({ error: 'Not authenticated' })
+
+    const { subscriptionId, recipientEmail, message, reason } = (req.body || {}) as {
+      subscriptionId?: string
+      recipientEmail?: string
+      message?: string
+      reason?: string
+    }
+    if (!subscriptionId || !recipientEmail) {
+      return res.status(400).json({ error: 'subscriptionId a recipientEmail jsou povinné' })
+    }
+
+    const result = await createShareInvite({
+      senderId: userId,
+      subscriptionId: String(subscriptionId),
+      recipientEmail: String(recipientEmail),
+      message,
+      reason,
+    })
+    if (!result.ok) {
+      return res.status(result.status || 400).json({ error: result.error })
+    }
+    return res.status(201).json(result)
+  } catch (e: any) {
+    console.error('[adoption/share-invite] error:', e?.message || e)
+    return res.status(500).json({ error: 'Nepodařilo se vytvořit pozvánku' })
+  }
+})
+
+router.get('/share-invite/preview/:token', async (req: Request, res: Response) => {
+  try {
+    const preview = await previewShareInvite(String(req.params.token || ''))
+    if (!preview.ok) {
+      return res.status(404).json({ error: preview.error })
+    }
+    return res.json(preview)
+  } catch (e: any) {
+    console.error('[adoption/share-invite/preview] error:', e?.message || e)
+    return res.status(500).json({ error: 'Chyba' })
+  }
+})
+
+router.post('/share-invite/:token/accept', checkAuth, async (req: Request, res: Response) => {
+  try {
+    const userId = getUserId(req)
+    if (!userId) return res.status(401).json({ error: 'Not authenticated' })
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { email: true },
+    })
+    if (!user?.email) return res.status(400).json({ error: 'Chybí e-mail uživatele' })
+
+    const result = await acceptShareInvite(String(req.params.token || ''), userId, user.email)
+    if (!result.ok) {
+      return res.status((result as any).status || 400).json({ error: (result as any).error })
+    }
+    return res.json({ ok: true, ...(result as any) })
+  } catch (e: any) {
+    console.error('[adoption/share-invite/accept] error:', e?.message || e)
+    return res.status(500).json({ error: 'Nepodařilo se přijmout pozvánku' })
+  }
+})
+
+router.post('/share-invite/:token/decline', async (req: Request, res: Response) => {
+  try {
+    const result = await declineShareInvite(String(req.params.token || ''))
+    if (!result.ok) {
+      return res.status((result as any).status || 400).json({ error: (result as any).error })
+    }
+    return res.json({ ok: true })
+  } catch (e: any) {
+    console.error('[adoption/share-invite/decline] error:', e?.message || e)
+    return res.status(500).json({ error: 'Chyba' })
   }
 })
 

@@ -119,6 +119,17 @@ export default function AdminStats({ embedded = false }: Props) {
   const [stripeSyncErr, setStripeSyncErr] = useState<string | null>(null)
   const [stripeSyncLoading, setStripeSyncLoading] = useState(false)
 
+  const [shareInvites, setShareInvites] = useState<{
+    totalSent: number
+    accepted: number
+    pending: number
+    declined: number
+    expired: number
+    perAnimal?: { animalId: string; animalName: string; accepted: number }[]
+  } | null>(null)
+  const [shareInvitesErr, setShareInvitesErr] = useState<string | null>(null)
+  const [shareInvitesLoading, setShareInvitesLoading] = useState(false)
+
   const params = useMemo(() => {
     const p: Record<string, string> = {}
     if (tab !== 'animals') {
@@ -237,6 +248,38 @@ export default function AdminStats({ embedded = false }: Props) {
   useEffect(() => {
     if (token) {
       const timer = setTimeout(loadStatsOverview, 150)
+      return () => clearTimeout(timer)
+    }
+  }, [token])
+
+  async function loadShareInvites() {
+    const t = token ?? getToken()
+    if (!t) return
+    setShareInvitesErr(null)
+    setShareInvitesLoading(true)
+    try {
+      const headers = { Authorization: `Bearer ${t}` }
+      const r = await getJSON<{
+        ok: boolean
+        totalSent: number
+        accepted: number
+        pending: number
+        declined: number
+        expired: number
+        perAnimal?: { animalId: string; animalName: string; accepted: number }[]
+      }>('/api/admin/stats/share-invites', { headers })
+      setShareInvites(r)
+    } catch (e: any) {
+      setShareInvites(null)
+      setShareInvitesErr(e?.message || 'Chyba načítání sdílených pozvánek')
+    } finally {
+      setShareInvitesLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (token) {
+      const timer = setTimeout(loadShareInvites, 180)
       return () => clearTimeout(timer)
     }
   }, [token])
@@ -380,6 +423,37 @@ export default function AdminStats({ embedded = false }: Props) {
                 {String(statsOverviewErr)}
               </Alert>
             )}
+            <Typography variant="subtitle2" sx={{ fontWeight: 800, mt: 2, mb: 1 }}>
+              Sdílené pozvánky (se známým)
+            </Typography>
+            {shareInvitesErr && (
+              <Alert severity="warning" sx={{ mb: 1 }}>
+                {String(shareInvitesErr)}
+              </Alert>
+            )}
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} flexWrap="wrap" sx={{ mb: 1 }}>
+              <Stat
+                label="Odesláno celkem"
+                value={shareInvitesLoading ? 'Načítám…' : String(shareInvites?.totalSent ?? '—')}
+              />
+              <Stat
+                label="Přijato"
+                value={shareInvitesLoading ? 'Načítám…' : String(shareInvites?.accepted ?? '—')}
+              />
+              <Stat
+                label="Čeká"
+                value={shareInvitesLoading ? 'Načítám…' : String(shareInvites?.pending ?? '—')}
+              />
+              <Stat
+                label="Odmítnuto / vypršelo"
+                value={
+                  shareInvitesLoading
+                    ? 'Načítám…'
+                    : `${shareInvites?.declined ?? '—'} / ${shareInvites?.expired ?? '—'}`
+                }
+              />
+            </Stack>
+
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} flexWrap="wrap">
               <Stat
                 label="ACTIVE (Stripe)"

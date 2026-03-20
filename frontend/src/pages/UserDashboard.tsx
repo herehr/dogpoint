@@ -26,6 +26,8 @@ import {
 } from '@mui/material'
 import CardGiftcardIcon from '@mui/icons-material/CardGiftcard'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
+import PersonAddAlt1OutlinedIcon from '@mui/icons-material/PersonAddAlt1Outlined'
+import ShareInviteDialog from '../components/ShareInviteDialog'
 import { Link as RouterLink, useLocation } from 'react-router-dom'
 import {
   myAdoptedAnimals,
@@ -157,6 +159,11 @@ export default function UserDashboard() {
   const [newDisplayName, setNewDisplayName] = React.useState('')
   const [adding, setAdding] = React.useState(false)
 
+  const [shareDialog, setShareDialog] = React.useState<{
+    subscriptionId: string
+    animalName: string
+  } | null>(null)
+
   const openGiftDialog = async (subscriptionId: string, animalName: string) => {
     setGiftDialog({ open: true, subscriptionId, animalName })
     setGiftRecipients([])
@@ -258,18 +265,32 @@ export default function UserDashboard() {
                         </Typography>
                         <Stack direction="row" alignItems="center" spacing={0.5}>
                           {!isGiftRecipient && subscriptionId && (
-                            <IconButton
-                              size="small"
-                              onClick={(e) => {
-                                e.preventDefault()
-                                e.stopPropagation()
-                                openGiftDialog(subscriptionId, title)
-                              }}
-                              title="Darovat adopci – přidat obdarované"
-                              sx={{ color: 'primary.main' }}
-                            >
-                              <CardGiftcardIcon fontSize="small" />
-                            </IconButton>
+                            <>
+                              <IconButton
+                                size="small"
+                                onClick={(e) => {
+                                  e.preventDefault()
+                                  e.stopPropagation()
+                                  setShareDialog({ subscriptionId, animalName: title })
+                                }}
+                                title="Sdílet se známým (pozvánka e-mailem)"
+                                sx={{ color: 'text.secondary' }}
+                              >
+                                <PersonAddAlt1OutlinedIcon fontSize="small" />
+                              </IconButton>
+                              <IconButton
+                                size="small"
+                                onClick={(e) => {
+                                  e.preventDefault()
+                                  e.stopPropagation()
+                                  openGiftDialog(subscriptionId, title)
+                                }}
+                                title="Darovat adopci – přidat obdarované"
+                                sx={{ color: 'primary.main' }}
+                              >
+                                <CardGiftcardIcon fontSize="small" />
+                              </IconButton>
+                            </>
                           )}
                           {status && <Chip size="small" label={status} />}
                         </Stack>
@@ -368,6 +389,13 @@ export default function UserDashboard() {
           <Button onClick={closeGiftDialog}>Zavřít</Button>
         </DialogActions>
       </Dialog>
+
+      <ShareInviteDialog
+        open={!!shareDialog}
+        onClose={() => setShareDialog(null)}
+        subscriptionId={shareDialog?.subscriptionId || ''}
+        animalName={shareDialog?.animalName || ''}
+      />
     </Container>
   )
 }

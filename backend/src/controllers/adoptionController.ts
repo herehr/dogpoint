@@ -10,6 +10,25 @@ const prisma = new PrismaClient()
 
 type Req = Request & { user?: JwtPayload }
 
+async function giftRecipientHasAnimalAccess(
+  userId: string,
+  userEmail: string | null | undefined,
+  animalId: string
+): Promise<boolean> {
+  const emailNorm = (userEmail || '').toLowerCase().trim()
+  const links = await prisma.subscriptionGiftRecipient.findMany({
+    where: emailNorm
+      ? { OR: [{ userId }, { email: emailNorm }] }
+      : { userId },
+    include: { subscription: { select: { animalId: true, status: true } } },
+  })
+  for (const l of links) {
+    const sub = l.subscription
+    if (sub?.animalId === animalId && sub.status === SubscriptionStatus.ACTIVE) return true
+  }
+  return false
+}
+
 // --- helpers ---
 function getAuth(req: Request): JwtPayload | null {
   const h = req.headers.authorization || ''
@@ -33,8 +52,14 @@ export async function getAccess(req: Req, res: Response) {
     },
     select: { id: true },
   })
+  if (sub) return res.json({ access: true })
 
-  return res.json({ access: !!sub })
+  const user = await prisma.user.findUnique({
+    where: { id: auth.id },
+    select: { email: true },
+  })
+  const gift = await giftRecipientHasAnimalAccess(auth.id, user?.email, animalId)
+  return res.json({ access: gift })
 }
 
 // GET /api/adoption/me
@@ -57,6 +82,18 @@ export async function getMe(req: Req, res: Response) {
   subs.forEach((s) => {
     access[s.animalId] = true
   })
+
+  const giftLinks = await prisma.subscriptionGiftRecipient.findMany({
+    where: user?.email
+      ? { OR: [{ userId: auth.id }, { email: user.email.toLowerCase().trim() }] }
+      : { userId: auth.id },
+    include: { subscription: { select: { animalId: true, status: true } } },
+  })
+  for (const l of giftLinks) {
+    if (l.subscription?.status === SubscriptionStatus.ACTIVE && l.subscription.animalId) {
+      access[l.subscription.animalId] = true
+    }
+  }
 
   return res.json({ ok: true, user, access })
 }

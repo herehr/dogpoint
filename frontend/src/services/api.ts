@@ -638,6 +638,59 @@ export async function removeGiftRecipient(
   )
 }
 
+export const SHARE_INVITE_REASON_PRESETS = [
+  'Chci se s tebou podělit',
+  'Vím, že máš rád psy',
+  'Jen tak pro radost',
+] as const
+
+export async function getMySubscriptionForAnimal(
+  animalId: string
+): Promise<{ adopted: boolean; subscriptionId: string | null }> {
+  return getJSON<{ adopted: boolean; subscriptionId: string | null }>(
+    `/api/subscriptions/mine/${encodeURIComponent(animalId)}/isMine`
+  )
+}
+
+export async function createShareInvite(body: {
+  subscriptionId: string
+  recipientEmail: string
+  message?: string
+  reason?: string
+}): Promise<{ ok: true; id: string; token: string; expiresAt: string }> {
+  return postJSON('/api/adoption/share-invite', body)
+}
+
+export type ShareInvitePreview =
+  | { ok: false; error: string }
+  | {
+      ok: true
+      status: 'PENDING'
+      animalName: string
+      animalMain: string | null
+      senderName: string
+      message: string | null
+      reason: string | null
+      recipientEmail: string
+      expiresAt: string
+    }
+  | { ok: true; status: 'EXPIRED' | 'DECLINED' | 'ACCEPTED' | 'DONOR_INACTIVE' }
+
+export async function previewShareInviteToken(token: string): Promise<ShareInvitePreview> {
+  const res = await fetch(apiUrl(`/api/adoption/share-invite/preview/${encodeURIComponent(token)}`))
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error((data as any)?.error || `HTTP ${res.status}`)
+  return data
+}
+
+export async function acceptShareInviteToken(token: string): Promise<{ ok: boolean }> {
+  return postJSON<{ ok: boolean }>(`/api/adoption/share-invite/${encodeURIComponent(token)}/accept`, {})
+}
+
+export async function declineShareInviteToken(token: string): Promise<{ ok: boolean }> {
+  return postJSON<{ ok: boolean }>(`/api/adoption/share-invite/${encodeURIComponent(token)}/decline`, {})
+}
+
 export type AdoptionMeResponse = {
   ok: boolean
   user?: { id: string; email: string; role?: string }
