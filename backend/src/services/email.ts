@@ -42,6 +42,7 @@ export type EmailAttachment = {
   filename: string
   content: Buffer | string
   contentType?: string
+  cid?: string
 }
 
 export type SendEmailArgs = {

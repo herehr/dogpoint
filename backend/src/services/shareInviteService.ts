@@ -279,6 +279,61 @@ export async function acceptShareInvite(token: string, userId: string, userEmail
   return { ok: true as const }
 }
 
+/**
+ * After login / registration with email+password: grant access for all valid pending invites
+ * sent to this address (donor subscription must still be ACTIVE).
+ */
+export async function acceptPendingShareInvitesForUser(userId: string, rawEmail: string): Promise<number> {
+  const emailNorm = normEmail(rawEmail)
+  if (!emailNorm) return 0
+
+  const invites = await prisma.shareInvite.findMany({
+    where: {
+      recipientEmail: emailNorm,
+      status: ShareInviteStatus.PENDING,
+      expiresAt: { gt: new Date() },
+    },
+    include: { subscription: true },
+  })
+
+  let accepted = 0
+  for (const inv of invites) {
+    const updated = await expireIfNeeded(inv)
+    if (updated.status !== ShareInviteStatus.PENDING) continue
+
+    if (inv.subscription.status !== SubscriptionStatus.ACTIVE) continue
+
+    const giftCount = await prisma.subscriptionGiftRecipient.count({
+      where: { subscriptionId: inv.subscriptionId },
+    })
+    if (giftCount >= 5) continue
+
+    try {
+      await prisma.$transaction([
+        prisma.subscriptionGiftRecipient.upsert({
+          where: {
+            subscriptionId_email: { subscriptionId: inv.subscriptionId, email: emailNorm },
+          },
+          create: {
+            subscriptionId: inv.subscriptionId,
+            email: emailNorm,
+            userId,
+          },
+          update: { userId },
+        }),
+        prisma.shareInvite.update({
+          where: { id: inv.id },
+          data: { status: ShareInviteStatus.ACCEPTED, acceptedAt: new Date() },
+        }),
+      ])
+      accepted++
+    } catch (e: any) {
+      console.warn('[acceptPendingShareInvitesForUser] invite', inv.id, e?.message || e)
+    }
+  }
+  return accepted
+}
+
 export async function declineShareInvite(token: string) {
   const t = String(token || '').trim()
   if (!t) return { ok: false as const, error: 'Chybí token', status: 400 }

@@ -6,6 +6,7 @@ import { prisma } from '../prisma'
 import { Role } from '@prisma/client'
 import { sendEmailSafe } from '../services/email'
 import { linkPaidOrRecentPledgesToUser } from '../controllers/authExtra'
+import { acceptPendingShareInvitesForUser } from '../services/shareInviteService'
 
 const router = Router()
 
@@ -40,15 +41,25 @@ function safeLinkPledges(userId: string, email: string, label: string) {
   })
 }
 
-function safeLinkGiftRecipients(userId: string, email: string, label: string) {
-  prisma.subscriptionGiftRecipient
-    .updateMany({
+async function linkGiftRecipientsOrLog(userId: string, email: string, label: string) {
+  try {
+    await prisma.subscriptionGiftRecipient.updateMany({
       where: { email: email.toLowerCase().trim(), userId: null },
       data: { userId },
     })
-    .catch((e: any) => {
-      console.error(`[auth/${label}] linkGiftRecipients failed:`, e?.message || e)
-    })
+  } catch (e: any) {
+    console.error(`[auth/${label}] linkGiftRecipients failed:`, e?.message || e)
+  }
+}
+
+/** Pozvánky „Sdílet se známým“ – před vydáním JWT, aby měl přítel hned přístup */
+async function acceptShareInvitesOrLog(userId: string, email: string, label: string) {
+  try {
+    const n = await acceptPendingShareInvitesForUser(userId, email)
+    if (n > 0) console.log(`[auth/${label}] acceptPendingShareInvites: ${n}`)
+  } catch (e: any) {
+    console.error(`[auth/${label}] acceptPendingShareInvites failed:`, e?.message || e)
+  }
 }
 
 /* =========================================================
@@ -123,7 +134,8 @@ router.post('/login', async (req: Request, res: Response) => {
     if (!ok) return res.status(401).json({ error: 'Invalid credentials' })
 
     safeLinkPledges(user.id, user.email, 'login')
-    safeLinkGiftRecipients(user.id, user.email, 'login')
+    await linkGiftRecipientsOrLog(user.id, user.email, 'login')
+    await acceptShareInvitesOrLog(user.id, user.email, 'login')
 
     const token = signToken({ id: user.id, role: user.role, email: user.email })
     res.json({ token, role: user.role })
@@ -159,7 +171,8 @@ router.post('/set-password-first-time', async (req: Request, res: Response) => {
     })
 
     safeLinkPledges(updated.id, updated.email, 'set-password-first-time')
-    safeLinkGiftRecipients(updated.id, updated.email, 'set-password-first-time')
+    await linkGiftRecipientsOrLog(updated.id, updated.email, 'set-password-first-time')
+    await acceptShareInvitesOrLog(updated.id, updated.email, 'set-password-first-time')
 
     const token = signToken({ id: updated.id, role: updated.role, email: updated.email })
     res.json({ ok: true, token, role: updated.role })
@@ -194,7 +207,8 @@ router.post('/register-after-payment', async (req: Request, res: Response) => {
     }
 
     safeLinkPledges(user.id, user.email, 'register-after-payment')
-    safeLinkGiftRecipients(user.id, user.email, 'register-after-payment')
+    await linkGiftRecipientsOrLog(user.id, user.email, 'register-after-payment')
+    await acceptShareInvitesOrLog(user.id, user.email, 'register-after-payment')
 
     const token = signToken({ id: user.id, role: user.role, email: user.email })
     res.json({ ok: true, token, role: user.role })
@@ -226,7 +240,8 @@ router.post('/claim-paid', async (req: Request, res: Response) => {
     if (!user) user = await prisma.user.create({ data: { email, role: Role.USER } })
 
     safeLinkPledges(user.id, user.email, 'claim-paid')
-    safeLinkGiftRecipients(user.id, user.email, 'claim-paid')
+    await linkGiftRecipientsOrLog(user.id, user.email, 'claim-paid')
+    await acceptShareInvitesOrLog(user.id, user.email, 'claim-paid')
 
     const token = signToken({ id: user.id, role: user.role, email: user.email })
     res.json({ ok: true, token, role: user.role })
@@ -501,6 +516,9 @@ router.post('/reset-password', async (req: Request, res: Response): Promise<void
 
     const hash = await bcrypt.hash(password, 10)
     await prisma.user.update({ where: { id: userId }, data: { passwordHash: hash } })
+
+    await linkGiftRecipientsOrLog(userId, user.email, 'reset-password')
+    await acceptShareInvitesOrLog(userId, user.email, 'reset-password')
 
     res.json({ ok: true, message: 'Heslo bylo úspěšně změněno.' })
   } catch (e: any) {
