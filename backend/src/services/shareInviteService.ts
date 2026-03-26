@@ -4,6 +4,11 @@ import { prisma } from '../prisma'
 import { ShareInviteStatus, SubscriptionStatus } from '@prisma/client'
 import { sendEmailSafe } from './email'
 import { renderDogpointEmailLayout } from './emailTemplates'
+import {
+  canonicalEmailForInviteMatch,
+  emailsMatchForInvite,
+  normEmail,
+} from '../utils/emailInviteMatch'
 
 const APP_BASE = (process.env.APP_BASE_URL || process.env.FRONTEND_BASE_URL || 'https://patron.dog-point.cz').replace(
   /\/+$/,
@@ -12,12 +17,6 @@ const APP_BASE = (process.env.APP_BASE_URL || process.env.FRONTEND_BASE_URL || '
 
 const EXPIRY_DAYS = Math.min(30, Math.max(1, Number(process.env.SHARE_INVITE_EXPIRY_DAYS || 7)))
 const MAX_MESSAGE = 300
-
-function normEmail(s: string): string {
-  return String(s || '')
-    .trim()
-    .toLowerCase()
-}
 
 function escapeHtml(s: string): string {
   return String(s || '')
@@ -30,6 +29,39 @@ function escapeHtml(s: string): string {
 
 function newToken(): string {
   return randomBytes(32).toString('hex')
+}
+
+/** Pending invites for this person (Gmail dot/plus aliases match DB). */
+async function findPendingShareInvitesForEmail(rawEmail: string) {
+  const emailNorm = normEmail(rawEmail)
+  const canon = canonicalEmailForInviteMatch(rawEmail)
+  const keys = [...new Set([emailNorm, canon])].filter(Boolean)
+
+  let invites = await prisma.shareInvite.findMany({
+    where: {
+      recipientEmail: { in: keys },
+      status: ShareInviteStatus.PENDING,
+      expiresAt: { gt: new Date() },
+    },
+    include: { subscription: true },
+  })
+  invites = invites.filter((inv) => emailsMatchForInvite(inv.recipientEmail, rawEmail))
+  if (invites.length > 0) return invites
+
+  if (!emailNorm.endsWith('@gmail.com') && !emailNorm.endsWith('@googlemail.com')) return []
+
+  const gmailPending = await prisma.shareInvite.findMany({
+    where: {
+      status: ShareInviteStatus.PENDING,
+      expiresAt: { gt: new Date() },
+      OR: [
+        { recipientEmail: { endsWith: '@gmail.com' } },
+        { recipientEmail: { endsWith: '@googlemail.com' } },
+      ],
+    },
+    include: { subscription: true },
+  })
+  return gmailPending.filter((inv) => emailsMatchForInvite(inv.recipientEmail, rawEmail))
 }
 
 async function expireIfNeeded(invite: { id: string; status: ShareInviteStatus; expiresAt: Date }) {
@@ -49,10 +81,12 @@ export async function createShareInvite(params: {
   message?: string | null
   reason?: string | null
 }): Promise<{ ok: true; id: string; token: string; expiresAt: string } | { ok: false; error: string; status?: number }> {
-  const recipientEmail = normEmail(params.recipientEmail)
-  if (!recipientEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipientEmail)) {
+  const rawTrimmed = String(params.recipientEmail || '').trim()
+  if (!rawTrimmed || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normEmail(rawTrimmed))) {
     return { ok: false, error: 'Neplatný e-mail', status: 400 }
   }
+  /** Stored form so Gmail variants (dots/+) resolve to one row */
+  const recipientEmail = canonicalEmailForInviteMatch(rawTrimmed)
 
   let message = params.message?.trim() || null
   if (message && message.length > MAX_MESSAGE) {
@@ -79,7 +113,7 @@ export async function createShareInvite(params: {
     where: { id: params.senderId },
     select: { email: true },
   })
-  if (normEmail(senderUser?.email || '') === recipientEmail) {
+  if (emailsMatchForInvite(senderUser?.email || '', rawTrimmed)) {
     return { ok: false, error: 'Nemůžete pozvat sám sebe', status: 400 }
   }
 
@@ -88,22 +122,21 @@ export async function createShareInvite(params: {
     return { ok: false, error: 'Maximálně 5 sdílených přístupů na adopci', status: 400 }
   }
 
-  const existingGr = await prisma.subscriptionGiftRecipient.findUnique({
-    where: { subscriptionId_email: { subscriptionId: sub.id, email: recipientEmail } },
+  const existingGifts = await prisma.subscriptionGiftRecipient.findMany({
+    where: { subscriptionId: sub.id },
   })
-  if (existingGr) {
+  if (existingGifts.some((g) => emailsMatchForInvite(g.email, rawTrimmed))) {
     return { ok: false, error: 'Tento e-mail už má přístup k této adopci', status: 400 }
   }
 
-  const pendingOther = await prisma.shareInvite.findFirst({
+  const pendingList = await prisma.shareInvite.findMany({
     where: {
       subscriptionId: sub.id,
-      recipientEmail,
       status: ShareInviteStatus.PENDING,
       expiresAt: { gt: new Date() },
     },
   })
-  if (pendingOther) {
+  if (pendingList.some((p) => emailsMatchForInvite(p.recipientEmail, rawTrimmed))) {
     return { ok: false, error: 'Aktivní pozvánka pro tento e-mail již existuje', status: 400 }
   }
 
@@ -155,7 +188,7 @@ export async function createShareInvite(params: {
   })
 
   sendEmailSafe({
-    to: recipientEmail,
+    to: normEmail(rawTrimmed),
     subject: `Dogpoint – pozvánka ke sdílení adopce (${animalName})`,
     html,
     text,
@@ -241,8 +274,7 @@ export async function acceptShareInvite(token: string, userId: string, userEmail
     return { ok: false as const, error: 'Předplatné dárce již není aktivní', status: 403 }
   }
 
-  const emailNorm = normEmail(userEmail)
-  if (emailNorm !== normEmail(inv.recipientEmail)) {
+  if (!emailsMatchForInvite(userEmail, inv.recipientEmail)) {
     return {
       ok: false as const,
       error: 'Přihlaste se e-mailem, na který byla pozvánka odeslána.',
@@ -261,11 +293,14 @@ export async function acceptShareInvite(token: string, userId: string, userEmail
   await prisma.$transaction([
     prisma.subscriptionGiftRecipient.upsert({
       where: {
-        subscriptionId_email: { subscriptionId: inv.subscriptionId, email: normEmail(inv.recipientEmail) },
+        subscriptionId_email: {
+          subscriptionId: inv.subscriptionId,
+          email: canonicalEmailForInviteMatch(inv.recipientEmail),
+        },
       },
       create: {
         subscriptionId: inv.subscriptionId,
-        email: normEmail(inv.recipientEmail),
+        email: canonicalEmailForInviteMatch(inv.recipientEmail),
         userId,
       },
       update: { userId },
@@ -287,14 +322,7 @@ export async function acceptPendingShareInvitesForUser(userId: string, rawEmail:
   const emailNorm = normEmail(rawEmail)
   if (!emailNorm) return 0
 
-  const invites = await prisma.shareInvite.findMany({
-    where: {
-      recipientEmail: emailNorm,
-      status: ShareInviteStatus.PENDING,
-      expiresAt: { gt: new Date() },
-    },
-    include: { subscription: true },
-  })
+  const invites = await findPendingShareInvitesForEmail(rawEmail)
 
   let accepted = 0
   for (const inv of invites) {
@@ -309,14 +337,15 @@ export async function acceptPendingShareInvitesForUser(userId: string, rawEmail:
     if (giftCount >= 5) continue
 
     try {
+      const giftEmail = canonicalEmailForInviteMatch(inv.recipientEmail)
       await prisma.$transaction([
         prisma.subscriptionGiftRecipient.upsert({
           where: {
-            subscriptionId_email: { subscriptionId: inv.subscriptionId, email: emailNorm },
+            subscriptionId_email: { subscriptionId: inv.subscriptionId, email: giftEmail },
           },
           create: {
             subscriptionId: inv.subscriptionId,
-            email: emailNorm,
+            email: giftEmail,
             userId,
           },
           update: { userId },

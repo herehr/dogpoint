@@ -17,11 +17,14 @@ import {
   declineShareInviteToken,
 } from '../services/api'
 import { useAuth } from '../context/AuthContext'
+import { emailsMatchForInvite } from '../utils/emailInviteMatch'
 
 export default function InviteAccept() {
   const { token } = useParams<{ token: string }>()
   const navigate = useNavigate()
   const { user, token: authToken } = useAuth()
+  /** JWT present but /me not loaded yet — avoid showing „log in“ while already logged in */
+  const authLoading = Boolean(authToken && !user)
 
   const [loading, setLoading] = React.useState(true)
   const [preview, setPreview] = React.useState<any>(null)
@@ -86,7 +89,7 @@ export default function InviteAccept() {
     }
   }
 
-  if (loading) {
+  if (loading || authLoading) {
     return (
       <Container maxWidth="sm" sx={{ py: 8, textAlign: 'center' }}>
         <CircularProgress />
@@ -192,6 +195,17 @@ export default function InviteAccept() {
             {err}
           </Alert>
         )}
+
+        {user &&
+          authToken &&
+          p.recipientEmail &&
+          !emailsMatchForInvite(user.email, p.recipientEmail) && (
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              Jste přihlášeni jako <strong>{user.email}</strong>, ale tato pozvánka je pro{' '}
+              <strong>{p.recipientEmail}</strong>. Odhlaste se a přihlaste se účtem, na který přišla
+              pozvánka (nebo založte účet s tímto e-mailem).
+            </Alert>
+          )}
 
         {!user || !authToken ? (
           <Stack spacing={2}>
