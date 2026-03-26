@@ -36,6 +36,8 @@ import {
   cancelAdoption,
   setAuthToken,
   getMySubscriptionForAnimal,
+  myAdoptedAnimals,
+  type MyAdoptedItem,
 } from '../services/api'
 import { apiUrl } from '../services/api'
 import ShareInviteDialog from '../components/ShareInviteDialog'
@@ -289,6 +291,8 @@ export default function AnimalDetail() {
 
   const [mySubscriptionId, setMySubscriptionId] = useState<string | null>(null)
   const [shareOpen, setShareOpen] = useState(false)
+  /** Řádek z Moje adopce pro toto zvíře (kvůli sdílené adopci / pozvání) */
+  const [myAdoptionRow, setMyAdoptionRow] = useState<MyAdoptedItem | null>(null)
 
   const [animal, setAnimal] = useState<LocalAnimal | null>(null)
   const [loading, setLoading] = useState(true)
@@ -354,6 +358,24 @@ export default function AnimalDetail() {
         setMySubscriptionId(r.adopted && r.subscriptionId ? r.subscriptionId : null)
       })
       .catch(() => alive && setMySubscriptionId(null))
+    return () => {
+      alive = false
+    }
+  }, [id, user, authToken, isStaff])
+
+  useEffect(() => {
+    if (!id || !user || !authToken || isStaff) {
+      setMyAdoptionRow(null)
+      return
+    }
+    let alive = true
+    myAdoptedAnimals()
+      .then((list) => {
+        if (!alive) return
+        const row = list.find((it) => it.animalId === id) || null
+        setMyAdoptionRow(row)
+      })
+      .catch(() => alive && setMyAdoptionRow(null))
     return () => {
       alive = false
     }
@@ -591,6 +613,20 @@ export default function AnimalDetail() {
   return (
     <Container sx={{ py: 4 }}>
       <Stack spacing={1.25}>
+        {myAdoptionRow?.isGiftRecipient && (
+          <Alert severity="info" sx={{ borderRadius: 2 }}>
+            Sledujete <strong>sdílenou adopci</strong>
+            {myAdoptionRow.giftInviterName ? (
+              <>
+                {' '}
+                – pozval vás <strong>{myAdoptionRow.giftInviterName}</strong>.
+              </>
+            ) : (
+              '.'
+            )}
+          </Alert>
+        )}
+
         <Stack direction="row" spacing={1} alignItems="center">
           <Typography variant="h4" sx={{ fontWeight: 900, flexGrow: 1 }}>
             {title}
@@ -636,12 +672,12 @@ export default function AnimalDetail() {
 
         <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
           <Chip label={age} />
-          {!isStaff && isUnlocked && mySubscriptionId && (
+          {!isStaff && isUnlocked && mySubscriptionId && !myAdoptionRow?.isGiftRecipient && (
             <Button variant="text" size="small" color="inherit" onClick={() => setShareOpen(true)}>
               Sdílet se známým
             </Button>
           )}
-          {!isStaff && isUnlocked && (
+          {!isStaff && isUnlocked && !myAdoptionRow?.isGiftRecipient && (
             <Button variant="outlined" color="error" size="small" onClick={onCancelAdoption}>
               Zrušit adopci
             </Button>
@@ -878,7 +914,7 @@ export default function AnimalDetail() {
         }}
       />
 
-      {mySubscriptionId && id && (
+      {mySubscriptionId && id && !myAdoptionRow?.isGiftRecipient && (
         <ShareInviteDialog
           open={shareOpen}
           onClose={() => setShareOpen(false)}

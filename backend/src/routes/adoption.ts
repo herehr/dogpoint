@@ -381,7 +381,17 @@ router.get('/my', checkAuth, async (req: Request, res: Response) => {
       orderBy: { startedAt: 'asc' },
     })
 
-    const items = subs.map((sub) => {
+    const items: Array<{
+      subscriptionId: string
+      animalId: string
+      title: string
+      main?: string
+      since: Date
+      status: SubscriptionStatus | 'ACTIVE'
+      isGiftRecipient: boolean
+      giftInviterName?: string
+      giftInviterEmail?: string
+    }> = subs.map((sub) => {
       const animal = sub.animal as any
       const main = animal?.main ?? animal?.galerie?.[0]?.url ?? undefined
       return {
@@ -408,6 +418,7 @@ router.get('/my', checkAuth, async (req: Request, res: Response) => {
                 galerie: { select: { url: true }, orderBy: { id: 'asc' }, take: 1 },
               },
             },
+            user: { select: { firstName: true, lastName: true, email: true } },
           },
         },
       },
@@ -420,6 +431,11 @@ router.get('/my', checkAuth, async (req: Request, res: Response) => {
       if (items.some((i) => i.animalId === animalId)) continue // already have it (own sub)
       const animal = sub.animal as any
       const main = animal?.main ?? animal?.galerie?.[0]?.url ?? undefined
+      const donor = sub.user as { firstName?: string | null; lastName?: string | null; email?: string | null } | null
+      const giftInviterName =
+        [donor?.firstName, donor?.lastName].filter(Boolean).join(' ').trim() ||
+        donor?.email?.split('@')[0] ||
+        'Dárce'
       items.push({
         subscriptionId: sub.id,
         animalId,
@@ -428,6 +444,8 @@ router.get('/my', checkAuth, async (req: Request, res: Response) => {
         since: sub.startedAt,
         status: 'ACTIVE' as const,
         isGiftRecipient: true,
+        giftInviterName,
+        giftInviterEmail: donor?.email || undefined,
       })
     }
 

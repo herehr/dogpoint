@@ -252,6 +252,7 @@ export default function UserDashboard() {
             const animalId = (it as any).animalId
             const subscriptionId = (it as any).subscriptionId
             const isGiftRecipient = (it as any).isGiftRecipient === true
+            const giftInviterName = (it as any).giftInviterName as string | undefined
 
             return (
               <Grid item xs={12} sm={6} md={4} key={animalId}>
@@ -295,6 +296,12 @@ export default function UserDashboard() {
                           {status && <Chip size="small" label={status} />}
                         </Stack>
                       </Stack>
+
+                      {isGiftRecipient && giftInviterName && (
+                        <Typography variant="body2" color="primary.main" sx={{ mt: 0.75, fontWeight: 600 }}>
+                          Pozvánka od {giftInviterName}
+                        </Typography>
+                      )}
 
                       {since && (
                         <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>

@@ -491,6 +491,9 @@ export type MyAdoptedItem = {
   status?: 'ACTIVE' | 'PENDING' | 'CANCELED'
   subscriptionId?: string
   isGiftRecipient?: boolean
+  /** Kdo pozval ke sdílené adopci (pouze u obdarovaného) */
+  giftInviterName?: string
+  giftInviterEmail?: string
 }
 
 function normalizeToMyAdoptedItem(x: any): MyAdoptedItem | null {
@@ -521,6 +524,8 @@ function normalizeToMyAdoptedItem(x: any): MyAdoptedItem | null {
     since: since ? String(since) : undefined,
     subscriptionId: x.subscriptionId ?? x.subscription?.id ?? x.id,
     isGiftRecipient: x.isGiftRecipient === true,
+    giftInviterName: x.giftInviterName || undefined,
+    giftInviterEmail: x.giftInviterEmail || undefined,
   }
 }
 
@@ -552,12 +557,15 @@ export async function myAdoptedAnimals(): Promise<MyAdoptedItem[]> {
       name: best.name || other.name,
       subscriptionId: best.subscriptionId || other.subscriptionId,
       isGiftRecipient: best.isGiftRecipient ?? other.isGiftRecipient,
+      giftInviterName: best.giftInviterName || other.giftInviterName,
+      giftInviterEmail: best.giftInviterEmail || other.giftInviterEmail,
     })
   }
 
+  let rawFromApi: any[] = []
   try {
-    const raw = await getJSON<any[]>('/api/adoption/my')
-    for (const x of raw || []) put(normalizeToMyAdoptedItem(x))
+    rawFromApi = (await getJSON<any[]>('/api/adoption/my')) || []
+    for (const x of rawFromApi) put(normalizeToMyAdoptedItem(x))
   } catch (e: any) {
     const msg = String(e?.message || '')
     if (!/404/.test(msg)) {
@@ -565,8 +573,12 @@ export async function myAdoptedAnimals(): Promise<MyAdoptedItem[]> {
     }
   }
 
+  /** Pouze sdílené adopce (bez vlastní předplatné) — neslučovat s /me, ať host nevidí „všechny“ své vlastní záznamy. */
+  const onlyGiftFromApi =
+    rawFromApi.length > 0 && rawFromApi.every((x) => x.isGiftRecipient === true)
+
   // Skip /me when no token – avoids 401 noise for anonymous users
-  if (getToken()) {
+  if (getToken() && !onlyGiftFromApi) {
     try {
       const m = await me()
       const subs = (m.subscriptions || []) as any[]
