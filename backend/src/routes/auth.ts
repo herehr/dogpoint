@@ -3,10 +3,15 @@ import { Router, type Request, type Response } from 'express'
 import bcrypt from 'bcryptjs'
 import jwt, { type Secret, type SignOptions } from 'jsonwebtoken'
 import { prisma } from '../prisma'
-import { Role } from '@prisma/client'
+import { Role, ShareInviteStatus, SubscriptionStatus } from '@prisma/client'
 import { sendEmailSafe } from '../services/email'
 import { linkPaidOrRecentPledgesToUser } from '../controllers/authExtra'
-import { acceptPendingShareInvitesForUser } from '../services/shareInviteService'
+import {
+  acceptPendingShareInvitesForUser,
+  acceptShareInvite,
+  expireIfNeeded,
+} from '../services/shareInviteService'
+import { canonicalEmailForInviteMatch, normEmail } from '../utils/emailInviteMatch'
 
 const router = Router()
 
@@ -200,6 +205,9 @@ router.post('/register-after-payment', async (req: Request, res: Response) => {
     const passwordHash = await bcrypt.hash(password, 10)
 
     let user = await prisma.user.findUnique({ where: { email } })
+    if (user?.passwordHash) {
+      return res.status(409).json({ error: 'Účet s tímto e-mailem už existuje – přihlaste se.' })
+    }
     if (!user) {
       user = await prisma.user.create({ data: { email, passwordHash, role: Role.USER } })
     } else if (!user.passwordHash) {
@@ -214,6 +222,94 @@ router.post('/register-after-payment', async (req: Request, res: Response) => {
     res.json({ ok: true, token, role: user.role })
   } catch (e: any) {
     console.error('POST /api/auth/register-after-payment error:', e?.message || e)
+    res.status(500).json({ error: 'Internal error' })
+  }
+})
+
+/* =========================================================
+   POST /api/auth/register-invite-recipient
+   body: { inviteToken, password } — příjemce pozvánky „Sdílet se známým“
+   ========================================================= */
+
+router.post('/register-invite-recipient', async (req: Request, res: Response) => {
+  try {
+    const { inviteToken, password } = (req.body || {}) as {
+      inviteToken?: string
+      password?: string
+    }
+
+    if (!inviteToken || !password) {
+      return res.status(400).json({ error: 'Chybí token pozvánky nebo heslo' })
+    }
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Heslo musí mít alespoň 6 znaků' })
+    }
+
+    const t = String(inviteToken).trim()
+    const inv = await prisma.shareInvite.findUnique({
+      where: { token: t },
+      include: { subscription: true },
+    })
+    if (!inv) {
+      return res.status(404).json({ error: 'Pozvánka nenalezena' })
+    }
+
+    const updated = await expireIfNeeded(inv)
+    if (updated.status !== ShareInviteStatus.PENDING) {
+      if (updated.status === ShareInviteStatus.EXPIRED) {
+        return res.status(410).json({ error: 'Pozvánka vypršela' })
+      }
+      if (updated.status === ShareInviteStatus.DECLINED) {
+        return res.status(410).json({ error: 'Pozvánka byla odmítnuta' })
+      }
+      if (updated.status === ShareInviteStatus.ACCEPTED) {
+        return res.status(409).json({ error: 'Pozvánka už byla přijata – přihlaste se.' })
+      }
+      return res.status(400).json({ error: 'Pozvánku nelze přijmout' })
+    }
+
+    if (inv.subscription.status !== SubscriptionStatus.ACTIVE) {
+      return res.status(403).json({ error: 'Předplatné dárce již není aktivní' })
+    }
+
+    const emailA = normEmail(inv.recipientEmail)
+    const emailB = canonicalEmailForInviteMatch(inv.recipientEmail)
+    let user = await prisma.user.findFirst({
+      where: { OR: [{ email: emailA }, { email: emailB }] },
+    })
+    if (user?.passwordHash) {
+      return res.status(409).json({ error: 'Účet s tímto e-mailem už existuje – přihlaste se prosím.' })
+    }
+
+    const passwordHash = await bcrypt.hash(password, 10)
+    const storeEmail = canonicalEmailForInviteMatch(inv.recipientEmail)
+
+    if (!user) {
+      user = await prisma.user.create({
+        data: { email: storeEmail, passwordHash, role: Role.USER },
+      })
+    } else {
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: { passwordHash },
+      })
+    }
+
+    safeLinkPledges(user.id, user.email, 'register-invite-recipient')
+    await linkGiftRecipientsOrLog(user.id, user.email, 'register-invite-recipient')
+
+    const result = await acceptShareInvite(t, user.id, user.email)
+    if (!result.ok) {
+      console.error('[register-invite-recipient] acceptShareInvite failed', result)
+      return res.status((result as any).status || 400).json({ error: (result as any).error || 'Nepodařilo se přijmout pozvánku' })
+    }
+
+    await acceptShareInvitesOrLog(user.id, user.email, 'register-invite-recipient')
+
+    const jwt = signToken({ id: user.id, role: user.role, email: user.email })
+    res.json({ ok: true, token: jwt, role: user.role })
+  } catch (e: any) {
+    console.error('POST /api/auth/register-invite-recipient error:', e?.message || e)
     res.status(500).json({ error: 'Internal error' })
   }
 })

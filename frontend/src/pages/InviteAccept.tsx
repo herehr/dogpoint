@@ -56,7 +56,13 @@ export default function InviteAccept() {
   }, [token])
 
   const goLogin = () => {
-    navigate(`/login?next=${encodeURIComponent(`/invite/${token}`)}`, {
+    if (!token) return
+    const q = new URLSearchParams()
+    q.set('next', `/invite/${token}`)
+    q.set('inviteToken', token)
+    const rec = (preview as { recipientEmail?: string } | null)?.recipientEmail
+    if (rec) q.set('inviteEmail', rec)
+    navigate(`/login?${q.toString()}`, {
       state: { from: { pathname: `/invite/${token}` } },
       replace: false,
     })
@@ -209,16 +215,37 @@ export default function InviteAccept() {
 
         {!user || !authToken ? (
           <Stack spacing={2}>
-            <Alert severity="info">
-              Pro přijetí se přihlaste e-mailem <strong>{p.recipientEmail}</strong> (nebo se zaregistrujte s tímto
-              e-mailem).
+            <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+              Chcete tuto pozvánku přijmout, nebo odmítnout?
+            </Typography>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+              <Button
+                variant="contained"
+                size="large"
+                fullWidth
+                onClick={goLogin}
+                disabled={actionLoading}
+                sx={{ borderRadius: 40, py: 1.25 }}
+              >
+                Přijmout pozvánku
+              </Button>
+              <Button
+                variant="outlined"
+                color="inherit"
+                size="large"
+                fullWidth
+                onClick={handleDecline}
+                disabled={actionLoading}
+                sx={{ borderRadius: 40, py: 1.25 }}
+              >
+                {actionLoading ? '…' : 'Odmítnout'}
+              </Button>
+            </Stack>
+            <Alert severity="info" sx={{ mt: 0.5 }}>
+              <strong>Přijmout</strong> – otevře přihlášení: zadejte heslo pro e-mail{' '}
+              <strong>{p.recipientEmail}</strong> (nebo se nejdřív zaregistrujte s tímto e-mailem).{' '}
+              <strong>Odmítnout</strong> – můžete hned bez účtu; dárce uvidí, že jste pozvánku nevzali.
             </Alert>
-            <Button variant="contained" onClick={goLogin}>
-              Přihlásit se / Registrovat se
-            </Button>
-            <Button color="inherit" onClick={handleDecline} disabled={actionLoading}>
-              Odmítnout
-            </Button>
           </Stack>
         ) : (
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>

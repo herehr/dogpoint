@@ -64,7 +64,7 @@ async function findPendingShareInvitesForEmail(rawEmail: string) {
   return gmailPending.filter((inv) => emailsMatchForInvite(inv.recipientEmail, rawEmail))
 }
 
-async function expireIfNeeded(invite: { id: string; status: ShareInviteStatus; expiresAt: Date }) {
+export async function expireIfNeeded(invite: { id: string; status: ShareInviteStatus; expiresAt: Date }) {
   if (invite.status !== ShareInviteStatus.PENDING) return invite
   if (invite.expiresAt.getTime() > Date.now()) return invite
   await prisma.shareInvite.update({

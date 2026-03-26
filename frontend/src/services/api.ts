@@ -313,6 +313,16 @@ export async function setPasswordFirstTime(email: string, password: string) {
   return res
 }
 
+/** Nový účet / heslo pro příjemce pozvánky „Sdílet se známým“ (token z odkazu /invite/...) */
+export async function registerInviteRecipient(inviteToken: string, password: string) {
+  const res = await postJSON<{ ok: true; token: string; role: MeResponse['role'] }>(
+    '/api/auth/register-invite-recipient',
+    { inviteToken, password }
+  )
+  setToken(res.token)
+  return res
+}
+
 export async function claimPaid(email: string, sessionId?: string) {
   const res = await postJSON<{ ok: true; token: string; role: MeResponse['role'] }>(
     '/api/auth/claim-paid',
@@ -836,6 +846,7 @@ const api = {
   me,
   login,
   registerAfterPayment,
+  registerInviteRecipient,
   setPasswordFirstTime,
   claimPaid,
   confirmStripeSession,
