@@ -1,25 +1,13 @@
 // backend/src/services/moderationNotifications.ts
-import nodemailer from 'nodemailer'
 import { prisma } from '../prisma'
 import { Role } from '@prisma/client'
+import { sendEmailSafe } from './email'
 
-/**
- * Shared mailer – uses the same env vars as your emailTest route:
- * EMAIL_HOST, EMAIL_PORT, EMAIL_SECURE, EMAIL_USER, EMAIL_PASSWORD, EMAIL_FROM
- * (for SendGrid SMTP: host=smtp.sendgrid.net, user=apikey, pass=API key)
- */
-const transporter = nodemailer.createTransport({
-  host: process.env.EMAIL_HOST,
-  port: Number(process.env.EMAIL_PORT) || 587,
-  secure: process.env.EMAIL_SECURE === 'true',
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASSWORD,
-  },
-})
-
-const EMAIL_FROM = process.env.EMAIL_FROM || 'no-reply@dog-point.cz'
-const APP_BASE_URL = process.env.APP_BASE_URL || 'https://patron.dog-point.cz'
+const APP_BASE_URL = (
+  process.env.APP_BASE_URL ||
+  process.env.FRONTEND_BASE_URL ||
+  'https://patron.dog-point.cz'
+).replace(/\/+$/, '')
 
 async function sendModerationEmails(
   subject: string,
@@ -30,20 +18,7 @@ async function sendModerationEmails(
   if (!recipientEmails.length) return
 
   for (const to of recipientEmails) {
-    try {
-      await transporter.sendMail({
-        from: EMAIL_FROM,
-        to,
-        subject,
-        text: textBody,
-        html: htmlBody,
-      })
-    } catch (e: any) {
-      console.error('[moderation email] send failed', {
-        to,
-        message: e?.message,
-      })
-    }
+    await sendEmailSafe({ to, subject, html: htmlBody, text: textBody })
   }
 }
 

@@ -162,7 +162,7 @@ async function sendReminderEmailSafe(args: { userId: string; animalId: string; a
 
   const host = process.env.EMAIL_HOST
   const userEnv = process.env.EMAIL_USER
-  const pass = process.env.EMAIL_PASS
+  const pass = process.env.EMAIL_PASS || process.env.EMAIL_PASSWORD
   const from = process.env.EMAIL_FROM || 'Dogpoint <info@dogpoint.cz>'
   const port = Number(process.env.EMAIL_PORT || 587)
   const secure = port === 465

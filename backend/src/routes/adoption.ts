@@ -141,13 +141,13 @@ async function sendMailWithPdf(args: {
 
   const host = process.env.EMAIL_HOST
   const user = process.env.EMAIL_USER
-  const pass = process.env.EMAIL_PASS
+  const pass = process.env.EMAIL_PASS || process.env.EMAIL_PASSWORD
   const from = process.env.EMAIL_FROM || 'Dogpoint <info@dogpoint.cz>'
   const port = Number(process.env.EMAIL_PORT || 587)
 
   if (!host || !user || !pass) {
     // No email config -> fail clearly so you see it in logs
-    throw new Error('EMAIL_* env vars missing (EMAIL_HOST, EMAIL_USER, EMAIL_PASS)')
+    throw new Error('EMAIL_* env vars missing (EMAIL_HOST, EMAIL_USER, EMAIL_PASS or EMAIL_PASSWORD)')
   }
 
   const transporter = nodemailer.createTransport({

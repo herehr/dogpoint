@@ -38,6 +38,14 @@ const transporter =
       })
     : null
 
+/** True when nodemailer will actually send (same rules as production). Use for health checks / tests. */
+export function isSmtpConfigured(): boolean {
+  return Boolean(transporter)
+}
+
+export const EMAIL_SMTP_MISSING_HINT =
+  'Set EMAIL_HOST, EMAIL_USER, and EMAIL_PASS or EMAIL_PASSWORD (optional: EMAIL_PORT, EMAIL_SECURE, EMAIL_FROM). Same values work for dev and production builds.'
+
 export type EmailAttachment = {
   filename: string
   content: Buffer | string
@@ -77,9 +85,10 @@ export async function sendEmail(
       : a
 
   if (!transporter) {
-    console.warn('[email] sendEmail skipped', {
+    console.error('[email] sendEmail skipped (SMTP not configured)', {
       to: payload.to,
       subject: payload.subject,
+      hint: EMAIL_SMTP_MISSING_HINT,
     })
     return
   }
