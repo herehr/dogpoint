@@ -10,6 +10,7 @@ import {
   declineShareInvite,
 } from '../services/shareInviteService'
 import { notifyGiftRecipientsOnSubscriptionCanceled } from '../services/notifyGiftRecipientsOnSubscriptionCanceled'
+import { getSmtpAuthForLegacyRoutes } from '../services/email'
 
 const router = Router()
 
@@ -139,28 +140,24 @@ async function sendMailWithPdf(args: {
   const nodemailerMod: any = await import('nodemailer')
   const nodemailer = nodemailerMod.default || nodemailerMod
 
-  const host = process.env.EMAIL_HOST
-  const user = process.env.EMAIL_USER
-  const pass = process.env.EMAIL_PASS || process.env.EMAIL_PASSWORD
-  const from = process.env.EMAIL_FROM || 'Dogpoint <info@dogpoint.cz>'
-  const port = Number(process.env.EMAIL_PORT || 587)
-
-  if (!host || !user || !pass) {
-    // No email config -> fail clearly so you see it in logs
-    throw new Error('EMAIL_* env vars missing (EMAIL_HOST, EMAIL_USER, EMAIL_PASS or EMAIL_PASSWORD)')
+  const smtp = getSmtpAuthForLegacyRoutes()
+  if (!smtp) {
+    throw new Error(
+      'SMTP env missing: use EMAIL_HOST, EMAIL_USER, EMAIL_PASS (or SMTP_HOST / SMTP_USER / SMTP_PASS, etc.)',
+    )
   }
 
   const transporter = nodemailer.createTransport({
-    host,
-    port,
-    secure: false,
-    auth: { user, pass },
+    host: smtp.host,
+    port: smtp.port,
+    secure: smtp.secure,
+    auth: { user: smtp.user, pass: smtp.pass },
   })
 
   const pdf = makeSimplePdf(args.textLines)
 
   await transporter.sendMail({
-    from,
+    from: smtp.from,
     to: args.to,
     subject: args.subject,
     html: `

@@ -1,5 +1,6 @@
 // backend/src/jobs/adoptionBankCron.ts
 import { prisma } from '../prisma'
+import { getSmtpAuthForLegacyRoutes } from '../services/email'
 
 /**
  * BANK TRANSFER (FIO) cron:
@@ -157,23 +158,17 @@ async function sendReminderEmailSafe(args: { userId: string; animalId: string; a
   })
   if (!user?.email) return
 
+  const smtp = getSmtpAuthForLegacyRoutes()
+  if (!smtp) return
+
   const nodemailerMod: any = await import('nodemailer')
   const nodemailer = nodemailerMod.default || nodemailerMod
 
-  const host = process.env.EMAIL_HOST
-  const userEnv = process.env.EMAIL_USER
-  const pass = process.env.EMAIL_PASS || process.env.EMAIL_PASSWORD
-  const from = process.env.EMAIL_FROM || 'Dogpoint <info@dogpoint.cz>'
-  const port = Number(process.env.EMAIL_PORT || 587)
-  const secure = port === 465
-
-  if (!host || !userEnv || !pass) return
-
   const transporter = nodemailer.createTransport({
-    host,
-    port,
-    secure,
-    auth: { user: userEnv, pass },
+    host: smtp.host,
+    port: smtp.port,
+    secure: smtp.secure,
+    auth: { user: smtp.user, pass: smtp.pass },
   })
 
   const subject = 'Dogpoint – připomínka platby za adopci'
@@ -191,7 +186,7 @@ async function sendReminderEmailSafe(args: { userId: string; animalId: string; a
     </div>
   `
 
-  await transporter.sendMail({ from, to: user.email, subject, html })
+  await transporter.sendMail({ from: smtp.from, to: user.email, subject, html })
 }
 
 /**

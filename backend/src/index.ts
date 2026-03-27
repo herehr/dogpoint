@@ -31,6 +31,7 @@ import adoptionBankRoutes from './routes/adoptionBank'
 import { startFioCron } from './jobs/fioCron'
 import { startAdoptionBankCron } from './jobs/adoptionBankCron' // ✅ BANK TRANSFER CRON
 import { prisma } from './prisma'
+import { getEmailDiagnostics, EMAIL_SMTP_MISSING_HINT } from './services/email'
 
 /* ──────────────────────────────────────────────
  * CORS
@@ -154,6 +155,15 @@ app.get('/health/db', async (_req, res) => {
   } catch (e: any) {
     res.status(500).json({ db: false, error: e?.message })
   }
+})
+
+/** SMTP wiring check (no secrets). Use on dev to see why transactional mail is skipped. */
+app.get('/health/email', (_req, res) => {
+  const d = getEmailDiagnostics()
+  res.status(200).json({
+    ...d,
+    hint: d.smtpReady ? undefined : EMAIL_SMTP_MISSING_HINT,
+  })
 })
 
 /* ──────────────────────────────────────────────
