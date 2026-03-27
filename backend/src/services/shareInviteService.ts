@@ -1,7 +1,7 @@
 // backend/src/services/shareInviteService.ts
 import { randomBytes } from 'crypto'
 import { prisma } from '../prisma'
-import { ShareInviteStatus, SubscriptionStatus } from '@prisma/client'
+import { Prisma, ShareInviteStatus, SubscriptionStatus } from '@prisma/client'
 import { sendEmailSafe } from './email'
 import { renderDogpointEmailLayout } from './emailTemplates'
 import {
@@ -29,6 +29,23 @@ function escapeHtml(s: string): string {
 
 function newToken(): string {
   return randomBytes(32).toString('hex')
+}
+
+/** Missing ShareInvite table / migration not applied, or other DB errors we surface to the client. */
+function mapPrismaShareInviteDbError(e: unknown): string | null {
+  if (e instanceof Prisma.PrismaClientKnownRequestError) {
+    if (e.code === 'P2021') {
+      return 'Funkce pozvánek není v databázi aktivní. Spusťte migrace (tabulka ShareInvite) nebo kontaktujte správce.'
+    }
+    if (e.code === 'P2002') {
+      return 'Konflikt záznamu při vytváření pozvánky. Zkuste to prosím znovu.'
+    }
+  }
+  const msg = String((e as { message?: string })?.message || e)
+  if (/ShareInvite/i.test(msg) && /does not exist/i.test(msg)) {
+    return 'Funkce pozvánek není v databázi aktivní. Spusťte migrace nebo kontaktujte správce.'
+  }
+  return null
 }
 
 /** Pending invites for this person (Gmail dot/plus aliases match DB). */
@@ -134,13 +151,20 @@ export async function createShareInvite(params: {
     }
   }
 
-  const pendingList = await prisma.shareInvite.findMany({
-    where: {
-      subscriptionId: sub.id,
-      status: ShareInviteStatus.PENDING,
-      expiresAt: { gt: new Date() },
-    },
-  })
+  let pendingList: Awaited<ReturnType<typeof prisma.shareInvite.findMany>>
+  try {
+    pendingList = await prisma.shareInvite.findMany({
+      where: {
+        subscriptionId: sub.id,
+        status: ShareInviteStatus.PENDING,
+        expiresAt: { gt: new Date() },
+      },
+    })
+  } catch (e: unknown) {
+    const mapped = mapPrismaShareInviteDbError(e)
+    if (mapped) return { ok: false, error: mapped, status: 503 }
+    throw e
+  }
   if (pendingList.some((p) => emailsMatchForInvite(p.recipientEmail, rawTrimmed))) {
     return { ok: false, error: 'Aktivní pozvánka pro tento e-mail již existuje', status: 400 }
   }
@@ -148,20 +172,6 @@ export async function createShareInvite(params: {
   const token = newToken()
   const expiresAt = new Date()
   expiresAt.setDate(expiresAt.getDate() + EXPIRY_DAYS)
-
-  const invite = await prisma.shareInvite.create({
-    data: {
-      senderId: params.senderId,
-      subscriptionId: sub.id,
-      animalId: sub.animalId,
-      recipientEmail,
-      message,
-      reason,
-      token,
-      expiresAt,
-      status: ShareInviteStatus.PENDING,
-    },
-  })
 
   const animalName = sub.animal?.jmeno || sub.animal?.name || 'zvíře'
   const senderName =
@@ -191,6 +201,27 @@ export async function createShareInvite(params: {
     plainTextFallbackUrl: acceptUrl,
     footerNoteHtml: 'Platnost pozvánky končí ' + expiresAt.toLocaleDateString('cs-CZ') + '.',
   })
+
+  let invite: Awaited<ReturnType<typeof prisma.shareInvite.create>>
+  try {
+    invite = await prisma.shareInvite.create({
+      data: {
+        senderId: params.senderId,
+        subscriptionId: sub.id,
+        animalId: sub.animalId,
+        recipientEmail,
+        message,
+        reason,
+        token,
+        expiresAt,
+        status: ShareInviteStatus.PENDING,
+      },
+    })
+  } catch (e: unknown) {
+    const mapped = mapPrismaShareInviteDbError(e)
+    if (mapped) return { ok: false, error: mapped, status: 503 }
+    throw e
+  }
 
   sendEmailSafe({
     to: normEmail(rawTrimmed),
