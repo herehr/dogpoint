@@ -7,6 +7,17 @@ import { PaymentStatus } from '@prisma/client'
 import { requireAuth, requireAdmin } from '../middleware/authJwt'
 
 const router = Router()
+
+/** Browsers open URLs with GET — explain POST + admin auth instead of a bare 401. */
+router.get('/stripe-sync-payments', (_req: Request, res: Response) => {
+  res.setHeader('Allow', 'POST')
+  return res.status(405).json({
+    error: 'Method not allowed — use POST',
+    auth: 'Authorization: Bearer <JWT> with role ADMIN',
+    hint: 'In the app: Admin → Statistiky → „Stripe sync – stáhnout platby“. Or: curl -X POST -H "Authorization: Bearer …" this URL.',
+  })
+})
+
 router.use(requireAuth, requireAdmin)
 
 function getStripe(): Stripe | null {
