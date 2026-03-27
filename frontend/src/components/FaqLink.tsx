@@ -1,5 +1,5 @@
 import { Link as RouterLink } from 'react-router-dom'
-import MuiLink from '@mui/material/Link'
+import Typography from '@mui/material/Typography'
 import type { SxProps, Theme } from '@mui/material/styles'
 
 type Props = {
@@ -7,11 +7,29 @@ type Props = {
   sx?: SxProps<Theme>
 }
 
-/** Link to `/caste-dotazy` (FAQ). Use short labels in context, e.g. „Časté dotazy“, „Nápověda“. */
+/**
+ * Link to `/caste-dotazy`. Uses RouterLink + Typography so the route always works
+ * and the text stays clearly visible (underline + bold primary).
+ */
 export default function FaqLink({ children = 'Časté dotazy', sx }: Props) {
   return (
-    <MuiLink component={RouterLink} to="/caste-dotazy" underline="hover" color="primary" sx={sx}>
+    <Typography
+      component={RouterLink}
+      to="/caste-dotazy"
+      variant="inherit"
+      sx={{
+        color: 'primary.main',
+        fontWeight: 700,
+        textDecoration: 'underline',
+        textUnderlineOffset: '3px',
+        cursor: 'pointer',
+        '&:hover': {
+          color: 'primary.dark',
+        },
+        ...sx,
+      }}
+    >
       {children}
-    </MuiLink>
+    </Typography>
   )
 }

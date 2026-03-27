@@ -144,13 +144,16 @@ export default function SiteFooter() {
           <Divider sx={{ borderColor: 'rgba(255,255,255,0.12)' }} />
 
           {/* Bottom line */}
-          <Typography variant="caption" sx={{ opacity: 0.7 }}>
-            © {new Date().getFullYear()} Dogpoint o. p. s. •{' '}
+          <Typography variant="caption" component="div" sx={{ opacity: 0.85 }}>
+            <Box component="span" sx={{ opacity: 0.75 }}>
+              © {new Date().getFullYear()} Dogpoint o. p. s.
+            </Box>
+            {' · '}
             <Link
               component={RouterLink}
               to="/caste-dotazy"
               color="inherit"
-              sx={{ textDecoration: 'underline' }}
+              sx={{ fontWeight: 700, textDecoration: 'underline', textUnderlineOffset: 3, opacity: 1 }}
             >
               Časté dotazy
             </Link>
@@ -159,7 +162,7 @@ export default function SiteFooter() {
               component={RouterLink}
               to="/ochrana-osobnich-udaju"
               color="inherit"
-              sx={{ textDecoration: 'underline' }}
+              sx={{ fontWeight: 700, textDecoration: 'underline', textUnderlineOffset: 3, opacity: 1 }}
             >
               Ochrana osobních údajů
             </Link>

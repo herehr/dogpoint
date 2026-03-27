@@ -360,10 +360,16 @@ export default function AdoptionStart() {
         Adopce – údaje k platbě
       </Typography>
 
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         Vyplň prosím své údaje. Po úspěšné platbě ti vytvoříme účet, kde uvidíš všechny své adopce a odemčené
         příspěvky.
       </Typography>
+
+      <Alert severity="info" variant="outlined" sx={{ mb: 3, borderRadius: 2 }}>
+        <Typography variant="body2" component="span">
+          Nápověda k platbě, převodu a účtu: <FaqLink />
+        </Typography>
+      </Alert>
 
       {!hasAnimalId && (
         <Alert severity="error" sx={{ mb: 2 }}>

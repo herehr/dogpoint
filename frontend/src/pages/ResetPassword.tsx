@@ -223,10 +223,12 @@ export default function ResetPassword() {
         </form>
       </Paper>
 
-      <Typography variant="body2" color="text.secondary" sx={{ mt: 2, textAlign: 'center' }}>
-        Problém s odkazem nebo e-mailem?{' '}
-        <FaqLink />
-      </Typography>
+      <Alert severity="info" variant="outlined" sx={{ mt: 2, borderRadius: 2 }}>
+        <Typography variant="body2" component="span">
+          Problém s odkazem nebo e-mailem?{' '}
+          <FaqLink />
+        </Typography>
+      </Alert>
     </Container>
   )
 }

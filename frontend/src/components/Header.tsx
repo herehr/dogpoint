@@ -83,6 +83,17 @@ export default function Header({
     }
   }, [token, role])
 
+  const faqHeaderSx = {
+    fontWeight: 800,
+    textDecoration: 'underline',
+    textUnderlineOffset: 3,
+    fontSize: { xs: '0.78rem', sm: '0.875rem' },
+    whiteSpace: 'nowrap',
+    color: 'inherit',
+    minWidth: 0,
+    px: { xs: 0.5, sm: 1 },
+  } as const
+
   const Bell = ({ variant }: { variant: 'mobile' | 'desktop' }) => (
     <IconButton
       component={RouterLink}
@@ -123,18 +134,26 @@ export default function Header({
 
           {/* Account area */}
           {!token ? (
-            <Button component={RouterLink} to="/login" variant="outlined" sx={pillBtn}>
-              PŘIHLÁŠENÍ
-            </Button>
+            <Stack direction="row" spacing={0.5} alignItems="center" sx={{ flexShrink: 0 }}>
+              <Button component={RouterLink} to="/caste-dotazy" color="inherit" sx={faqHeaderSx}>
+                Časté dotazy
+              </Button>
+              <Button component={RouterLink} to="/login" variant="outlined" sx={pillBtn}>
+                PŘIHLÁŠENÍ
+              </Button>
+            </Stack>
           ) : (
             <>
               {/* Mobile actions */}
               <Stack
                 direction="row"
-                spacing={1}
+                spacing={0.5}
                 alignItems="center"
-                sx={{ display: { xs: 'flex', md: 'none' } }}
+                sx={{ display: { xs: 'flex', md: 'none' }, flexShrink: 0 }}
               >
+                <Button component={RouterLink} to="/caste-dotazy" color="inherit" sx={faqHeaderSx}>
+                  Časté dotazy
+                </Button>
                 <Bell variant="mobile" />
 
                 <IconButton onClick={openMenu} sx={iconCircleBtn} aria-label="Účet">
@@ -149,6 +168,15 @@ export default function Header({
                   anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
                   transformOrigin={{ vertical: 'top', horizontal: 'right' }}
                 >
+                  <MenuItem
+                    component={RouterLink}
+                    to="/caste-dotazy"
+                    onClick={closeMenu}
+                    sx={{ fontWeight: 700 }}
+                  >
+                    Časté dotazy
+                  </MenuItem>
+                  <Divider />
                   {user?.email && <MenuItem disabled>{user.email}</MenuItem>}
                   {user?.email && <Divider />}
 
@@ -184,8 +212,11 @@ export default function Header({
                 direction="row"
                 spacing={1}
                 alignItems="center"
-                sx={{ display: { xs: 'none', md: 'flex' } }}
+                sx={{ display: { xs: 'none', md: 'flex' }, flexShrink: 0 }}
               >
+                <Button component={RouterLink} to="/caste-dotazy" color="inherit" sx={faqHeaderSx}>
+                  Časté dotazy
+                </Button>
                 {user?.email && (
                   <Typography variant="body2" sx={emailSx} title={user.email}>
                     {user.email}

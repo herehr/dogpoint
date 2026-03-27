@@ -445,11 +445,13 @@ export default function Login() {
         </Stack>
       </Box>
 
-      <Typography variant="body2" color="text.secondary" sx={{ mt: 3 }}>
-        Potřebujete pomoc?{' '}
-        <FaqLink />
-        {' – příspěvky, platba, heslo, sdílení…'}
-      </Typography>
+      <Alert severity="info" variant="outlined" sx={{ mt: 3, borderRadius: 2 }}>
+        <Typography variant="body2" component="span">
+          Potřebujete pomoc?{' '}
+          <FaqLink />
+          {' – příspěvky, platba, heslo, sdílení…'}
+        </Typography>
+      </Alert>
     </Container>
   )
 }
