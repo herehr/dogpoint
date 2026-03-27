@@ -18,6 +18,7 @@ import {
 } from '../services/api'
 import { useAuth } from '../context/AuthContext'
 import { emailsMatchForInvite } from '../utils/emailInviteMatch'
+import FaqLink from '../components/FaqLink'
 
 export default function InviteAccept() {
   const { token } = useParams<{ token: string }>()
@@ -257,6 +258,10 @@ export default function InviteAccept() {
             </Button>
           </Stack>
         )}
+
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 2 }}>
+          Více o sdílení přístupu: <FaqLink sx={{ fontSize: 'inherit' }} />
+        </Typography>
       </Paper>
     </Container>
   )

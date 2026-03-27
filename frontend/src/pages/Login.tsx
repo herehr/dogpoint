@@ -25,6 +25,7 @@ import {
   registerInviteRecipient,
 } from '../services/api'
 import { useAuth } from '../context/AuthContext'
+import FaqLink from '../components/FaqLink'
 
 export default function Login() {
   const navigate = useNavigate()
@@ -443,6 +444,12 @@ export default function Login() {
           )}
         </Stack>
       </Box>
+
+      <Typography variant="body2" color="text.secondary" sx={{ mt: 3 }}>
+        Potřebujete pomoc?{' '}
+        <FaqLink />
+        {' – příspěvky, platba, heslo, sdílení…'}
+      </Typography>
     </Container>
   )
 }

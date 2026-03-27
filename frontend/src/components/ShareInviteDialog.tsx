@@ -13,6 +13,7 @@ import {
   MenuItem,
 } from '@mui/material'
 import { createShareInvite, SHARE_INVITE_REASON_PRESETS } from '../services/api'
+import FaqLink from './FaqLink'
 
 type Props = {
   open: boolean
@@ -142,6 +143,9 @@ export default function ShareInviteDialog({
               helperText={`${message.length}/${MAX_MSG}`}
               size="small"
             />
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+              Pravidla pozvánek (počet, platnost): <FaqLink sx={{ fontSize: 'inherit' }} />
+            </Typography>
           </Stack>
         )}
       </DialogContent>

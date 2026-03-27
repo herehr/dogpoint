@@ -14,6 +14,7 @@ import {
 import Visibility from '@mui/icons-material/Visibility'
 import VisibilityOff from '@mui/icons-material/VisibilityOff'
 import { useLocation, useNavigate } from 'react-router-dom'
+import FaqLink from '../components/FaqLink'
 
 const API_BASE_URL = (import.meta as any)?.env?.VITE_API_BASE_URL || ''
 
@@ -221,6 +222,11 @@ export default function ResetPassword() {
           </Stack>
         </form>
       </Paper>
+
+      <Typography variant="body2" color="text.secondary" sx={{ mt: 2, textAlign: 'center' }}>
+        Problém s odkazem nebo e-mailem?{' '}
+        <FaqLink />
+      </Typography>
     </Container>
   )
 }

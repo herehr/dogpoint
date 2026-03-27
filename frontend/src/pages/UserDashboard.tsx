@@ -26,6 +26,7 @@ import {
   apiUrl,
 } from '../services/api'
 import { useAuth } from '../context/AuthContext'
+import FaqLink from '../components/FaqLink'
 
 export default function UserDashboard() {
   const { user, refreshMe } = useAuth()
@@ -145,6 +146,9 @@ export default function UserDashboard() {
         </Typography>
         {user?.email && <Chip label={user.email} variant="outlined" />}
       </Stack>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+        <FaqLink sx={{ fontSize: 'inherit' }} /> – sdílení, zrušení adopce, notifikace…
+      </Typography>
 
       {loading && (
         <Grid container spacing={2}>

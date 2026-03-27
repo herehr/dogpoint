@@ -41,6 +41,7 @@ import {
 } from '../services/api'
 import { apiUrl } from '../services/api'
 import ShareInviteDialog from '../components/ShareInviteDialog'
+import FaqLink from '../components/FaqLink'
 
 type Media = {
   url: string
@@ -683,6 +684,11 @@ export default function AnimalDetail() {
             </Button>
           )}
         </Stack>
+        {!isStaff && isUnlocked && (
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.75 }}>
+            <FaqLink sx={{ fontSize: 'inherit' }} /> – nápověda ke sdílení a zrušení adopce.
+          </Typography>
+        )}
       </Stack>
 
       <Box sx={{ mt: 3 }}>

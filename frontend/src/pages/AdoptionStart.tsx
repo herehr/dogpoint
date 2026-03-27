@@ -27,6 +27,7 @@ import {
   sendBankPaidEmail, // ✅ BANK step 3 (Zaplatil jsem -> create subscription if missing + send "paid" email)
 } from '../services/api'
 import { useAuth } from '../context/AuthContext'
+import FaqLink from '../components/FaqLink'
 
 type PaymentMethod = 'card' | 'applepay' | 'googlepay' | 'bank'
 
@@ -443,6 +444,9 @@ export default function AdoptionStart() {
         <Button variant="text" component={RouterLink} to={id ? `/zvire/${id}` : '/'}>
           Zpět na detail
         </Button>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+          <FaqLink sx={{ fontSize: 'inherit' }} /> – platba kartou i převodem, účet, co dál.
+        </Typography>
       </Stack>
 
       {showBankInstructions && (
