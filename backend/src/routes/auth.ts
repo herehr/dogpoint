@@ -34,7 +34,13 @@ function signToken(user: { id: string; role: Role | string; email: string }) {
    Config
    ========================================================= */
 
-const APP_BASE_URL = process.env.APP_BASE_URL || 'https://patron.dog-point.cz'
+/** Public web origin for e-mail links (password reset). Prefer APP_BASE_URL; many envs only set FRONTEND_BASE_URL. */
+const APP_BASE_URL = (
+  process.env.APP_BASE_URL ||
+  process.env.FRONTEND_BASE_URL ||
+  process.env.PUBLIC_WEB_BASE_URL ||
+  'https://patron.dog-point.cz'
+).replace(/\/+$/, '')
 
 /* =========================================================
    Helper: do NOT break auth if pledge-linking fails
