@@ -788,7 +788,18 @@ export async function fetchMyAdoptions(): Promise<any[]> {
     headers: { Authorization: `Bearer ${t}` },
     credentials: 'include',
   })
-  if (!res.ok) throw new Error(`Načtení adopcí selhalo: ${res.status}`)
+  if (!res.ok) {
+    let detail = ''
+    try {
+      const j = await res.json()
+      detail = (j?.error || j?.message || '').toString()
+    } catch {
+      /* ignore */
+    }
+    throw new Error(
+      detail ? `Načtení adopcí selhalo: ${res.status} – ${detail}` : `Načtení adopcí selhalo: ${res.status}`
+    )
+  }
   return await res.json()
 }
 
