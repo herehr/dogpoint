@@ -363,6 +363,14 @@ router.get('/my', checkAuth, async (req: Request, res: Response) => {
     })
     const userEmail = user?.email?.toLowerCase().trim() || ''
 
+    const animalSelect = {
+      select: {
+        jmeno: true,
+        name: true,
+        main: true,
+      },
+    } as const
+
     // 1) Own subscriptions (ACTIVE + PENDING)
     const subs = await prisma.subscription.findMany({
       where: {
@@ -370,11 +378,7 @@ router.get('/my', checkAuth, async (req: Request, res: Response) => {
         status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.PENDING] },
       },
       include: {
-        animal: {
-          include: {
-            galerie: { select: { url: true }, orderBy: { id: 'asc' }, take: 1 },
-          },
-        },
+        animal: animalSelect,
       },
       orderBy: { startedAt: 'asc' },
     })
@@ -390,12 +394,12 @@ router.get('/my', checkAuth, async (req: Request, res: Response) => {
       giftInviterName?: string
       giftInviterEmail?: string
     }> = subs.map((sub) => {
-      const animal = sub.animal as any
-      const main = animal?.main ?? animal?.galerie?.[0]?.url ?? undefined
+      const animal = sub.animal as { jmeno?: string | null; name?: string | null; main?: string | null } | null
+      const main = animal?.main ?? undefined
       return {
         subscriptionId: sub.id,
         animalId: sub.animalId,
-        title: sub.animal?.jmeno || sub.animal?.name || 'Zvíře',
+        title: animal?.jmeno || animal?.name || 'Zvíře',
         main: main || undefined,
         since: sub.startedAt,
         status: sub.status,
@@ -403,48 +407,48 @@ router.get('/my', checkAuth, async (req: Request, res: Response) => {
       }
     })
 
-    // 2) Gift recipient: animals where user is obdarovaný (by userId or email)
-    const giftLinks = await prisma.subscriptionGiftRecipient.findMany({
-      where: userEmail
-        ? { OR: [{ userId }, { email: userEmail }] }
-        : { userId },
-      include: {
-        subscription: {
-          include: {
-            animal: {
-              include: {
-                galerie: { select: { url: true }, orderBy: { id: 'asc' }, take: 1 },
-              },
+    // 2) Gift recipient (sdílená adopce) — table may be missing on older DBs; never fail whole /my
+    try {
+      const giftLinks = await prisma.subscriptionGiftRecipient.findMany({
+        where: userEmail
+          ? { OR: [{ userId }, { email: userEmail }] }
+          : { userId },
+        include: {
+          subscription: {
+            include: {
+              animal: animalSelect,
+              user: { select: { firstName: true, lastName: true, email: true } },
             },
-            user: { select: { firstName: true, lastName: true, email: true } },
           },
         },
-      },
-    })
-
-    for (const link of giftLinks) {
-      const sub = link.subscription
-      if (!sub || sub.status !== SubscriptionStatus.ACTIVE || !sub.animal) continue
-      const animalId = sub.animalId
-      if (items.some((i) => i.animalId === animalId)) continue // already have it (own sub)
-      const animal = sub.animal as any
-      const main = animal?.main ?? animal?.galerie?.[0]?.url ?? undefined
-      const donor = sub.user as { firstName?: string | null; lastName?: string | null; email?: string | null } | null
-      const giftInviterName =
-        [donor?.firstName, donor?.lastName].filter(Boolean).join(' ').trim() ||
-        donor?.email?.split('@')[0] ||
-        'Dárce'
-      items.push({
-        subscriptionId: sub.id,
-        animalId,
-        title: sub.animal?.jmeno || sub.animal?.name || 'Zvíře',
-        main: main || undefined,
-        since: sub.startedAt,
-        status: 'ACTIVE' as const,
-        isGiftRecipient: true,
-        giftInviterName,
-        giftInviterEmail: donor?.email || undefined,
       })
+
+      for (const link of giftLinks) {
+        const sub = link.subscription
+        if (!sub || sub.status !== SubscriptionStatus.ACTIVE || !sub.animal) continue
+        const animalId = sub.animalId
+        if (items.some((i) => i.animalId === animalId)) continue
+        const animal = sub.animal as { jmeno?: string | null; name?: string | null; main?: string | null }
+        const main = animal?.main ?? undefined
+        const donor = sub.user as { firstName?: string | null; lastName?: string | null; email?: string | null } | null
+        const giftInviterName =
+          [donor?.firstName, donor?.lastName].filter(Boolean).join(' ').trim() ||
+          donor?.email?.split('@')[0] ||
+          'Dárce'
+        items.push({
+          subscriptionId: sub.id,
+          animalId,
+          title: animal?.jmeno || animal?.name || 'Zvíře',
+          main: main || undefined,
+          since: sub.startedAt,
+          status: 'ACTIVE' as const,
+          isGiftRecipient: true,
+          giftInviterName,
+          giftInviterEmail: donor?.email || undefined,
+        })
+      }
+    } catch (giftErr: any) {
+      console.error('[adoption/my] gift recipient query failed (continuing without gifts):', giftErr?.message || giftErr)
     }
 
     return res.json(items)
