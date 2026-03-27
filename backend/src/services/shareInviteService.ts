@@ -31,19 +31,24 @@ function newToken(): string {
   return randomBytes(32).toString('hex')
 }
 
-/** Missing ShareInvite table / migration not applied, or other DB errors we surface to the client. */
+/** Missing tables / migration not applied, or other DB errors we surface to the client. */
 function mapPrismaShareInviteDbError(e: unknown): string | null {
   if (e instanceof Prisma.PrismaClientKnownRequestError) {
     if (e.code === 'P2021') {
-      return 'Funkce pozvánek není v databázi aktivní. Spusťte migrace (tabulka ShareInvite) nebo kontaktujte správce.'
+      const modelName = String((e.meta as { modelName?: string })?.modelName || '')
+      const suffix = modelName ? ` (chybí: ${modelName})` : ''
+      return `V databázi chybí potřebná tabulka${suffix}. Na serveru spusťte migrace: npx prisma migrate deploy`
     }
     if (e.code === 'P2002') {
       return 'Konflikt záznamu při vytváření pozvánky. Zkuste to prosím znovu.'
     }
   }
   const msg = String((e as { message?: string })?.message || e)
-  if (/ShareInvite/i.test(msg) && /does not exist/i.test(msg)) {
-    return 'Funkce pozvánek není v databázi aktivní. Spusťte migrace nebo kontaktujte správce.'
+  if (
+    (/ShareInvite|SubscriptionGiftRecipient/i.test(msg) || /relation /i.test(msg)) &&
+    /does not exist/i.test(msg)
+  ) {
+    return 'V databázi chybí tabulka pro pozvánky nebo sdílené přístupy. Spusťte migrace (prisma migrate deploy).'
   }
   return null
 }
@@ -111,100 +116,105 @@ export async function createShareInvite(params: {
   }
   const reason = params.reason?.trim()?.slice(0, 200) || null
 
-  const sub = await prisma.subscription.findFirst({
-    where: {
-      id: params.subscriptionId,
-      userId: params.senderId,
-      status: SubscriptionStatus.ACTIVE,
-    },
-    include: {
-      animal: { select: { id: true, jmeno: true, name: true, main: true } },
-      user: { select: { email: true, firstName: true, lastName: true } },
-    },
-  })
-  if (!sub) {
-    return { ok: false, error: 'Adopce nenalezena nebo není aktivní', status: 404 }
-  }
-
-  const senderUser = await prisma.user.findUnique({
-    where: { id: params.senderId },
-    select: { email: true },
-  })
-  if (emailsMatchForInvite(senderUser?.email || '', rawTrimmed)) {
-    return { ok: false, error: 'Nemůžete pozvat sám sebe', status: 400 }
-  }
-
-  const giftCount = await prisma.subscriptionGiftRecipient.count({ where: { subscriptionId: sub.id } })
-  if (giftCount >= 5) {
-    return { ok: false, error: 'Maximálně 5 sdílených přístupů na adopci', status: 400 }
-  }
-
-  const existingGifts = await prisma.subscriptionGiftRecipient.findMany({
-    where: { subscriptionId: sub.id },
-  })
-  if (existingGifts.some((g) => emailsMatchForInvite(g.email, rawTrimmed))) {
-    return {
-      ok: false,
-      error:
-        'Tento e-mail už k této adopci patří (je v seznamu obdarovaných nebo už pozvánku přijal). Další pozvánku nepotřebuje.',
-      status: 400,
-    }
-  }
-
-  let pendingList: Awaited<ReturnType<typeof prisma.shareInvite.findMany>>
   try {
-    pendingList = await prisma.shareInvite.findMany({
+    const sub = await prisma.subscription.findFirst({
+      where: {
+        id: params.subscriptionId,
+        userId: params.senderId,
+        status: SubscriptionStatus.ACTIVE,
+      },
+      include: {
+        animal: { select: { id: true, jmeno: true, name: true, main: true } },
+        user: { select: { email: true, firstName: true, lastName: true } },
+      },
+    })
+    if (!sub) {
+      return { ok: false, error: 'Adopce nenalezena nebo není aktivní', status: 404 }
+    }
+
+    const senderUser = await prisma.user.findUnique({
+      where: { id: params.senderId },
+      select: { email: true },
+    })
+    if (emailsMatchForInvite(senderUser?.email || '', rawTrimmed)) {
+      return { ok: false, error: 'Nemůžete pozvat sám sebe', status: 400 }
+    }
+
+    const giftCount = await prisma.subscriptionGiftRecipient.count({ where: { subscriptionId: sub.id } })
+    if (giftCount >= 5) {
+      return { ok: false, error: 'Maximálně 5 sdílených přístupů na adopci', status: 400 }
+    }
+
+    const existingGifts = await prisma.subscriptionGiftRecipient.findMany({
+      where: { subscriptionId: sub.id },
+    })
+    if (existingGifts.some((g) => emailsMatchForInvite(g.email, rawTrimmed))) {
+      return {
+        ok: false,
+        error:
+          'Tento e-mail už k této adopci patří (je v seznamu obdarovaných nebo už pozvánku přijal). Další pozvánku nepotřebuje.',
+        status: 400,
+      }
+    }
+
+    const pendingList = await prisma.shareInvite.findMany({
       where: {
         subscriptionId: sub.id,
         status: ShareInviteStatus.PENDING,
         expiresAt: { gt: new Date() },
       },
     })
-  } catch (e: unknown) {
-    const mapped = mapPrismaShareInviteDbError(e)
-    if (mapped) return { ok: false, error: mapped, status: 503 }
-    throw e
-  }
-  if (pendingList.some((p) => emailsMatchForInvite(p.recipientEmail, rawTrimmed))) {
-    return { ok: false, error: 'Aktivní pozvánka pro tento e-mail již existuje', status: 400 }
-  }
+    if (pendingList.some((p) => emailsMatchForInvite(p.recipientEmail, rawTrimmed))) {
+      return { ok: false, error: 'Aktivní pozvánka pro tento e-mail již existuje', status: 400 }
+    }
 
-  const token = newToken()
-  const expiresAt = new Date()
-  expiresAt.setDate(expiresAt.getDate() + EXPIRY_DAYS)
+    const token = newToken()
+    const expiresAt = new Date()
+    expiresAt.setDate(expiresAt.getDate() + EXPIRY_DAYS)
 
-  const animalName = sub.animal?.jmeno || sub.animal?.name || 'zvíře'
-  const senderName =
-    [sub.user?.firstName, sub.user?.lastName].filter(Boolean).join(' ').trim() ||
-    sub.user?.email?.split('@')[0] ||
-    'Dárce'
-  const acceptUrl = `${APP_BASE}/invite/${token}`
-  const img = sub.animal?.main
-    ? `<p style="margin:16px 0;"><img src="${escapeHtml(sub.animal.main)}" alt="" style="max-width:100%;border-radius:12px;max-height:220px;object-fit:cover;" /></p>`
-    : ''
+    const animalName = sub.animal?.jmeno || sub.animal?.name || 'zvíře'
+    const senderName =
+      [sub.user?.firstName, sub.user?.lastName].filter(Boolean).join(' ').trim() ||
+      sub.user?.email?.split('@')[0] ||
+      'Dárce'
+    const acceptUrl = `${APP_BASE}/invite/${token}`
+    const img = sub.animal?.main
+      ? `<p style="margin:16px 0;"><img src="${escapeHtml(sub.animal.main)}" alt="" style="max-width:100%;border-radius:12px;max-height:220px;object-fit:cover;" /></p>`
+      : ''
 
-  let introHtml = `<p><strong>${escapeHtml(senderName)}</strong> vás zve ke sledování adopce zvířete <strong>${escapeHtml(animalName)}</strong> na Dogpointu.</p>`
-  if (message) {
-    introHtml += `<p style="background:#f6f7fb;padding:12px 14px;border-radius:10px;border-left:4px solid #635BFF;">${escapeHtml(message).replace(/\n/g, '<br/>')}</p>`
-  }
-  if (reason) {
-    introHtml += `<p style="color:#555;font-size:14px;">${escapeHtml(reason)}</p>`
-  }
-  introHtml += img
-  introHtml += `<p>Přijměte pozvánku a po přihlášení uvidíte příspěvky adoptovaného zvířete.</p>`
+    let introHtml = `<p><strong>${escapeHtml(senderName)}</strong> vás zve ke sledování adopce zvířete <strong>${escapeHtml(animalName)}</strong> na Dogpointu.</p>`
+    if (message) {
+      introHtml += `<p style="background:#f6f7fb;padding:12px 14px;border-radius:10px;border-left:4px solid #635BFF;">${escapeHtml(message).replace(/\n/g, '<br/>')}</p>`
+    }
+    if (reason) {
+      introHtml += `<p style="color:#555;font-size:14px;">${escapeHtml(reason)}</p>`
+    }
+    introHtml += img
+    introHtml += `<p>Přijměte pozvánku a po přihlášení uvidíte příspěvky adoptovaného zvířete.</p>`
 
-  const { html, text } = renderDogpointEmailLayout({
-    title: `Pozvánka – ${animalName}`,
-    introHtml,
-    buttonText: 'Přijmout sdílení',
-    buttonUrl: acceptUrl,
-    plainTextFallbackUrl: acceptUrl,
-    footerNoteHtml: 'Platnost pozvánky končí ' + expiresAt.toLocaleDateString('cs-CZ') + '.',
-  })
+    let html: string
+    let text: string
+    try {
+      const rendered = renderDogpointEmailLayout({
+        title: `Pozvánka – ${animalName}`,
+        introHtml,
+        buttonText: 'Přijmout sdílení',
+        buttonUrl: acceptUrl,
+        plainTextFallbackUrl: acceptUrl,
+        footerNoteHtml: 'Platnost pozvánky končí ' + expiresAt.toLocaleDateString('cs-CZ') + '.',
+      })
+      html = rendered.html
+      text = rendered.text
+    } catch (renderErr: unknown) {
+      console.error('[shareInvite] renderDogpointEmailLayout:', renderErr)
+      return {
+        ok: false,
+        error: 'Chyba při přípravě e-mailu. Zkuste to prosím znovu nebo kontaktujte podporu.',
+        status: 500,
+      }
+    }
 
-  let invite: Awaited<ReturnType<typeof prisma.shareInvite.create>>
-  try {
-    invite = await prisma.shareInvite.create({
+    const invite = await prisma.shareInvite.create({
       data: {
         senderId: params.senderId,
         subscriptionId: sub.id,
@@ -217,20 +227,25 @@ export async function createShareInvite(params: {
         status: ShareInviteStatus.PENDING,
       },
     })
+
+    sendEmailSafe({
+      to: normEmail(rawTrimmed),
+      subject: `Dogpoint – pozvánka ke sdílení adopce (${animalName})`,
+      html,
+      text,
+    }).catch((e: any) => console.warn('[shareInvite] email failed:', e?.message))
+
+    return { ok: true, id: invite.id, token: invite.token, expiresAt: invite.expiresAt.toISOString() }
   } catch (e: unknown) {
     const mapped = mapPrismaShareInviteDbError(e)
     if (mapped) return { ok: false, error: mapped, status: 503 }
-    throw e
+    console.error('[createShareInvite] unexpected:', e)
+    return {
+      ok: false,
+      error: 'Nepodařilo se vytvořit pozvánku. Zkuste to prosím znovu; pokud problém přetrvává, kontaktujte podporu.',
+      status: 500,
+    }
   }
-
-  sendEmailSafe({
-    to: normEmail(rawTrimmed),
-    subject: `Dogpoint – pozvánka ke sdílení adopce (${animalName})`,
-    html,
-    text,
-  }).catch((e: any) => console.warn('[shareInvite] email failed:', e?.message))
-
-  return { ok: true, id: invite.id, token: invite.token, expiresAt: invite.expiresAt.toISOString() }
 }
 
 export async function previewShareInvite(token: string) {
