@@ -1,6 +1,7 @@
 import { Request, Response } from 'express'
 import { PrismaClient, SubscriptionStatus, PaymentProvider, PaymentMethod } from '@prisma/client'
 import { sendEmailSafe } from '../services/email'
+import { notifyGiftRecipientsOnSubscriptionCanceled } from '../services/notifyGiftRecipientsOnSubscriptionCanceled'
 import { renderDogpointEmailLayout } from '../services/emailTemplates'
 
 const prisma = new PrismaClient()
@@ -54,6 +55,12 @@ export async function cancelSubscription(req: AuthedReq, res: Response) {
     data: { status: 'CANCELED', canceledAt: new Date() },
     select: { id: true, status: true }
   })
+
+  try {
+    await notifyGiftRecipientsOnSubscriptionCanceled(updated.id)
+  } catch (e) {
+    console.warn('[cancelSubscription] notifyGiftRecipients failed', e)
+  }
 
   return res.json(updated)
 }

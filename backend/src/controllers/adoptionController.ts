@@ -5,6 +5,7 @@ import { signToken, verifyToken, JwtPayload } from '../utils/jwt'
 
 // ✅ notifications + e-mail (handled inside notifyAdoption.ts via mailer)
 import { notifyAdoptionStarted, notifyAdoptionCancelled } from '../services/notifyAdoption'
+import { notifyGiftRecipientsOnSubscriptionCanceled } from '../services/notifyGiftRecipientsOnSubscriptionCanceled'
 
 const prisma = new PrismaClient()
 
@@ -191,20 +192,31 @@ export async function endAdoption(req: Req, res: Response) {
   const { animalId } = (req.body || {}) as { animalId: string }
   if (!animalId) return res.status(400).json({ error: 'animalId required' })
 
-  const result = await prisma.subscription.updateMany({
+  const activeSub = await prisma.subscription.findFirst({
     where: {
       userId: auth.id,
       animalId,
       status: SubscriptionStatus.ACTIVE,
     },
+    select: { id: true },
+  })
+
+  if (!activeSub) {
+    return res.status(404).json({ error: 'Aktivní adopce nenalezena' })
+  }
+
+  await prisma.subscription.update({
+    where: { id: activeSub.id },
     data: {
       status: SubscriptionStatus.CANCELED,
       canceledAt: new Date(),
     },
   })
 
-  if (result.count === 0) {
-    return res.status(404).json({ error: 'Aktivní adopce nenalezena' })
+  try {
+    await notifyGiftRecipientsOnSubscriptionCanceled(activeSub.id)
+  } catch (e) {
+    console.warn('[endAdoption] notifyGiftRecipients failed', e)
   }
 
   // ✅ Notification + email (best-effort)
@@ -214,5 +226,5 @@ export async function endAdoption(req: Req, res: Response) {
     console.warn('[notifyAdoptionCancelled] failed', e)
   }
 
-  return res.json({ ok: true, canceledCount: result.count })
+  return res.json({ ok: true, canceledCount: 1 })
 }

@@ -126,7 +126,12 @@ export async function createShareInvite(params: {
     where: { subscriptionId: sub.id },
   })
   if (existingGifts.some((g) => emailsMatchForInvite(g.email, rawTrimmed))) {
-    return { ok: false, error: 'Tento e-mail už má přístup k této adopci', status: 400 }
+    return {
+      ok: false,
+      error:
+        'Tento e-mail už k této adopci patří (je v seznamu obdarovaných nebo už pozvánku přijal). Další pozvánku nepotřebuje.',
+      status: 400,
+    }
   }
 
   const pendingList = await prisma.shareInvite.findMany({

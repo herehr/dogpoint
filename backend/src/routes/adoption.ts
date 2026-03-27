@@ -9,6 +9,7 @@ import {
   acceptShareInvite,
   declineShareInvite,
 } from '../services/shareInviteService'
+import { notifyGiftRecipientsOnSubscriptionCanceled } from '../services/notifyGiftRecipientsOnSubscriptionCanceled'
 
 const router = Router()
 
@@ -470,7 +471,17 @@ router.post('/cancel', checkAuth, async (req: Request, res: Response) => {
     const animalId = req.body?.animalId ? String(req.body.animalId) : ''
     if (!animalId) return res.status(400).json({ error: 'Missing animalId' })
 
-    const result = await prisma.subscription.updateMany({
+    const toCancel = await prisma.subscription.findMany({
+      where: {
+        userId,
+        animalId,
+        status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.PENDING] },
+      },
+      select: { id: true },
+    })
+    if (toCancel.length === 0) return res.status(404).json({ error: 'Adoption not found' })
+
+    await prisma.subscription.updateMany({
       where: {
         userId,
         animalId,
@@ -482,8 +493,15 @@ router.post('/cancel', checkAuth, async (req: Request, res: Response) => {
       },
     })
 
-    if (!result.count) return res.status(404).json({ error: 'Adoption not found' })
-    return res.json({ ok: true, canceled: result.count })
+    for (const row of toCancel) {
+      try {
+        await notifyGiftRecipientsOnSubscriptionCanceled(row.id)
+      } catch (e: any) {
+        console.warn('[adoption/cancel] notifyGiftRecipients failed', row.id, e?.message || e)
+      }
+    }
+
+    return res.json({ ok: true, canceled: toCancel.length })
   } catch (e: any) {
     console.error('[adoption/cancel] error:', e?.message || e)
     return res.status(500).json({ error: 'Failed to cancel adoption' })
