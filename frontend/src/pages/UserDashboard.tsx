@@ -196,7 +196,8 @@ export default function UserDashboard() {
                         <Stack direction="row" alignItems="center" spacing={0.5}>
                           {!isGiftRecipient && subscriptionId && (
                             <IconButton
-                              size="small"
+                              size="medium"
+                              aria-label="Sdílet adopci"
                               onClick={(e) => {
                                 e.preventDefault()
                                 e.stopPropagation()
@@ -205,7 +206,7 @@ export default function UserDashboard() {
                               title="Sdílet adopci (pozvánka e-mailem)"
                               sx={{ color: 'primary.main' }}
                             >
-                              <PersonAddAlt1OutlinedIcon fontSize="small" />
+                              <PersonAddAlt1OutlinedIcon fontSize="medium" />
                             </IconButton>
                           )}
                           {status && <Chip size="small" label={status} />}

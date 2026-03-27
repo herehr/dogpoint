@@ -98,6 +98,7 @@ router.get('/me', async (req: Request, res: Response) => {
     const subs = await prisma.subscription.findMany({
       where: { userId: user.id, status: { in: ['ACTIVE', 'PENDING'] } },
       select: {
+        id: true,
         animalId: true,
         status: true,
 
