@@ -42,6 +42,10 @@ import {
 } from '../services/api'
 import { useAuth } from '../context/AuthContext'
 
+/** When true (set on hosted dev only): hide “Darovat adopci” gift UI; style share icon with primary green. */
+const DASHBOARD_HIDE_GIFT_UI =
+  String((import.meta as any).env?.VITE_DASHBOARD_HIDE_GIFT_UI || '').toLowerCase() === 'true'
+
 export default function UserDashboard() {
   const { user, refreshMe } = useAuth()
   const location = useLocation()
@@ -275,22 +279,26 @@ export default function UserDashboard() {
                                   setShareDialog({ subscriptionId, animalName: title })
                                 }}
                                 title="Sdílet se známým (pozvánka e-mailem)"
-                                sx={{ color: 'text.secondary' }}
+                                sx={{
+                                  color: DASHBOARD_HIDE_GIFT_UI ? 'primary.main' : 'text.secondary',
+                                }}
                               >
                                 <PersonAddAlt1OutlinedIcon fontSize="small" />
                               </IconButton>
-                              <IconButton
-                                size="small"
-                                onClick={(e) => {
-                                  e.preventDefault()
-                                  e.stopPropagation()
-                                  openGiftDialog(subscriptionId, title)
-                                }}
-                                title="Darovat adopci – přidat obdarované"
-                                sx={{ color: 'primary.main' }}
-                              >
-                                <CardGiftcardIcon fontSize="small" />
-                              </IconButton>
+                              {!DASHBOARD_HIDE_GIFT_UI && (
+                                <IconButton
+                                  size="small"
+                                  onClick={(e) => {
+                                    e.preventDefault()
+                                    e.stopPropagation()
+                                    openGiftDialog(subscriptionId, title)
+                                  }}
+                                  title="Darovat adopci – přidat obdarované"
+                                  sx={{ color: 'primary.main' }}
+                                >
+                                  <CardGiftcardIcon fontSize="small" />
+                                </IconButton>
+                              )}
                             </>
                           )}
                           {status && <Chip size="small" label={status} />}
@@ -328,74 +336,76 @@ export default function UserDashboard() {
         </Grid>
       )}
 
-      <Dialog open={!!giftDialog} onClose={closeGiftDialog} maxWidth="sm" fullWidth>
-        <DialogTitle>
-          Darovat adopci – {giftDialog?.animalName || 'Zvíře'}
-        </DialogTitle>
-        <DialogContent>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Přidejte e-mail obdarovaného. Ten pak uvidí všechny příspěvky adoptovaného zvířete. Maximálně 5 obdarovaných.
-          </Typography>
-          {giftErr && (
-            <Alert severity="error" sx={{ mb: 2 }} onClose={() => setGiftErr(null)}>
-              {giftErr}
-            </Alert>
-          )}
-          <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
-            <TextField
-              size="small"
-              label="E-mail obdarovaného"
-              type="email"
-              value={newEmail}
-              onChange={(e) => setNewEmail(e.target.value)}
-              fullWidth
-              placeholder="napr. kamarad@email.cz"
-            />
-            <TextField
-              size="small"
-              label="Jméno (volitelné)"
-              value={newDisplayName}
-              onChange={(e) => setNewDisplayName(e.target.value)}
-              sx={{ minWidth: 140 }}
-            />
-            <Button
-              variant="contained"
-              onClick={handleAddGiftRecipient}
-              disabled={!newEmail.trim() || adding}
-            >
-              Přidat
-            </Button>
-          </Stack>
-          {giftLoading ? (
-            <Typography color="text.secondary">Načítám…</Typography>
-          ) : giftRecipients.length === 0 ? (
-            <Typography color="text.secondary">Zatím žádní obdarovaní.</Typography>
-          ) : (
-            <List dense>
-              {giftRecipients.map((r) => (
-                <ListItem key={r.id}>
-                  <ListItemText
-                    primary={r.email}
-                    secondary={r.displayName || null}
-                  />
-                  <ListItemSecondaryAction>
-                    <IconButton
-                      size="small"
-                      onClick={() => handleRemoveGiftRecipient(r.id)}
-                      title="Odebrat"
-                    >
-                      <DeleteOutlineIcon fontSize="small" />
-                    </IconButton>
-                  </ListItemSecondaryAction>
-                </ListItem>
-              ))}
-            </List>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={closeGiftDialog}>Zavřít</Button>
-        </DialogActions>
-      </Dialog>
+      {!DASHBOARD_HIDE_GIFT_UI && (
+        <Dialog open={!!giftDialog} onClose={closeGiftDialog} maxWidth="sm" fullWidth>
+          <DialogTitle>
+            Darovat adopci – {giftDialog?.animalName || 'Zvíře'}
+          </DialogTitle>
+          <DialogContent>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Přidejte e-mail obdarovaného. Ten pak uvidí všechny příspěvky adoptovaného zvířete. Maximálně 5 obdarovaných.
+            </Typography>
+            {giftErr && (
+              <Alert severity="error" sx={{ mb: 2 }} onClose={() => setGiftErr(null)}>
+                {giftErr}
+              </Alert>
+            )}
+            <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
+              <TextField
+                size="small"
+                label="E-mail obdarovaného"
+                type="email"
+                value={newEmail}
+                onChange={(e) => setNewEmail(e.target.value)}
+                fullWidth
+                placeholder="napr. kamarad@email.cz"
+              />
+              <TextField
+                size="small"
+                label="Jméno (volitelné)"
+                value={newDisplayName}
+                onChange={(e) => setNewDisplayName(e.target.value)}
+                sx={{ minWidth: 140 }}
+              />
+              <Button
+                variant="contained"
+                onClick={handleAddGiftRecipient}
+                disabled={!newEmail.trim() || adding}
+              >
+                Přidat
+              </Button>
+            </Stack>
+            {giftLoading ? (
+              <Typography color="text.secondary">Načítám…</Typography>
+            ) : giftRecipients.length === 0 ? (
+              <Typography color="text.secondary">Zatím žádní obdarovaní.</Typography>
+            ) : (
+              <List dense>
+                {giftRecipients.map((r) => (
+                  <ListItem key={r.id}>
+                    <ListItemText
+                      primary={r.email}
+                      secondary={r.displayName || null}
+                    />
+                    <ListItemSecondaryAction>
+                      <IconButton
+                        size="small"
+                        onClick={() => handleRemoveGiftRecipient(r.id)}
+                        title="Odebrat"
+                      >
+                        <DeleteOutlineIcon fontSize="small" />
+                      </IconButton>
+                    </ListItemSecondaryAction>
+                  </ListItem>
+                ))}
+              </List>
+            )}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={closeGiftDialog}>Zavřít</Button>
+          </DialogActions>
+        </Dialog>
+      )}
 
       <ShareInviteDialog
         open={!!shareDialog}
