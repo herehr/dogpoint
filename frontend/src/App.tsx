@@ -41,6 +41,7 @@ import ResetPassword from './pages/ResetPassword'
 import SetPasswordFromInvite from './pages/SetPasswordFromInvite'
 import TaxFormPage from './pages/TaxFormPage'
 import InviteAccept from './pages/InviteAccept'
+import FaqPage from './pages/FaqPage'
 import AdminTax from './pages/AdminTax'
 import AdminTaxCertificates from './pages/AdminTaxCertificates'
 
@@ -117,6 +118,7 @@ export default function App() {
         <Route path="zvirata/:id" element={<AnimalDetail />} />
         <Route path="invite/:token" element={<InviteAccept />} />
         <Route path="ochrana-osobnich-udaju" element={<OchranaOsobnichUdaju />} />
+        <Route path="caste-dotazy" element={<FaqPage />} />
         <Route path="notifikace" element={<NotificationsPage />} />
         <Route path="/nastavit-heslo" element={<SetPasswordFromInvite />} />
         <Route path="/udaje-pro-potvrzeni" element={<TaxFormPage />} />

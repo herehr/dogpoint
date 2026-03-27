@@ -148,6 +148,15 @@ export default function SiteFooter() {
             © {new Date().getFullYear()} Dogpoint o. p. s. •{' '}
             <Link
               component={RouterLink}
+              to="/caste-dotazy"
+              color="inherit"
+              sx={{ textDecoration: 'underline' }}
+            >
+              Časté dotazy
+            </Link>
+            {' · '}
+            <Link
+              component={RouterLink}
               to="/ochrana-osobnich-udaju"
               color="inherit"
               sx={{ textDecoration: 'underline' }}
