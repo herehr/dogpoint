@@ -1,4 +1,5 @@
 // backend/src/jobs/adoptionBankCron.ts
+import { SubscriptionStatus } from '@prisma/client'
 import { prisma } from '../prisma'
 import { getSmtpAuthForLegacyRoutes } from '../services/email'
 
@@ -6,7 +7,7 @@ import { getSmtpAuthForLegacyRoutes } from '../services/email'
  * BANK TRANSFER (FIO) cron:
  * - PENDING subscriptions get temporary access for 30 days (tempAccessUntil)
  * - If not paid within 30 days -> send reminder + set graceUntil (+10 days)
- * - If still not paid after graceUntil -> set INACTIVE (or CANCELED if you prefer)
+ * - If still not paid after graceUntil -> set CANCELED (SubscriptionStatus has no INACTIVE)
  *
  * NOTE:
  * - This job must NOT crash the app if some schema fields differ.
@@ -122,8 +123,9 @@ async function tick() {
         await prisma.subscription.update({
           where: { id: s.id },
           data: {
-            status: 'INACTIVE' as any, // or 'CANCELED' if that’s your preferred final state
-          } as any,
+            status: SubscriptionStatus.CANCELED,
+            canceledAt: now,
+          },
         })
         changed++
         continue
