@@ -202,7 +202,7 @@ export default function UserDashboard() {
                                 e.stopPropagation()
                                 setShareDialog({ subscriptionId, animalName: title })
                               }}
-                              title="Sdílet se známým (pozvánka e-mailem)"
+                              title="Sdílet adopci (pozvánka e-mailem)"
                               sx={{ color: 'primary.main' }}
                             >
                               <PersonAddAlt1OutlinedIcon fontSize="small" />

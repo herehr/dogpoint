@@ -674,8 +674,14 @@ export default function AnimalDetail() {
         <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
           <Chip label={age} />
           {!isStaff && isUnlocked && mySubscriptionId && !myAdoptionRow?.isGiftRecipient && (
-            <Button variant="text" size="small" color="inherit" onClick={() => setShareOpen(true)}>
-              Sdílet se známým
+            <Button
+              variant="text"
+              size="small"
+              color="inherit"
+              onClick={() => setShareOpen(true)}
+              title="Pozvánka e-mailem – prohlížení příspěvků bez předplatného"
+            >
+              Sdílet adopci
             </Button>
           )}
           {!isStaff && isUnlocked && !myAdoptionRow?.isGiftRecipient && (

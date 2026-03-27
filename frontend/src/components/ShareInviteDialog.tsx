@@ -79,7 +79,7 @@ export default function ShareInviteDialog({
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>Sdílet se známým – {animalName}</DialogTitle>
+      <DialogTitle>Sdílet adopci – {animalName}</DialogTitle>
       <DialogContent>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           Příjemce dostane e-mail s odkazem. Po přijetí uvidí příspěvky zvířete (bez možnosti platit). Platnost
