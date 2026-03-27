@@ -17,7 +17,7 @@ Krátký průvodce adopcí na dálku pro dárce. Text odpovídá hlavním kroků
 | Daně | [Daňové potvrzení – údaje](#daňové-potvrzení--údaje-pro-potvrzení) |
 | Ostatní | [Notifikace](#notifikace) · [Soukromí](#ochrana-osobních-údajů) · [Nefunguje platba nebo e-mail](#nefunguje-platba-nebo-nedorazil-e-mail) |
 
-**Tip pro vyhledávání:** V prohlížeči použijte `Ctrl+F` / `Cmd+F` a hledejte např. *Stripe*, *VS*, *pozvánka*, *heslo*, *daň*.
+**Tip pro vyhledávání:** Nad textem je pole **Hledat** – zúží zobrazení na sekce, kde se slova vyskytují (hledání ignoruje háčky a čárky; více slov musí být všechna v jedné sekci). Doplňkově můžete v prohlížeči použít `Ctrl+F` / `Cmd+F` (např. *Stripe*, *VS*, *pozvánka*).
 
 ---
 
