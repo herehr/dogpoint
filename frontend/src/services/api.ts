@@ -7,6 +7,28 @@
 const API_BASE =
   (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/+$/, '') || ''
 
+if (import.meta.env.PROD && !API_BASE) {
+  // eslint-disable-next-line no-console
+  console.error(
+    '[Dogpoint] VITE_API_BASE_URL is empty in production build — set it in the static host env / build.'
+  )
+}
+
+/** App Platform / CDN often returns HTML error pages; never show that blob to users. */
+function friendlyErrorFromBody(status: number, rawText: string): string {
+  const t = (rawText || '').trim()
+  if (
+    t.startsWith('<!DOCTYPE') ||
+    t.startsWith('<html') ||
+    /\bvia_upstream\b/i.test(t) ||
+    t.includes('connection_timed_out')
+  ) {
+    return `Backend dočasně neodpovídá (HTTP ${status}). Zkuste to za chvíli; při opakování zkontrolujte stav nasazení na DigitalOcean.`
+  }
+  if (t.length > 600) return `${t.slice(0, 280)}…`
+  return t || `HTTP ${status}`
+}
+
 export function apiUrl(path = ''): string {
   return `${API_BASE}${path}`
 }
@@ -240,7 +262,8 @@ async function doFetch<T>(path: string, opts: FetchOpts = {}): Promise<T> {
           serverMsg = errJson?.error || errJson?.message || ''
           serverDetail = errJson?.detail || ''
         } else {
-          serverMsg = await res.text()
+          const raw = await res.text()
+          serverMsg = friendlyErrorFromBody(res.status, raw)
         }
       } catch {}
 

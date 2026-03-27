@@ -208,14 +208,25 @@ export function startAdoptionBankCron() {
 
   const everyMinutes = Number(process.env.BANK_CRON_EVERY_MINUTES || 5)
   const intervalMs = Math.max(1, everyMinutes) * MS.minute
+  /** Delay first run so deploy health checks and API traffic are not competing with DB-heavy tick (reduces 503 right after deploy). */
+  const firstDelayMs = Math.max(0, Number(process.env.BANK_CRON_FIRST_DELAY_MS ?? 90_000))
 
-  console.log(`[bank-cron] starting (every ${everyMinutes} min)`)
+  console.log(
+    `[bank-cron] starting (every ${everyMinutes} min, first run after ${firstDelayMs} ms)`
+  )
 
-  // run once quickly, then interval
-  tick().catch(() => {})
-  intervalHandle = setInterval(() => {
-    tick().catch(() => {})
-  }, intervalMs)
+  const run = () => tick().catch(() => {})
+
+  const startLoop = () => {
+    run()
+    intervalHandle = setInterval(run, intervalMs)
+  }
+
+  if (firstDelayMs > 0) {
+    setTimeout(startLoop, firstDelayMs)
+  } else {
+    startLoop()
+  }
 }
 
 export function stopAdoptionBankCron() {
