@@ -186,7 +186,7 @@ app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
 const PORT = Number(process.env.PORT) || 8080
 
 const server = app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Server listening on ${PORT}`)
+  console.log(`🚀 Server listening on ${PORT} (0.0.0.0)`)
 
   // FIO import cron
   try {
@@ -201,6 +201,20 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   } catch (e: any) {
     console.error('[ADOPTION-BANK CRON] failed to start', e?.message)
   }
+})
+
+server.on('error', (err: NodeJS.ErrnoException) => {
+  console.error('[listen] fatal:', err?.code, err?.message)
+  process.exit(1)
+})
+
+process.on('uncaughtException', (err) => {
+  console.error('[process] uncaughtException:', err)
+  process.exit(1)
+})
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[process] unhandledRejection:', reason)
 })
 
 // Graceful shutdown
