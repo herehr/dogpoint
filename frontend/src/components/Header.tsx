@@ -151,9 +151,6 @@ export default function Header({
                 alignItems="center"
                 sx={{ display: { xs: 'flex', md: 'none' }, flexShrink: 0 }}
               >
-                <Button component={RouterLink} to="/caste-dotazy" color="inherit" sx={faqHeaderSx}>
-                  Časté dotazy
-                </Button>
                 <Bell variant="mobile" />
 
                 <IconButton onClick={openMenu} sx={iconCircleBtn} aria-label="Účet">
@@ -168,15 +165,6 @@ export default function Header({
                   anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
                   transformOrigin={{ vertical: 'top', horizontal: 'right' }}
                 >
-                  <MenuItem
-                    component={RouterLink}
-                    to="/caste-dotazy"
-                    onClick={closeMenu}
-                    sx={{ fontWeight: 700 }}
-                  >
-                    Časté dotazy
-                  </MenuItem>
-                  <Divider />
                   {user?.email && <MenuItem disabled>{user.email}</MenuItem>}
                   {user?.email && <Divider />}
 
@@ -214,9 +202,6 @@ export default function Header({
                 alignItems="center"
                 sx={{ display: { xs: 'none', md: 'flex' }, flexShrink: 0 }}
               >
-                <Button component={RouterLink} to="/caste-dotazy" color="inherit" sx={faqHeaderSx}>
-                  Časté dotazy
-                </Button>
                 {user?.email && (
                   <Typography variant="body2" sx={emailSx} title={user.email}>
                     {user.email}
