@@ -25,6 +25,20 @@ type Props = {
 
 const MAX_MSG = 300
 
+function userFacingInviteError(e: unknown): string {
+  const m = String((e as Error)?.message ?? e ?? '')
+  if (
+    m.includes('<!DOCTYPE') ||
+    m.includes('<html') ||
+    m.includes('via_upstream') ||
+    m.includes('connection_timed_out') ||
+    m.includes('App Platform failed to forward')
+  ) {
+    return 'Backend dočasně neodpovídá. Zkuste to za chvíli; při opakování zkontrolujte nasazení API (DigitalOcean → Runtime logs, RAM, databáze).'
+  }
+  return m || 'Odeslání se nezdařilo'
+}
+
 export default function ShareInviteDialog({
   open,
   onClose,
@@ -71,7 +85,7 @@ export default function ShareInviteDialog({
       setDone(true)
       onSent?.()
     } catch (e: any) {
-      setErr(e?.message || 'Odeslání se nezdařilo')
+      setErr(userFacingInviteError(e))
     } finally {
       setLoading(false)
     }

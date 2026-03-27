@@ -14,7 +14,7 @@ if (import.meta.env.PROD && !API_BASE) {
   )
 }
 
-/** App Platform / CDN often returns HTML error pages; never show that blob to users. */
+/** App Platform / CDN often return HTML error pages; never show that blob to users. */
 function friendlyErrorFromBody(status: number, rawText: string): string {
   const t = (rawText || '').trim()
   if (
@@ -27,6 +27,21 @@ function friendlyErrorFromBody(status: number, rawText: string): string {
   }
   if (t.length > 600) return `${t.slice(0, 280)}…`
   return t || `HTTP ${status}`
+}
+
+/** Last line of defense: mislabeled Content-Type or old bundles can still surface HTML. */
+function stripHtmlPlatformError(message: string): string {
+  const m = String(message || '')
+  if (
+    m.includes('<!DOCTYPE') ||
+    m.includes('<html') ||
+    /\bvia_upstream\b/i.test(m) ||
+    m.includes('connection_timed_out') ||
+    m.includes('App Platform failed to forward')
+  ) {
+    return 'Backend dočasně neodpovídá. Zkuste to za chvíli; pokud to trvá, zkontrolujte nasazení API na DigitalOcean (Runtime logs, RAM, databáze).'
+  }
+  return m
 }
 
 export function apiUrl(path = ''): string {
@@ -267,7 +282,9 @@ async function doFetch<T>(path: string, opts: FetchOpts = {}): Promise<T> {
         }
       } catch {}
 
-      const msg = (serverMsg || `HTTP ${res.status}`) + (serverDetail ? ` – ${serverDetail}` : '')
+      const msg = stripHtmlPlatformError(
+        (serverMsg || `HTTP ${res.status}`) + (serverDetail ? ` – ${serverDetail}` : '')
+      )
       throw new Error(msg)
     }
 
@@ -723,9 +740,15 @@ export type ShareInvitePreview =
 
 export async function previewShareInviteToken(token: string): Promise<ShareInvitePreview> {
   const res = await fetch(apiUrl(`/api/adoption/share-invite/preview/${encodeURIComponent(token)}`))
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error((data as any)?.error || `HTTP ${res.status}`)
-  return data
+  const text = await res.text()
+  if (!res.ok) {
+    throw new Error(stripHtmlPlatformError(friendlyErrorFromBody(res.status, text)))
+  }
+  try {
+    return JSON.parse(text) as ShareInvitePreview
+  } catch {
+    throw new Error('Neplatná odpověď serveru')
+  }
 }
 
 export async function acceptShareInviteToken(token: string): Promise<{ ok: boolean }> {
