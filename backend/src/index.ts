@@ -30,6 +30,7 @@ import adoptionBankRoutes from './routes/adoptionBank'
 
 import { startFioCron } from './jobs/fioCron'
 import { startAdoptionBankCron } from './jobs/adoptionBankCron' // ✅ BANK TRANSFER CRON
+import { startStripeSyncCron } from './jobs/stripeSyncCron'
 import { prisma } from './prisma'
 import { getEmailDiagnostics, EMAIL_SMTP_MISSING_HINT } from './services/email'
 
@@ -200,6 +201,12 @@ const server = app.listen(PORT, '0.0.0.0', () => {
     startAdoptionBankCron()
   } catch (e: any) {
     console.error('[ADOPTION-BANK CRON] failed to start', e?.message)
+  }
+
+  try {
+    startStripeSyncCron()
+  } catch (e: any) {
+    console.error('[STRIPE SYNC CRON] failed to start', e?.message)
   }
 })
 

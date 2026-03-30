@@ -1,26 +1,13 @@
 // backend/src/jobs/fioCron.ts
 import cron from 'node-cron'
 import { importFioTransactions } from '../services/fioImport'
-import { prisma } from '../prisma'
+import { withPgAdvisoryLock } from './pgAdvisoryLock'
 
 function isoDate(d: Date): string {
   const y = d.getFullYear()
   const m = String(d.getMonth() + 1).padStart(2, '0')
   const day = String(d.getDate()).padStart(2, '0')
   return `${y}-${m}-${day}`
-}
-
-// Simple advisory lock so multiple app instances don't import simultaneously
-async function withAdvisoryLock<T>(key: number, fn: () => Promise<T>): Promise<T | null> {
-  const got = await prisma.$queryRawUnsafe<{ locked: boolean }[]>(
-    `SELECT pg_try_advisory_lock(${key}) as locked`
-  )
-  if (!got?.[0]?.locked) return null
-  try {
-    return await fn()
-  } finally {
-    await prisma.$queryRawUnsafe(`SELECT pg_advisory_unlock(${key})`)
-  }
 }
 
 export function startFioCron() {
@@ -53,7 +40,7 @@ export function startFioCron() {
 
     console.log(`[FIO CRON] import start (period ${fromISO}..${toISO})`)
 
-    const res = await withAdvisoryLock(991122, async () => {
+    const res = await withPgAdvisoryLock(991122, async () => {
       return await importFioTransactions({ fromISO, toISO })
     })
 
