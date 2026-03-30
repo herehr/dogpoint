@@ -143,7 +143,7 @@ export default function FaqPage() {
           fullWidth
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Hledat (např. platba, heslo, pozvánka, daň…)"
+          placeholder="Hledat (např. platba, patron, převod, pejsek…)"
           variant="outlined"
           size="small"
           InputProps={{
