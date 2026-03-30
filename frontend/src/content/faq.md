@@ -1,8 +1,6 @@
-# FAQ – Na co se často ptáte
+# FAQ – co vám často vrtá hlavou
 
 Odpovědi na nejčastější dotazy k adopci na dálku a platbám v projektu Dogpoint.
-
-**Hledat:** Nad textem je pole vyhledávání – zúží sekce podle slov (ignoruje diakritiku).
 
 ---
 

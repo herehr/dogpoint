@@ -1,23 +1,28 @@
 import React from 'react'
 import {
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
   Alert,
   Box,
   Button,
   Container,
-  Divider,
   IconButton,
   InputAdornment,
   Link as MuiLink,
   TextField,
   Typography,
 } from '@mui/material'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import SearchIcon from '@mui/icons-material/Search'
 import ClearIcon from '@mui/icons-material/Clear'
 import { Link as RouterLink } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import rehypeSlug from 'rehype-slug'
 import faqMarkdown from '../content/faq.md?raw'
+import { parseFaqMarkdown, type FaqSection } from '../utils/parseFaqMarkdown'
+
+const ACCORDION_BG = '#E6F7F8'
 
 function MarkdownLink(props: React.ComponentProps<'a'>) {
   const { href, children, ...rest } = props
@@ -40,31 +45,7 @@ function MarkdownLink(props: React.ComponentProps<'a'>) {
   )
 }
 
-/** Lowercase + strip diacritics so "ucet" finds "účet". */
-function normalizeForSearch(s: string): string {
-  return s
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/\p{M}/gu, '')
-}
-
-/** Split FAQ into blocks at ## headings (H2 only); first block is intro + title. */
-function splitFaqByH2(md: string): { raw: string }[] {
-  const parts = md.split(/\n(?=## )/)
-  return parts.map((p) => p.trim()).filter(Boolean).map((raw) => ({ raw }))
-}
-
-function matchesSearch(haystack: string, query: string): boolean {
-  const nq = normalizeForSearch(query.trim())
-  if (!nq) return true
-  const nt = normalizeForSearch(haystack)
-  const words = nq.split(/\s+/).filter(Boolean)
-  return words.every((w) => nt.includes(w))
-}
-
 const markdownSx = {
-  '& h1': { scrollMarginTop: 96 },
-  '& h2': { scrollMarginTop: 88 },
   '& table': {
     width: '100%',
     borderCollapse: 'collapse',
@@ -79,51 +60,78 @@ const markdownSx = {
     verticalAlign: 'top',
   },
   '& th': { bgcolor: 'grey.50', fontWeight: 700 },
-  '& code': {
-    fontSize: '0.88em',
-    bgcolor: 'grey.100',
-    px: 0.5,
-    py: 0.25,
-    borderRadius: 0.5,
-    fontFamily: 'ui-monospace, monospace',
-  },
-  '& pre': { overflow: 'auto', bgcolor: 'grey.100', p: 2, borderRadius: 1 },
-  '& pre code': { bgcolor: 'transparent', p: 0 },
-  '& hr': { my: 3, borderColor: 'divider' },
   '& p': { mb: 1.5, lineHeight: 1.7, color: 'text.primary' },
+  '& p:last-child': { mb: 0 },
   '& ul, & ol': { pl: 2.5, my: 1.5 },
   '& li': { mb: 0.75 },
-  '& blockquote': {
-    borderLeft: '4px solid',
-    borderColor: 'primary.main',
-    pl: 2,
-    my: 2,
-    color: 'text.secondary',
-  },
+  '& a': { fontWeight: 600 },
 } as const
+
+function normalizeForSearch(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+}
+
+function matchesSearch(haystack: string, query: string): boolean {
+  const nq = normalizeForSearch(query.trim())
+  if (!nq) return true
+  const nt = normalizeForSearch(haystack)
+  const words = nq.split(/\s+/).filter(Boolean)
+  return words.every((w) => nt.includes(w))
+}
+
+function filterSections(sections: FaqSection[], query: string): FaqSection[] {
+  if (!query.trim()) return sections
+  const out: FaqSection[] = []
+  for (const sec of sections) {
+    if (sec.type === 'markdown') {
+      if (matchesSearch(`${sec.title} ${sec.body}`, query)) out.push(sec)
+      continue
+    }
+    const items = sec.items.filter((it) =>
+      matchesSearch(`${sec.title} ${it.question} ${it.answerMarkdown}`, query)
+    )
+    if (items.length > 0) out.push({ ...sec, items })
+  }
+  return out
+}
 
 export default function FaqPage() {
   const [searchQuery, setSearchQuery] = React.useState('')
 
-  const sections = React.useMemo(() => splitFaqByH2(faqMarkdown), [])
+  const parsed = React.useMemo(() => parseFaqMarkdown(faqMarkdown), [])
+  const filteredSections = React.useMemo(
+    () => filterSections(parsed.sections, searchQuery),
+    [parsed.sections, searchQuery]
+  )
 
-  const { displayMarkdown, matchCount, isFiltering } = React.useMemo(() => {
-    const q = searchQuery.trim()
-    if (!q) {
-      return { displayMarkdown: faqMarkdown, matchCount: sections.length, isFiltering: false }
-    }
-    const matched = sections.filter((s) => matchesSearch(s.raw, q))
-    return {
-      displayMarkdown: matched.length === 0 ? '' : matched.map((s) => s.raw).join('\n\n'),
-      matchCount: matched.length,
-      isFiltering: true,
-    }
-  }, [searchQuery, sections])
-
-  const noResults = isFiltering && matchCount === 0
+  const isFiltering = Boolean(searchQuery.trim())
+  const itemCount = filteredSections.reduce(
+    (n, s) => n + (s.type === 'accordion' ? s.items.length : 0),
+    0
+  )
+  const noResults = isFiltering && filteredSections.length === 0
 
   return (
     <Container maxWidth="md" sx={{ py: { xs: 3, md: 5 }, pb: 6 }}>
+      <Typography
+        variant="h4"
+        component="h1"
+        sx={{ fontWeight: 900, mb: 1.5, color: 'text.primary' }}
+      >
+        {parsed.pageTitle}
+      </Typography>
+
+      {parsed.introMarkdown ? (
+        <Box sx={{ ...markdownSx, mb: 3 }}>
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: MarkdownLink }}>
+            {parsed.introMarkdown}
+          </ReactMarkdown>
+        </Box>
+      ) : null}
+
       <Box
         component="section"
         aria-label="Vyhledávání v častých dotazech"
@@ -134,7 +142,7 @@ export default function FaqPage() {
           bgcolor: 'background.default',
           pt: 1,
           pb: 2,
-          mb: 1,
+          mb: 2,
           borderBottom: '1px solid',
           borderColor: 'divider',
         }}
@@ -169,48 +177,87 @@ export default function FaqPage() {
         />
         <Typography id="faq-search-hint" variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
           {noResults
-            ? 'Žádná sekce nevyhovuje. Zkuste kratší výraz nebo jiná slova (hledání ignoruje háčky a čárky).'
+            ? 'Nic nevyhovuje. Zkuste jiné slovo (hledání ignoruje háčky a čárky).'
             : isFiltering
-              ? `Zobrazeno sekcí: ${matchCount} (všechna slova z dotazu musí být v jedné sekci).`
-              : 'Psaním textu zúžíte zobrazení na sekce, kde se výraz vyskytuje. Více slov: všechna musí být nalezena ve stejné sekci.'}
+              ? `Zobrazeno otázek: ${itemCount}`
+              : 'Psaním textu zúžíte seznam otázek.'}
         </Typography>
       </Box>
 
       {noResults ? (
         <Alert severity="info" sx={{ mb: 2 }}>
-          Nic nenalezeno. Zkuste obecnější slovo nebo{' '}
-          <Button variant="text" size="small" onClick={() => setSearchQuery('')} sx={{ p: 0, minWidth: 0, verticalAlign: 'baseline' }}>
-            zrušit filtr
+          Nic nenalezeno.{' '}
+          <Button variant="text" size="small" onClick={() => setSearchQuery('')} sx={{ p: 0, minWidth: 0 }}>
+            Zrušit filtr
           </Button>
-          .
         </Alert>
       ) : (
-        <Box sx={markdownSx}>
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            rehypePlugins={[rehypeSlug]}
-            components={{
-              h1: ({ node, ...props }) => (
-                <Typography variant="h4" component="h1" gutterBottom sx={{ fontWeight: 900, mb: 2 }} {...props} />
-              ),
-              h2: ({ node, ...props }) => (
-                <Typography
-                  variant="h5"
-                  component="h2"
-                  sx={{ mt: 4, mb: 2, fontWeight: 800, '&:first-of-type': { mt: 0 } }}
-                  {...props}
-                />
-              ),
-              h3: ({ node, ...props }) => (
-                <Typography variant="h6" component="h3" sx={{ mt: 2, mb: 1, fontWeight: 700 }} {...props} />
-              ),
-              a: MarkdownLink,
-              hr: () => <Divider sx={{ my: 3 }} />,
-            }}
-          >
-            {displayMarkdown}
-          </ReactMarkdown>
-        </Box>
+        <>
+          {filteredSections.map((sec, si) => {
+            if (sec.type === 'markdown') {
+              return (
+                <Box key={`md-${si}`} sx={{ mt: 4, mb: 2 }}>
+                  <Typography variant="h5" component="h2" sx={{ fontWeight: 800, mb: 2 }}>
+                    {sec.title}
+                  </Typography>
+                  <Box sx={markdownSx}>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: MarkdownLink }}>
+                      {sec.body}
+                    </ReactMarkdown>
+                  </Box>
+                </Box>
+              )
+            }
+
+            return (
+              <Box key={`acc-${si}`} component="section" sx={{ mb: 3 }}>
+                <Typography variant="h5" component="h2" sx={{ fontWeight: 800, mb: 1.5 }}>
+                  {sec.title}
+                </Typography>
+                {sec.items.map((item) => (
+                  <Accordion
+                    key={item.id}
+                    disableGutters
+                    elevation={0}
+                    sx={{
+                      mb: 1.5,
+                      bgcolor: ACCORDION_BG,
+                      borderRadius: '10px',
+                      overflow: 'hidden',
+                      boxShadow: 'none',
+                      '&:before': { display: 'none' },
+                    }}
+                  >
+                    <AccordionSummary
+                      expandIcon={<ExpandMoreIcon sx={{ color: 'text.primary' }} aria-hidden />}
+                      aria-controls={`${item.id}-content`}
+                      id={`${item.id}-header`}
+                      sx={{
+                        px: 2,
+                        minHeight: 52,
+                        '& .MuiAccordionSummary-content': {
+                          my: 1.25,
+                          overflow: 'hidden',
+                        },
+                      }}
+                    >
+                      <Typography component="span" sx={{ fontWeight: 700, pr: 1, color: 'text.primary' }}>
+                        {item.question}
+                      </Typography>
+                    </AccordionSummary>
+                    <AccordionDetails sx={{ px: 2, pt: 0, pb: 2.5 }}>
+                      <Box sx={markdownSx}>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: MarkdownLink }}>
+                          {item.answerMarkdown}
+                        </ReactMarkdown>
+                      </Box>
+                    </AccordionDetails>
+                  </Accordion>
+                ))}
+              </Box>
+            )
+          })}
+        </>
       )}
     </Container>
   )
