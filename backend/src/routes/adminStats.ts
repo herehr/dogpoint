@@ -77,6 +77,57 @@ function csvEscape(v: any) {
   return s
 }
 
+type SubscriptionExportRow = {
+  email: string | null
+  firstName: string | null
+  lastName: string | null
+  street: string | null
+  streetNo: string | null
+  zip: string | null
+  city: string | null
+  animal: string
+  status: string
+  monthlyAmount: number | null
+  currency: string | null
+  provider: string
+  variableSymbol: string | null
+  createdAt: string | null
+}
+
+/** Same rows as GET …/adoptions/export.csv (ACTIVE + PENDING subscriptions). */
+async function loadSubscriptionExportRows(): Promise<SubscriptionExportRow[]> {
+  const subs = await prisma.subscription.findMany({
+    where: {
+      status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.PENDING] },
+    },
+    include: {
+      user: true,
+      animal: true,
+    },
+    orderBy: { createdAt: 'desc' },
+  })
+
+  return subs.map((r) => {
+    const animalName = r.animal?.jmeno || r.animal?.name || r.animal?.id || ''
+    return {
+      email: r.user?.email ?? null,
+      firstName: r.user?.firstName ?? null,
+      lastName: r.user?.lastName ?? null,
+      street: r.user?.street ?? null,
+      streetNo: r.user?.streetNo ?? null,
+      zip: r.user?.zip ?? null,
+      city: r.user?.city ?? null,
+      animal: animalName,
+      status: String(r.status),
+      monthlyAmount: r.monthlyAmount,
+      currency: r.currency ?? null,
+      provider: String(r.provider),
+      variableSymbol: r.variableSymbol ?? null,
+      createdAt: r.createdAt?.toISOString?.() ? r.createdAt.toISOString() : null,
+    }
+  })
+}
+
 /** Map provider to display method: STRIPE → CARD, FIO → BANK */
 function providerToMethod(provider: string | null | undefined): string {
   const p = String(provider ?? '').toUpperCase()
@@ -770,21 +821,26 @@ router.get('/adoptions/export-vs-595.csv', async (_req: Request, res: Response) 
 })
 
 // ───────────────────────────────────────────────────────────────
+// 6a) JSON — same data as export.csv (searchable UI in admin)
+// GET /api/admin/stats/adoptions/export.json
+// ───────────────────────────────────────────────────────────────
+router.get('/adoptions/export.json', async (_req: Request, res: Response) => {
+  try {
+    const rows = await loadSubscriptionExportRows()
+    return res.json({ ok: true, count: rows.length, rows })
+  } catch (e: any) {
+    console.error('GET /api/admin/stats/adoptions/export.json error', e)
+    return res.status(500).json({ error: 'internal error' })
+  }
+})
+
+// ───────────────────────────────────────────────────────────────
 // 6) CSV EXPORT (frontend expects this exact endpoint)
 // GET /api/admin/stats/adoptions/export.csv
 // ───────────────────────────────────────────────────────────────
 router.get('/adoptions/export.csv', async (_req: Request, res: Response) => {
   try {
-    const subs = await prisma.subscription.findMany({
-      where: {
-        status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.PENDING] },
-      },
-      include: {
-        user: true,
-        animal: true,
-      },
-      orderBy: { createdAt: 'desc' },
-    })
+    const exportRows = await loadSubscriptionExportRows()
 
     const header = [
       'email',
@@ -805,24 +861,23 @@ router.get('/adoptions/export.csv', async (_req: Request, res: Response) => {
 
     const lines: string[] = [header]
 
-    for (const r of subs) {
-      const animalName = r.animal?.jmeno || r.animal?.name || r.animal?.id || ''
+    for (const r of exportRows) {
       lines.push(
         [
-          csvEscape(r.user?.email),
-          csvEscape(r.user?.firstName),
-          csvEscape(r.user?.lastName),
-          csvEscape(r.user?.street),
-          csvEscape(r.user?.streetNo),
-          csvEscape(r.user?.zip),
-          csvEscape(r.user?.city),
-          csvEscape(animalName),
+          csvEscape(r.email),
+          csvEscape(r.firstName),
+          csvEscape(r.lastName),
+          csvEscape(r.street),
+          csvEscape(r.streetNo),
+          csvEscape(r.zip),
+          csvEscape(r.city),
+          csvEscape(r.animal),
           csvEscape(r.status),
           csvEscape(r.monthlyAmount),
           csvEscape(r.currency),
           csvEscape(r.provider),
           csvEscape(r.variableSymbol),
-          csvEscape(r.createdAt?.toISOString?.() ? r.createdAt.toISOString() : r.createdAt),
+          csvEscape(r.createdAt),
         ].join(';')
       )
     }

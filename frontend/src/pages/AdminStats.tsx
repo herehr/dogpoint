@@ -17,7 +17,11 @@ import {
   TableCell,
   TableBody,
   Box,
+  InputAdornment,
+  IconButton,
 } from '@mui/material'
+import SearchIcon from '@mui/icons-material/Search'
+import ClearIcon from '@mui/icons-material/Clear'
 import {
   BarChart,
   Bar,
@@ -30,6 +34,7 @@ import {
 } from 'recharts'
 import { useAuth } from '../context/AuthContext'
 import { getJSON, qs, apiUrl, getToken } from '../services/api'
+import { rowMatchesSearch } from '../utils/searchNormalize'
 
 function ymRangeOf(date = new Date()) {
   const y = date.getFullYear()
@@ -56,6 +61,23 @@ type AnimalAggRow = {
   paidSumSubscriptions: number
   paidSumPledges: number
   paidSumTotal: number
+}
+
+type DonorExportRow = {
+  email: string | null
+  firstName: string | null
+  lastName: string | null
+  street: string | null
+  streetNo: string | null
+  zip: string | null
+  city: string | null
+  animal: string
+  status: string
+  monthlyAmount: number | null
+  currency: string | null
+  provider: string
+  variableSymbol: string | null
+  createdAt: string | null
 }
 
 type AdoptionOverviewResp = {
@@ -130,6 +152,12 @@ export default function AdminStats({ embedded = false }: Props) {
   const [shareInvitesErr, setShareInvitesErr] = useState<string | null>(null)
   const [shareInvitesLoading, setShareInvitesLoading] = useState(false)
 
+  const [tableSearch, setTableSearch] = useState('')
+  const [donorRows, setDonorRows] = useState<DonorExportRow[] | null>(null)
+  const [donorSearch, setDonorSearch] = useState('')
+  const [donorLoading, setDonorLoading] = useState(false)
+  const [donorErr, setDonorErr] = useState<string | null>(null)
+
   const params = useMemo(() => {
     const p: Record<string, string> = {}
     if (tab !== 'animals') {
@@ -166,6 +194,36 @@ export default function AdminStats({ embedded = false }: Props) {
         return { month: monthLabel, STRIPE: v.stripe, FIO: v.fio }
       })
   }, [payments?.rows])
+
+  const filteredPaymentRows = useMemo(() => {
+    const rows = payments?.rows || []
+    if (!tableSearch.trim()) return rows
+    return rows.filter((r: Record<string, unknown>) => rowMatchesSearch(r, tableSearch))
+  }, [payments?.rows, tableSearch])
+
+  const filteredPledgeRows = useMemo(() => {
+    const rows = pledges?.rows || []
+    if (!tableSearch.trim()) return rows
+    return rows.filter((r: Record<string, unknown>) => rowMatchesSearch(r, tableSearch))
+  }, [pledges?.rows, tableSearch])
+
+  const filteredExpectedRows = useMemo(() => {
+    const rows = expected?.rows || []
+    if (!tableSearch.trim()) return rows
+    return rows.filter((r: Record<string, unknown>) => rowMatchesSearch(r, tableSearch))
+  }, [expected?.rows, tableSearch])
+
+  const filteredAnimalRows = useMemo(() => {
+    const rows = animals?.rows || []
+    if (!tableSearch.trim()) return rows
+    return rows.filter((r: Record<string, unknown>) => rowMatchesSearch(r, tableSearch))
+  }, [animals?.rows, tableSearch])
+
+  const filteredDonorRows = useMemo(() => {
+    const rows = donorRows || []
+    if (!donorSearch.trim()) return rows
+    return rows.filter((r) => rowMatchesSearch(r as unknown as Record<string, unknown>, donorSearch))
+  }, [donorRows, donorSearch])
 
   const endpoint = useMemo(() => {
     if (tab === 'payments') return '/api/admin/stats/payments'
@@ -284,6 +342,32 @@ export default function AdminStats({ embedded = false }: Props) {
     }
   }, [token])
 
+  async function loadDonorPreview() {
+    const t = token ?? getToken()
+    if (!t) return
+    setDonorErr(null)
+    setDonorLoading(true)
+    try {
+      const headers = { Authorization: `Bearer ${t}` }
+      const r = await getJSON<{ ok: boolean; rows: DonorExportRow[] }>('/api/admin/stats/adoptions/export.json', {
+        headers,
+      })
+      setDonorRows(Array.isArray(r.rows) ? r.rows : [])
+    } catch (e: any) {
+      setDonorRows(null)
+      setDonorErr(e?.message || 'Chyba načítání dárců')
+    } finally {
+      setDonorLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (token) {
+      const timer = setTimeout(loadDonorPreview, 200)
+      return () => clearTimeout(timer)
+    }
+  }, [token]) // eslint-disable-line react-hooks/exhaustive-deps -- loadDonorPreview uses current token
+
   async function runFioImport(daysBack = 30) {
     setFioImportErr(null)
     setFioImportResult(null)
@@ -305,6 +389,7 @@ export default function AdminStats({ embedded = false }: Props) {
       setFioImportResult(data)
       loadAdoptionOverview()
       loadStatsOverview()
+      loadDonorPreview()
       if (tab === 'payments') load()
     } catch (e: any) {
       setFioImportErr(e?.message || 'FIO import selhal')
@@ -330,6 +415,7 @@ export default function AdminStats({ embedded = false }: Props) {
       setStripeSyncResult(data)
       loadAdoptionOverview()
       loadStatsOverview()
+      loadDonorPreview()
       if (tab === 'payments') load()
     } catch (e: any) {
       setStripeSyncErr(e?.message || 'Stripe sync selhal')
@@ -488,6 +574,79 @@ export default function AdminStats({ embedded = false }: Props) {
             </Button>
 
             <Typography variant="subtitle2" sx={{ fontWeight: 800, mt: 2, mb: 1 }}>
+              Dárci – náhled (stejná data jako CSV)
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+              Ověření e-mailu, adresy, VS a zvířete přímo v prohlížeči.
+            </Typography>
+            {donorErr && (
+              <Alert severity="warning" sx={{ mb: 1 }}>
+                {donorErr}
+              </Alert>
+            )}
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 1 }} alignItems={{ sm: 'center' }}>
+              <TextField
+                size="small"
+                fullWidth
+                placeholder="Hledat mezi dárci (e-mail, město, VS, zvíře…)"
+                value={donorSearch}
+                onChange={(e) => setDonorSearch(e.target.value)}
+                disabled={donorLoading}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon fontSize="small" color="action" />
+                    </InputAdornment>
+                  ),
+                  endAdornment: donorSearch ? (
+                    <InputAdornment position="end">
+                      <IconButton
+                        size="small"
+                        aria-label="Vymazat hledání dárců"
+                        onClick={() => setDonorSearch('')}
+                        edge="end"
+                      >
+                        <ClearIcon fontSize="small" />
+                      </IconButton>
+                    </InputAdornment>
+                  ) : undefined,
+                }}
+              />
+              <Button variant="outlined" size="small" onClick={() => loadDonorPreview()} disabled={donorLoading}>
+                {donorLoading ? 'Načítám…' : 'Obnovit'}
+              </Button>
+            </Stack>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+              {donorRows != null
+                ? `Zobrazeno ${filteredDonorRows.length} z ${donorRows.length} řádků`
+                : donorLoading
+                  ? 'Načítám dárce…'
+                  : '—'}
+            </Typography>
+            <Box sx={{ maxHeight: 280, overflow: 'auto', border: 1, borderColor: 'divider', borderRadius: 1 }}>
+              <DataTable
+                loading={donorLoading && donorRows === null}
+                rows={filteredDonorRows}
+                columns={[
+                  { key: 'email', label: 'E-mail' },
+                  { key: 'firstName', label: 'Jméno' },
+                  { key: 'lastName', label: 'Příjmení' },
+                  { key: 'street', label: 'Ulice' },
+                  { key: 'streetNo', label: 'Č.p.' },
+                  { key: 'zip', label: 'PSČ' },
+                  { key: 'city', label: 'Město' },
+                  { key: 'animal', label: 'Zvíře' },
+                  { key: 'status', label: 'Stav sub.' },
+                  { key: 'monthlyAmount', label: 'Částka/měs.' },
+                  { key: 'currency', label: 'Měna' },
+                  { key: 'provider', label: 'Platba' },
+                  { key: 'variableSymbol', label: 'VS' },
+                  { key: 'createdAt', label: 'Vytvořeno' },
+                ]}
+              />
+            </Box>
+
+            <Typography variant="subtitle2" sx={{ fontWeight: 800, mt: 2, mb: 1 }}>
               FIO import
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
@@ -572,7 +731,8 @@ export default function AdminStats({ embedded = false }: Props) {
             </Button>
 
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-              Endpoint: <code>/api/admin/stats/adoptions/export.csv</code>
+              Export: <code>/api/admin/stats/adoptions/export.csv</code> · náhled:{' '}
+              <code>/api/admin/stats/adoptions/export.json</code>
             </Typography>
           </Box>
         </Stack>
@@ -618,6 +778,44 @@ export default function AdminStats({ embedded = false }: Props) {
 
           {!showDateRange && <Box sx={{ flex: 1 }} />}
         </Stack>
+        <TextField
+          fullWidth
+          size="small"
+          sx={{ mt: 2 }}
+          placeholder="Hledat v aktuální tabulce (e-mail, zvíře, VS, částka, reference platby…)"
+          value={tableSearch}
+          onChange={(e) => setTableSearch(e.target.value)}
+          disabled={loading}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchIcon fontSize="small" color="action" />
+              </InputAdornment>
+            ),
+            endAdornment: tableSearch ? (
+              <InputAdornment position="end">
+                <IconButton
+                  size="small"
+                  aria-label="Vymazat filtr tabulky"
+                  onClick={() => setTableSearch('')}
+                  edge="end"
+                >
+                  <ClearIcon fontSize="small" />
+                </IconButton>
+              </InputAdornment>
+            ) : undefined,
+          }}
+        />
+        {tableSearch.trim() && (
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+            Filtr tabulky — zobrazeno{' '}
+            {tab === 'payments' && `${filteredPaymentRows.length} / ${payments?.rows?.length ?? 0}`}
+            {tab === 'pledges' && `${filteredPledgeRows.length} / ${pledges?.rows?.length ?? 0}`}
+            {tab === 'expected' && `${filteredExpectedRows.length} / ${expected?.rows?.length ?? 0}`}
+            {tab === 'animals' && `${filteredAnimalRows.length} / ${animals?.rows?.length ?? 0}`}
+            {' řádků'}
+          </Typography>
+        )}
       </Paper>
 
       {err && (
@@ -654,7 +852,7 @@ export default function AdminStats({ embedded = false }: Props) {
 
           <DataTable
             loading={loading}
-            rows={payments?.rows || []}
+            rows={filteredPaymentRows}
             columns={[
               { key: 'createdAt', label: 'Datum' },
               { key: 'amount', label: 'Částka' },
@@ -663,6 +861,7 @@ export default function AdminStats({ embedded = false }: Props) {
               { key: 'userEmail', label: 'E-mail' },
               { key: 'animalName', label: 'Zvíře' },
               { key: 'source', label: 'Zdroj' },
+              { key: 'providerRef', label: 'Reference' },
             ]}
           />
         </Paper>
@@ -677,7 +876,7 @@ export default function AdminStats({ embedded = false }: Props) {
 
           <DataTable
             loading={loading}
-            rows={pledges?.rows || []}
+            rows={filteredPledgeRows}
             columns={[
               { key: 'createdAt', label: 'Datum' },
               { key: 'email', label: 'E-mail' },
@@ -685,6 +884,7 @@ export default function AdminStats({ embedded = false }: Props) {
               { key: 'amount', label: 'Částka' },
               { key: 'status', label: 'Stav' },
               { key: 'method', label: 'Metoda' },
+              { key: 'variableSymbol', label: 'VS' },
               { key: 'source', label: 'Zdroj' },
             ]}
           />
@@ -700,7 +900,7 @@ export default function AdminStats({ embedded = false }: Props) {
 
           <DataTable
             loading={loading}
-            rows={expected?.rows || []}
+            rows={filteredExpectedRows}
             columns={[
               { key: 'userEmail', label: 'E-mail' },
               { key: 'animalName', label: 'Zvíře' },
@@ -719,7 +919,7 @@ export default function AdminStats({ embedded = false }: Props) {
 
           <DataTable
             loading={loading}
-            rows={animals?.rows || []}
+            rows={filteredAnimalRows}
             columns={[
               { key: 'animalName', label: 'Zvíře' },
               { key: 'donorsActive', label: 'Aktivní dárci' },
