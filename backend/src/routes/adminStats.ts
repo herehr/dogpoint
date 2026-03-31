@@ -135,6 +135,25 @@ function providerToMethod(provider: string | null | undefined): string {
   return 'CARD' // STRIPE, PAYPAL, etc.
 }
 
+type NamePair = { firstName: string | null; lastName: string | null }
+
+/** Lookup names by e-mail (DB e-mails are stored lowercase in normal flows). */
+async function namesByEmailsLowercased(
+  emails: (string | null | undefined)[]
+): Promise<Map<string, NamePair>> {
+  const uniq = [...new Set(emails.map((e) => (e || '').trim().toLowerCase()).filter(Boolean))]
+  if (!uniq.length) return new Map()
+  const users = await prisma.user.findMany({
+    where: { email: { in: uniq } },
+    select: { email: true, firstName: true, lastName: true },
+  })
+  const m = new Map<string, NamePair>()
+  for (const u of users) {
+    m.set(u.email.trim().toLowerCase(), { firstName: u.firstName, lastName: u.lastName })
+  }
+  return m
+}
+
 // ALL endpoints below require auth + role
 router.use(requireAuth, requireAdminOrModerator)
 
@@ -374,7 +393,7 @@ router.get('/payments', async (req: Request, res: Response) => {
           subscription: {
             select: {
               animalId: true,
-              user: { select: { email: true } },
+              user: { select: { email: true, firstName: true, lastName: true } },
               animal: { select: { jmeno: true, name: true } },
             },
           },
@@ -396,6 +415,8 @@ router.get('/payments', async (req: Request, res: Response) => {
       }),
     ])
 
+    const pledgePayNameMap = await namesByEmailsLowercased(pledgePayments.map((pp) => pp.pledge?.email))
+
     const rows = [
       ...subPayments.map((p) => ({
         id: p.id,
@@ -408,23 +429,31 @@ router.get('/payments', async (req: Request, res: Response) => {
         method: providerToMethod(p.provider),
         createdAt: p.paidAt ?? p.createdAt,
         userEmail: p.subscription?.user?.email ?? null,
+        firstName: p.subscription?.user?.firstName ?? null,
+        lastName: p.subscription?.user?.lastName ?? null,
         animalId: p.subscription?.animalId ?? null,
         animalName: p.subscription?.animal?.jmeno || p.subscription?.animal?.name || null,
       })),
-      ...pledgePayments.map((pp) => ({
-        id: pp.id,
-        source: 'pledge' as const,
-        amount: pp.amount,
-        currency: pp.currency || 'CZK',
-        status: pp.status,
-        provider: pp.provider ?? 'fio',
-        providerRef: pp.providerId ?? null,
-        method: providerToMethod(pp.provider),
-        createdAt: pp.createdAt,
-        userEmail: pp.pledge?.email ?? null,
-        animalId: pp.pledge?.animalId ?? null,
-        animalName: null,
-      })),
+      ...pledgePayments.map((pp) => {
+        const em = (pp.pledge?.email || '').trim().toLowerCase()
+        const nm = em ? pledgePayNameMap.get(em) : undefined
+        return {
+          id: pp.id,
+          source: 'pledge' as const,
+          amount: pp.amount,
+          currency: pp.currency || 'CZK',
+          status: pp.status,
+          provider: pp.provider ?? 'fio',
+          providerRef: pp.providerId ?? null,
+          method: providerToMethod(pp.provider),
+          createdAt: pp.createdAt,
+          userEmail: pp.pledge?.email ?? null,
+          firstName: nm?.firstName ?? null,
+          lastName: nm?.lastName ?? null,
+          animalId: pp.pledge?.animalId ?? null,
+          animalName: null,
+        }
+      }),
     ].sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt))
 
     const total = rows.reduce((s, r) => s + (String(r.status || '').toUpperCase() === 'PAID' ? (r.amount ?? 0) : 0), 0)
@@ -485,7 +514,7 @@ router.get('/pledges', async (req: Request, res: Response) => {
           createdAt: true,
           monthlyAmount: true,
           variableSymbol: true,
-          user: { select: { email: true } },
+          user: { select: { email: true, firstName: true, lastName: true } },
           animal: { select: { id: true, jmeno: true, name: true } },
         },
       }),
@@ -501,24 +530,34 @@ router.get('/pledges', async (req: Request, res: Response) => {
         : []
     const animalMap = new Map(animals.map((a) => [a.id, a.jmeno || a.name || a.id]))
 
-    const pledgeItems = pledgeRows.map((p) => ({
-      id: p.id,
-      source: 'Karta (čeká platba)',
-      createdAt: p.createdAt,
-      email: p.email,
-      animalId: p.animalId,
-      animalName: animalMap.get(p.animalId) ?? p.animalId,
-      amount: p.amount,
-      status: p.status,
-      method: (p.method ?? 'CARD') as string,
-      interval: p.interval,
-    }))
+    const pledgeNameMap = await namesByEmailsLowercased(pledgeRows.map((p) => p.email))
+
+    const pledgeItems = pledgeRows.map((p) => {
+      const em = (p.email || '').trim().toLowerCase()
+      const nm = em ? pledgeNameMap.get(em) : undefined
+      return {
+        id: p.id,
+        source: 'Karta (čeká platba)',
+        createdAt: p.createdAt,
+        email: p.email,
+        firstName: nm?.firstName ?? null,
+        lastName: nm?.lastName ?? null,
+        animalId: p.animalId,
+        animalName: animalMap.get(p.animalId) ?? p.animalId,
+        amount: p.amount,
+        status: p.status,
+        method: (p.method ?? 'CARD') as string,
+        interval: p.interval,
+      }
+    })
 
     const subItems = pendingSubs.map((s) => ({
       id: s.id,
       source: 'Převod (čeká import)',
       createdAt: s.createdAt,
       email: s.user?.email ?? null,
+      firstName: s.user?.firstName ?? null,
+      lastName: s.user?.lastName ?? null,
       animalId: s.animal?.id ?? null,
       animalName: s.animal?.jmeno || s.animal?.name || null,
       amount: s.monthlyAmount ?? 0,
@@ -580,7 +619,7 @@ router.get('/expected', async (req: Request, res: Response) => {
         id: true,
         monthlyAmount: true,
         currency: true,
-        user: { select: { email: true } },
+        user: { select: { email: true, firstName: true, lastName: true } },
         animal: { select: { id: true, jmeno: true, name: true } },
       },
     })
@@ -599,6 +638,8 @@ router.get('/expected', async (req: Request, res: Response) => {
         monthlyAmount: s.monthlyAmount,
         currency: s.currency,
         userEmail: s.user?.email ?? null,
+        firstName: s.user?.firstName ?? null,
+        lastName: s.user?.lastName ?? null,
         animalId: s.animal?.id ?? null,
         animalName: s.animal?.jmeno || s.animal?.name || null,
       })),

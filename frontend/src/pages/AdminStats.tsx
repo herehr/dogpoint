@@ -51,6 +51,14 @@ function yRangeOf(date = new Date()) {
   return { from, to }
 }
 
+/** Kalendářní rok v místním čase (1.1.–31.12.), stejně jako „Tento rok“. */
+function prevYearRangeOf(date = new Date()) {
+  const y = date.getFullYear() - 1
+  const from = new Date(Date.UTC(y, 0, 1)).toISOString().slice(0, 10)
+  const to = new Date(Date.UTC(y + 1, 0, 1)).toISOString().slice(0, 10)
+  return { from, to }
+}
+
 type Props = { embedded?: boolean }
 
 type AnimalAggRow = {
@@ -770,9 +778,20 @@ export default function AdminStats({ embedded = false }: Props) {
 
               <Box sx={{ flex: 1 }} />
 
-              <Button onClick={() => setRange(ymRangeOf())}>Tento měsíc</Button>
-              <Button onClick={() => setRange(yRangeOf())}>Tento rok</Button>
-              <Button onClick={() => setRange({})}>Vymazat</Button>
+              <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" justifyContent="flex-end">
+                <Button size="small" onClick={() => setRange(ymRangeOf())}>
+                  Tento měsíc
+                </Button>
+                <Button size="small" onClick={() => setRange(yRangeOf())}>
+                  Tento rok
+                </Button>
+                <Button size="small" onClick={() => setRange(prevYearRangeOf())}>
+                  Minulý rok
+                </Button>
+                <Button size="small" onClick={() => setRange({})}>
+                  Vymazat
+                </Button>
+              </Stack>
             </>
           )}
 
@@ -782,7 +801,7 @@ export default function AdminStats({ embedded = false }: Props) {
           fullWidth
           size="small"
           sx={{ mt: 2 }}
-          placeholder="Hledat v aktuální tabulce (e-mail, zvíře, VS, částka, reference platby…)"
+          placeholder="Hledat v tabulce (jméno, příjmení, e-mail, zvíře, VS, částka, reference…)"
           value={tableSearch}
           onChange={(e) => setTableSearch(e.target.value)}
           disabled={loading}
@@ -859,6 +878,8 @@ export default function AdminStats({ embedded = false }: Props) {
               { key: 'status', label: 'Stav' },
               { key: 'method', label: 'Metoda' },
               { key: 'userEmail', label: 'E-mail' },
+              { key: 'firstName', label: 'Jméno' },
+              { key: 'lastName', label: 'Příjmení' },
               { key: 'animalName', label: 'Zvíře' },
               { key: 'source', label: 'Zdroj' },
               { key: 'providerRef', label: 'Reference' },
@@ -880,6 +901,8 @@ export default function AdminStats({ embedded = false }: Props) {
             columns={[
               { key: 'createdAt', label: 'Datum' },
               { key: 'email', label: 'E-mail' },
+              { key: 'firstName', label: 'Jméno' },
+              { key: 'lastName', label: 'Příjmení' },
               { key: 'animalName', label: 'Zvíře' },
               { key: 'amount', label: 'Částka' },
               { key: 'status', label: 'Stav' },
@@ -903,6 +926,8 @@ export default function AdminStats({ embedded = false }: Props) {
             rows={filteredExpectedRows}
             columns={[
               { key: 'userEmail', label: 'E-mail' },
+              { key: 'firstName', label: 'Jméno' },
+              { key: 'lastName', label: 'Příjmení' },
               { key: 'animalName', label: 'Zvíře' },
               { key: 'monthlyAmount', label: 'Částka/měsíc' },
               { key: 'currency', label: 'Měna' },
