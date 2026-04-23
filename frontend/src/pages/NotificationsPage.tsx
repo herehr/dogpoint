@@ -3,6 +3,7 @@ import React from 'react'
 import { Alert, Box, Container, Grid, Paper, Stack, Typography } from '@mui/material'
 import { MyNotificationItem, fetchMyNotifications } from '../services/api'
 import { useAuth } from '../context/AuthContext'
+import { sanitizeHtmlForDisplay } from '../utils/sanitizeHtml'
 
 const LAST_SEEN_KEY = 'dp:lastSeenNotificationTs'
 
@@ -126,7 +127,7 @@ export default function NotificationsPage() {
                     '& img': { maxWidth: '100%' },
                     '& video': { maxWidth: '100%' },
                   }}
-                  dangerouslySetInnerHTML={{ __html: n.body }}
+                  dangerouslySetInnerHTML={{ __html: sanitizeHtmlForDisplay(n.body) }}
                 />
               )}
 

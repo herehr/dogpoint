@@ -12,6 +12,12 @@ import {
   expireIfNeeded,
 } from '../services/shareInviteService'
 import { canonicalEmailForInviteMatch, normEmail } from '../utils/emailInviteMatch'
+import {
+  authLoginLimiter,
+  authPasswordEmailLimiter,
+  authPasswordResetSubmitLimiter,
+  authPostGeneralLimiter,
+} from '../middleware/rateLimiters'
 
 const router = Router()
 
@@ -127,7 +133,7 @@ router.get('/me', async (req: Request, res: Response) => {
    body: { email, password }
    ========================================================= */
 
-router.post('/login', async (req: Request, res: Response) => {
+router.post('/login', authLoginLimiter, async (req: Request, res: Response) => {
   try {
     const { email, password } = (req.body || {}) as {
       email?: string
@@ -162,7 +168,7 @@ router.post('/login', async (req: Request, res: Response) => {
    body: { email, password }
    ========================================================= */
 
-router.post('/set-password-first-time', async (req: Request, res: Response) => {
+router.post('/set-password-first-time', authPostGeneralLimiter, async (req: Request, res: Response) => {
   try {
     const { email, password } = (req.body || {}) as {
       email?: string
@@ -199,7 +205,7 @@ router.post('/set-password-first-time', async (req: Request, res: Response) => {
    body: { email, password }
    ========================================================= */
 
-router.post('/register-after-payment', async (req: Request, res: Response) => {
+router.post('/register-after-payment', authPostGeneralLimiter, async (req: Request, res: Response) => {
   try {
     const { email, password } = (req.body || {}) as {
       email?: string
@@ -238,7 +244,7 @@ router.post('/register-after-payment', async (req: Request, res: Response) => {
    body: { inviteToken, password } — příjemce pozvánky „Sdílet se známým“
    ========================================================= */
 
-router.post('/register-invite-recipient', async (req: Request, res: Response) => {
+router.post('/register-invite-recipient', authPostGeneralLimiter, async (req: Request, res: Response) => {
   try {
     const { inviteToken, password } = (req.body || {}) as {
       inviteToken?: string
@@ -326,7 +332,7 @@ router.post('/register-invite-recipient', async (req: Request, res: Response) =>
    body: { email, sessionId? }
    ========================================================= */
 
-router.post('/claim-paid', async (req: Request, res: Response) => {
+router.post('/claim-paid', authPostGeneralLimiter, async (req: Request, res: Response) => {
   try {
     const { email, sessionId } = (req.body || {}) as {
       email?: string
@@ -360,7 +366,7 @@ router.post('/claim-paid', async (req: Request, res: Response) => {
    (kept strict – intended to fail loudly for debugging)
    ========================================================= */
 
-router.post('/debug-backfill-adoptions', async (req: Request, res: Response) => {
+router.post('/debug-backfill-adoptions', authPostGeneralLimiter, async (req: Request, res: Response) => {
   try {
     const { email } = (req.body || {}) as { email?: string }
     if (!email) return res.status(400).json({ error: 'Missing email' })
@@ -385,7 +391,7 @@ router.post('/debug-backfill-adoptions', async (req: Request, res: Response) => 
    Always responds 200 generic (never leaks existence)
    ========================================================= */
 
-router.post('/forgot-password', async (req: Request, res: Response): Promise<void> => {
+router.post('/forgot-password', authPasswordEmailLimiter, async (req: Request, res: Response): Promise<void> => {
   const raw = (req.body?.email ?? '') as string
   const email = raw.trim().toLowerCase()
   if (!email) {
@@ -583,7 +589,7 @@ tým DOG-POINT
    body: { token, password }
    ========================================================= */
 
-router.post('/reset-password', async (req: Request, res: Response): Promise<void> => {
+router.post('/reset-password', authPasswordResetSubmitLimiter, async (req: Request, res: Response): Promise<void> => {
   const { token, password } = (req.body || {}) as { token?: string; password?: string }
 
   if (!token || typeof token !== 'string') {

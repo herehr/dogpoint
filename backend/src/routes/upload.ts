@@ -10,6 +10,8 @@ import { file as tmpFile } from 'tmp-promise'
 import fs from 'fs'
 import path from 'path'
 
+import { uploadLimiter } from '../middleware/rateLimiters'
+
 ffmpeg.setFfmpegPath(ffmpegInstaller.path)
 
 const router = Router()
@@ -132,7 +134,7 @@ function guessExtFromMime(mime: string, originalName: string): string {
   return 'bin'
 }
 
-router.post('/', upload.single('file'), async (req: Request, res: Response): Promise<void> => {
+router.post('/', uploadLimiter, upload.single('file'), async (req: Request, res: Response): Promise<void> => {
   try {
     if (!req.file) {
       res.status(400).json({ error: 'file missing' })

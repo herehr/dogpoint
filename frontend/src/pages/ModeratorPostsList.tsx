@@ -11,6 +11,7 @@ import {
   Typography,
 } from '@mui/material'
 import { Link, useSearchParams } from 'react-router-dom'
+import { sanitizeHtmlForDisplay } from '../utils/sanitizeHtml'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api'
 
@@ -278,7 +279,7 @@ export default function ModeratorPostsList() {
                     '& img': { maxWidth: '100%' },
                     '& video': { maxWidth: '100%' },
                   }}
-                  dangerouslySetInnerHTML={{ __html: p.body }}
+                  dangerouslySetInnerHTML={{ __html: sanitizeHtmlForDisplay(p.body) }}
                 />
               ) : (
                 <Typography color="text.secondary">Bez textu.</Typography>

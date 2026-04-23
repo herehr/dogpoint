@@ -30,6 +30,7 @@ import styles from './ModeratorNewPost.module.css'
 import { fetchAnimals, type Animal, uploadMedia } from '../api'
 import { apiUrl, authHeader } from '../services/api'
 import { getToken } from '../services/api'
+import { sanitizeHtmlForDisplay } from '../utils/sanitizeHtml'
 
 // If upload returns { key }, we must build a public URL.
 // Prefer env if you have it; fallback to your known Space CDN.
@@ -647,7 +648,7 @@ const headers = {
                   {p.body && (
                     <Box
                       sx={{ mt: 1, '& img': { maxWidth: '100%' }, '& video': { maxWidth: '100%' } }}
-                      dangerouslySetInnerHTML={{ __html: p.body }}
+                      dangerouslySetInnerHTML={{ __html: sanitizeHtmlForDisplay(p.body) }}
                     />
                   )}
                 </Paper>

@@ -10,9 +10,13 @@ P0 — Fix before or immediately after production
 
 P1 — High value, do soon
 -------------------------
-[ ] Rate limiting — Login, register, password reset, and heavy POSTs (e.g. upload). Use express-rate-limit or edge limits.
-[ ] XSS — Post/notification HTML rendered with dangerouslySetInnerHTML: sanitize on save or render (e.g. DOMPurify).
-[ ] Secrets — No real keys in git; rotate anything ever committed. .env on server only.
+[x] Rate limiting — Implemented in backend: `src/middleware/rateLimiters.ts` + `express-rate-limit`.
+    - Login: 30 req / 15 min / IP. Forgot-password: 8 / hour. Reset-password: 20 / hour.
+    - Other auth POSTs: 120 / 15 min. Upload POST: 40 / 15 min.
+    - Tune via code or add env later; DO/nginx can add a second layer.
+[x] XSS — DOMPurify on render: `frontend/src/utils/sanitizeHtml.ts` used for post/notification HTML
+    (ModeratorPostsList, ModeratorNewPost preview, NotificationsPage). Optional: also sanitize on API save.
+[ ] Secrets — Process only: no real keys in git; use server `.env` / DO secrets; rotate if ever leaked. (Not automatable in repo.)
 
 P2 — Ongoing
 ------------
