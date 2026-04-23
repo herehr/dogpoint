@@ -8,11 +8,13 @@
 ## 1. Supporters & visitors (public site)
 
 ### Help & FAQ
+
 - New **FAQ page** at **`/caste-dotazy`** (“Časté dotazy”) covering adoption, payment, account, **sharing access**, tax data, and troubleshooting.
 - **Search** on the FAQ (filters sections; Czech-friendly, including words with diacritics).
 - **Links to FAQ** from the header, footer, login, password reset, adoption payment step, invite page, “My adoptions”, animal detail (for paying supporters), and the “Share with a friend” dialog.
 
 ### “Share with a friend” (remote viewing without paying)
+
 - A **paying supporter** can invite others by email to **follow the same animal’s updates** without subscribing themselves.
 - **Up to five** people can have this kind of shared access **per adoption** (combined accepted invites / shared viewers). The system blocks further invites once that limit is reached.
 - Invites have a **limited validity period** (server-configurable expiry, typically a few days to weeks).
@@ -20,9 +22,11 @@
 - **People who only have shared access** see a clearer experience: e.g. who invited them, combined view where relevant, and **share / cancel adoption** actions hidden where they do not apply.
 
 ### When the paying supporter stops supporting
+
 - If the **subscriber cancels** an adoption, **people who were only viewing via a share** are **notified by email**, lose access tied to that adoption **the same day**, and may see a link if they want to become supporters themselves.
 
 ### “My adoptions” dashboard
+
 - The **“Darovat adopci” / gift shortcut** was **removed from this screen** to reduce clutter. **“Share with a friend”** stays (green icon). Backend behaviour for gift recipients was not removed—only this shortcut on this page.
 
 ---

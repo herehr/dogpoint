@@ -298,17 +298,23 @@ export default function ModeratorPostsList() {
                       return (
                         <Box key={m.id}>
                           {isVideo ? (
-                            <video
+                            <Box
+                              component="video"
                               controls
                               preload="metadata"
                               playsInline
                               poster={poster}
-                              style={{ width: '100%', borderRadius: 8 }}
+                              sx={{ width: '100%', borderRadius: 1, display: 'block' }}
                             >
                               <source src={m.url} type={guessVideoMime(m.url)} />
-                            </video>
+                            </Box>
                           ) : (
-                            <img src={m.url} alt="" style={{ width: '100%', borderRadius: 8 }} />
+                            <Box
+                              component="img"
+                              src={m.url}
+                              alt=""
+                              sx={{ width: '100%', borderRadius: 1, display: 'block' }}
+                            />
                           )}
                         </Box>
                       )

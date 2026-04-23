@@ -155,12 +155,13 @@ export default function NotificationsPage() {
                               borderColor: 'divider',
                             }}
                           >
-                            <video
+                            <Box
+                              component="video"
                               controls
                               preload="metadata"
                               playsInline
                               poster={poster}
-                              style={{
+                              sx={{
                                 width: '100%',
                                 height: 140,
                                 objectFit: 'cover',
@@ -168,7 +169,7 @@ export default function NotificationsPage() {
                               }}
                             >
                               <source src={url} type={guessVideoMime(url)} />
-                            </video>
+                            </Box>
                           </Box>
                         ) : (
                           <Box
@@ -184,10 +185,11 @@ export default function NotificationsPage() {
                               borderColor: 'divider',
                             }}
                           >
-                            <img
+                            <Box
+                              component="img"
                               src={url}
                               alt={`media-${idx}`}
-                              style={{
+                              sx={{
                                 width: '100%',
                                 height: 140,
                                 objectFit: 'cover',
