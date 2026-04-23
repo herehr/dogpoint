@@ -18,11 +18,19 @@ P1 — High value, do soon
     (ModeratorPostsList, ModeratorNewPost preview, NotificationsPage). Optional: also sanitize on API save.
 [ ] Secrets — Process only: no real keys in git; use server `.env` / DO secrets; rotate if ever leaked. (Not automatable in repo.)
 
-P2 — Ongoing
-------------
-[ ] npm audit (backend + frontend) regularly; patch critical/high.
-[ ] Short JWT lifetimes; consider refresh; reduce XSS impact (httpOnly cookies = larger change).
-[ ] DB user least privilege; DB not public. HTTPS + HSTS at load balancer.
-[ ] Stripe/FIO/DO keys only in environment; review admin routes stay behind requireAdmin / requireStaff.
+P2 — Ongoing (reviewed 2026-03-30)
+---------------------------------
+[ ] npm audit — Run `npm audit` in `backend/` and `frontend/` regularly; test after `npm audit fix`.
+    Last check: backend reported many findings (several **high**, often **@aws-sdk/** transitive — fixes available via
+    bumping `aws-sdk` / lockfile refresh). Frontend reported **high** on **@remix-run/router** / **react-router-dom** chain
+    (advisory: open redirect / XSS class — upgrade path: newer `react-router-dom` when compatible), plus **lodash** / dev
+    tooling. Not auto-fixed here (needs regression testing).
+[ ] JWT lifetimes — Current code (for awareness): main user login token **7d** (`auth.ts` signToken); **admin moderator**
+    token **14d** (`adminModerators.ts`); `utils/jwt.ts` **30d**; several flows **30d** / one **1h**. Shorter TTLs or
+    refresh tokens = product change; httpOnly cookies = separate project.
+[ ] DB + edge — **Not enforced in git:** DB should not be publicly reachable; app DB user = least privilege; **HTTPS** on
+    public host; **HSTS** at CDN/load balancer (DigitalOcean). Confirm in DO dashboard + managed DB network rules.
+[ ] API secrets — Stripe/FIO/DO/SMTP/JWT only via deployment env; admin routes use `requireAdmin` / `requireStaff` as
+    appropriate (spot-check when adding routes).
 
 Reference docs in repo: DEPLOY.md, CLAUDE.md, PROJECT.md
