@@ -1,12 +1,16 @@
 // backend/src/routes/emailTest.ts
 import { Router, Request, Response } from 'express'
 import { sendEmail, isSmtpConfigured, EMAIL_SMTP_MISSING_HINT } from '../services/email'
+import { requireAuth, requireAdmin } from '../middleware/authJwt'
 
 const router = Router()
+
+router.use(requireAuth, requireAdmin)
 
 /**
  * GET /api/email/test?to=you@example.com
  * Simple SMTP test endpoint. Returns 503 if SMTP env is missing (same as when transactional mail is skipped).
+ * ADMIN only (prevents open mail relay abuse).
  */
 router.get('/test', async (req: Request, res: Response) => {
   try {

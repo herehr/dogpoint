@@ -11,6 +11,7 @@ import fs from 'fs'
 import path from 'path'
 
 import { uploadLimiter } from '../middleware/rateLimiters'
+import { requireAuth } from '../middleware/authJwt'
 
 ffmpeg.setFfmpegPath(ffmpegInstaller.path)
 
@@ -134,7 +135,7 @@ function guessExtFromMime(mime: string, originalName: string): string {
   return 'bin'
 }
 
-router.post('/', uploadLimiter, upload.single('file'), async (req: Request, res: Response): Promise<void> => {
+router.post('/', uploadLimiter, requireAuth, upload.single('file'), async (req: Request, res: Response): Promise<void> => {
   try {
     if (!req.file) {
       res.status(400).json({ error: 'file missing' })

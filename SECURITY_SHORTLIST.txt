@@ -4,9 +4,9 @@ DogPoint Adopce — security hardening shortlist
 
 P0 — Fix before or immediately after production
 -------------------------------------------------
-[ ] /api/upload — Require auth (and ideally role: staff or ownership). Unauthenticated 200MB uploads to public Spaces = abuse and cost.
-[ ] /api/email/test — Require admin auth, or dev-only, or remove in production. Unauthenticated = spam to arbitrary addresses if SMTP is on.
-[ ] CORS — Set CORS_ALLOWED_ORIGINS in production. Empty list = all origins allowed (risky with credentials: true).
+[x] /api/upload — `requireAuth` on `POST /api/upload` (upload.ts). Patron/mod flows already send JWT; no role change to avoid breaking staff posts.
+[x] /api/email/test — `requireAuth` + `requireAdmin` on `/api/email/*` (emailTest.ts). Admins use Admin login JWT as before.
+[x] CORS — Production: if `CORS_*` list empty, fallback to one origin from `FRONTEND_BASE_URL` / `APP_BASE_URL` / `PUBLIC_WEB_BASE_URL`. Dev: still allows any origin when list empty. Set `CORS_ALLOWED_ORIGINS` explicitly for multiple domains (e.g. www + apex).
 
 P1 — High value, do soon
 -------------------------

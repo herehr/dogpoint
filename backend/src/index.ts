@@ -38,17 +38,43 @@ import { getEmailDiagnostics, EMAIL_SMTP_MISSING_HINT } from './services/email'
  * CORS
  * ──────────────────────────────────────────── */
 
-const allowedOrigins: string[] =
-  (process.env.CORS_ORIGIN || process.env.CORS_ALLOWED_ORIGINS || '')
+function buildCorsAllowlist(): string[] {
+  const fromEnv = (process.env.CORS_ORIGIN || process.env.CORS_ALLOWED_ORIGINS || '')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean)
+  if (fromEnv.length > 0) return fromEnv
+
+  if (process.env.NODE_ENV === 'production') {
+    const one = (
+      process.env.FRONTEND_BASE_URL ||
+      process.env.APP_BASE_URL ||
+      process.env.PUBLIC_WEB_BASE_URL ||
+      ''
+    )
+      .trim()
+      .replace(/\/+$/, '')
+    if (one) {
+      console.warn(
+        '[CORS] CORS_ALLOWED_ORIGINS empty in production; using FRONTEND_BASE_URL/APP_BASE_URL as single allowed origin'
+      )
+      return [one]
+    }
+    console.error(
+      '[CORS] Production: set CORS_ALLOWED_ORIGINS or FRONTEND_BASE_URL — cross-origin browser requests may be blocked'
+    )
+  }
+  return []
+}
+
+const allowedOrigins: string[] = buildCorsAllowlist()
+const corsAllowAllInDev = allowedOrigins.length === 0 && process.env.NODE_ENV !== 'production'
 
 const corsOptions: Parameters<typeof cors>[0] = {
   origin(origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void): void {
     if (!origin) return callback(null, true)
 
-    if (allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+    if (corsAllowAllInDev || allowedOrigins.includes(origin)) {
       return callback(null, true)
     }
 
