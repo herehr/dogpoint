@@ -35,6 +35,7 @@ import {
 import { useAuth } from '../context/AuthContext'
 import { getJSON, qs, apiUrl, getToken } from '../services/api'
 import { rowMatchesSearch } from '../utils/searchNormalize'
+import { clientConfig } from '../config/clientConfig'
 
 function ymRangeOf(date = new Date()) {
   const y = date.getFullYear()
@@ -165,6 +166,8 @@ export default function AdminStats({ embedded = false }: Props) {
   const [donorSearch, setDonorSearch] = useState('')
   const [donorLoading, setDonorLoading] = useState(false)
   const [donorErr, setDonorErr] = useState<string | null>(null)
+
+  const showFioInAdmin = clientConfig.features.fioImportInAdmin
 
   const params = useMemo(() => {
     const p: Record<string, string> = {}
@@ -553,14 +556,18 @@ export default function AdminStats({ embedded = false }: Props) {
                 label="ACTIVE (Stripe)"
                 value={statsOverviewLoading ? 'Načítám…' : String(statsOverview?.flow?.subscriptionsActiveStripe ?? '—')}
               />
-              <Stat
-                label="ACTIVE (FIO)"
-                value={statsOverviewLoading ? 'Načítám…' : String(statsOverview?.flow?.subscriptionsActiveFio ?? '—')}
-              />
-              <Stat
-                label="PENDING (FIO)"
-                value={statsOverviewLoading ? 'Načítám…' : String(statsOverview?.flow?.subscriptionsPendingFio ?? '—')}
-              />
+              {showFioInAdmin && (
+                <Stat
+                  label="ACTIVE (FIO)"
+                  value={statsOverviewLoading ? 'Načítám…' : String(statsOverview?.flow?.subscriptionsActiveFio ?? '—')}
+                />
+              )}
+              {showFioInAdmin && (
+                <Stat
+                  label="PENDING (FIO)"
+                  value={statsOverviewLoading ? 'Načítám…' : String(statsOverview?.flow?.subscriptionsPendingFio ?? '—')}
+                />
+              )}
               <Stat
                 label="PENDING (celkem)"
                 value={statsOverviewLoading ? 'Načítám…' : String(statsOverview?.flow?.subscriptionsPending ?? '—')}
@@ -654,48 +661,52 @@ export default function AdminStats({ embedded = false }: Props) {
               />
             </Box>
 
-            <Typography variant="subtitle2" sx={{ fontWeight: 800, mt: 2, mb: 1 }}>
-              FIO import
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-              Načte platby z FIO API do tabulky Payment (poslední měsíc).
-            </Typography>
-            {fioImportErr && (
-              <Alert severity="error" sx={{ mb: 1 }}>
-                {fioImportErr}
-              </Alert>
+            {showFioInAdmin && (
+              <>
+                <Typography variant="subtitle2" sx={{ fontWeight: 800, mt: 2, mb: 1 }}>
+                  FIO import
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                  Načte platby z FIO API do tabulky Payment (poslední měsíc).
+                </Typography>
+                {fioImportErr && (
+                  <Alert severity="error" sx={{ mb: 1 }}>
+                    {fioImportErr}
+                  </Alert>
+                )}
+                {fioImportResult && (
+                  <Typography variant="body2" sx={{ mb: 1 }}>
+                    <strong>Vytvořeno:</strong> {fioImportResult.createdPayments} plateb
+                    {typeof fioImportResult.incoming === 'number' && (
+                      <> · Příchozí: {fioImportResult.incoming}</>
+                    )}
+                    {fioImportResult.skippedNoMatch > 0 && (
+                      <> · Bez shody VS: {fioImportResult.skippedNoMatch}</>
+                    )}
+                    {fioImportResult.skippedNoVS > 0 && (
+                      <> · Bez VS: {fioImportResult.skippedNoVS}</>
+                    )}
+                    {typeof fioImportResult.subsWithVS === 'number' && (
+                      <> · Předplatných s VS v DB: {fioImportResult.subsWithVS}</>
+                    )}
+                    {Array.isArray(fioImportResult.sampleNoMatchVS) &&
+                      fioImportResult.sampleNoMatchVS.length > 0 && (
+                        <>
+                          {' '}
+                          · Příklad VS bez shody: {fioImportResult.sampleNoMatchVS.join(', ')}
+                        </>
+                      )}
+                  </Typography>
+                )}
+                <Button
+                  variant="outlined"
+                  onClick={() => runFioImport(30)}
+                  disabled={fioImportLoading}
+                >
+                  {fioImportLoading ? 'Načítám…' : 'Stáhnout FIO – poslední měsíc'}
+                </Button>
+              </>
             )}
-            {fioImportResult && (
-              <Typography variant="body2" sx={{ mb: 1 }}>
-                <strong>Vytvořeno:</strong> {fioImportResult.createdPayments} plateb
-                {typeof fioImportResult.incoming === 'number' && (
-                  <> · Příchozí: {fioImportResult.incoming}</>
-                )}
-                {fioImportResult.skippedNoMatch > 0 && (
-                  <> · Bez shody VS: {fioImportResult.skippedNoMatch}</>
-                )}
-                {fioImportResult.skippedNoVS > 0 && (
-                  <> · Bez VS: {fioImportResult.skippedNoVS}</>
-                )}
-                {typeof fioImportResult.subsWithVS === 'number' && (
-                  <> · Předplatných s VS v DB: {fioImportResult.subsWithVS}</>
-                )}
-                {Array.isArray(fioImportResult.sampleNoMatchVS) &&
-                  fioImportResult.sampleNoMatchVS.length > 0 && (
-                    <>
-                      {' '}
-                      · Příklad VS bez shody: {fioImportResult.sampleNoMatchVS.join(', ')}
-                    </>
-                  )}
-              </Typography>
-            )}
-            <Button
-              variant="outlined"
-              onClick={() => runFioImport(30)}
-              disabled={fioImportLoading}
-            >
-              {fioImportLoading ? 'Načítám…' : 'Stáhnout FIO – poslední měsíc'}
-            </Button>
 
             <Typography variant="subtitle2" sx={{ fontWeight: 800, mt: 2, mb: 1 }}>
               Stripe sync
@@ -853,7 +864,9 @@ export default function AdminStats({ embedded = false }: Props) {
           {incomeByProviderChart.length > 0 && (
             <Box sx={{ width: '100%', height: 320, mb: 3 }}>
               <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 1 }}>
-                Příjem podle platební metody (STRIPE / FIO)
+                {showFioInAdmin
+                  ? 'Příjem podle platební metody (STRIPE / FIO)'
+                  : 'Příjem podle platební metody (Stripe)'}
               </Typography>
               <ResponsiveContainer width="100%" height={280}>
                 <BarChart data={incomeByProviderChart} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
@@ -863,7 +876,9 @@ export default function AdminStats({ embedded = false }: Props) {
                   <Tooltip formatter={(v) => `${Number(v ?? 0).toLocaleString('cs-CZ')} Kč`} />
                   <Legend />
                   <Bar dataKey="STRIPE" stackId="a" fill="#635BFF" name="STRIPE (karta)" />
-                  <Bar dataKey="FIO" stackId="a" fill="#0EA5E9" name="FIO (bankovní převod)" />
+                  {showFioInAdmin && (
+                    <Bar dataKey="FIO" stackId="a" fill="#0EA5E9" name="FIO (bankovní převod)" />
+                  )}
                 </BarChart>
               </ResponsiveContainer>
             </Box>

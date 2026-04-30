@@ -1,4 +1,4 @@
-# FAQ – co vám často vrtá hlavou
+# Na co se často ptáte
 
 Odpovědi na nejčastější dotazy k adopci na dálku a platbám v projektu Dogpoint.
 
@@ -12,7 +12,7 @@ Kritérií je několik, ale v podstatě jde o psy, kteří mají nízké šance 
 
 ### Co se bude dít poté, co se stanu patronem?
 
-U pejska, kterého jste vybrali, se vám otevře obsah plný novinek a informací o tom, jak se mu daří. Na každou aktualizaci, kterou zveřejníme, vás upozorníme e-mailem. Na vámi zadanou e-mailovou adresu vám navíc přijde adopční certifikát.
+U pejska, kterého jste vybrali, se vám otevře obsah plný novinek a informací o tom, jak se mu daří. Na každou aktualitu, kterou zveřejníme, vás upozorníme e-mailem. Na vámi zadanou e-mailovou adresu vám navíc přijde adopční certifikát.
 
 ### Co když chci být patronem vícero pejsků?
 
@@ -24,7 +24,7 @@ Jasně, budeme moc rádi! Jen počítejte s tím, že někteří pejsci v progra
 
 ### Co když chci patronát darovat někomu jinému?
 
-Napište nám na [info@dog-point.cz](mailto:info@dog-point.cz) — rádi s vámi domluvíme možnosti. V aplikaci můžete po přihlášení také využít sdílení adopce s další osobou (pozvánka e-mailem).
+Napište nám na [info@dog-point.cz](mailto:info@dog-point.cz).
 
 ### Dostanu potvrzení o daru?
 

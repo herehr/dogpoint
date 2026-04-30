@@ -4,8 +4,9 @@ import { Alert, Box, Container, Grid, Paper, Stack, Typography } from '@mui/mate
 import { MyNotificationItem, fetchMyNotifications } from '../services/api'
 import { useAuth } from '../context/AuthContext'
 import { sanitizeHtmlForDisplay } from '../utils/sanitizeHtml'
+import { clientConfig } from '../config/clientConfig'
 
-const LAST_SEEN_KEY = 'dp:lastSeenNotificationTs'
+const LAST_SEEN_KEY = `${clientConfig.storagePrefix}:lastSeenNotificationTs`
 
 function isVideoUrl(url: string): boolean {
   return /\.(mp4|webm|m4v|mov)(\?|$)/i.test(url || '')

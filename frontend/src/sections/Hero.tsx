@@ -33,13 +33,13 @@ export default function Hero() {
                 mb: 1.5,
               }}
             >
-              Změňte život
+              Být patronem
               <br />
-              mazlíčků.
+              je snadné.
             </Typography>
 
             <Typography color="text.secondary" sx={{ mb: 3 }}>
-              Dálková adopce, blízké pouto.
+              Stačí jen pár kliknutí.
             </Typography>
 
             {/* New button — scrolls to AnimalTeasers */}

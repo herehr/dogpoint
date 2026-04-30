@@ -1,0 +1,29 @@
+{
+  "header": {
+    "subtitle": "Patenschaft & Fernunterstützung"
+  },
+  "footer": {
+    "brandTitle": "SPENDENPORTAL",
+    "contacts": "Kontakt",
+    "phone": "Telefon",
+    "email": "E-Mail",
+    "follow": "Social Media",
+    "faq": "Häufige Fragen",
+    "privacy": "Datenschutz",
+    "imprint": "Impressum",
+    "shelter": "Tierheim / Träger",
+    "shelterAddress": "Musterstraße 1, 12345 Musterstadt (Platzhalter)",
+    "ico": "Verein / Org (Platzhalter)",
+    "rights": "Alle Rechte vorbehalten",
+    "column2Title": "Anschrift (Platzhalter)",
+    "column2Body": "Musterstraße 1\n12345 Musterstadt",
+    "column3Title": "Verein & Registerangaben (Platzhalter)",
+    "column3Body": "Musterverein e. V.\nMusterweg 2\n12345 Musterstadt\n\nRegistergericht: Amtsgericht Musterstadt\nVereinsregister: VR 12345",
+    "copyrightEntity": "Musterverein e. V. (Platzhalter)"
+  },
+  "notFound": {
+    "title": "Seite nicht gefunden (404)",
+    "hint": "Prüfen Sie die Adresse oder gehen Sie zur Startseite.",
+    "back": "Zur Startseite"
+  }
+}

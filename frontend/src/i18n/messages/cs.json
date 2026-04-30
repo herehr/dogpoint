@@ -1,0 +1,29 @@
+{
+  "header": {
+    "subtitle": "Adopce na dálku"
+  },
+  "footer": {
+    "brandTitle": "DOGPOINT",
+    "contacts": "Kontakty",
+    "phone": "Telefon",
+    "email": "E-mail",
+    "follow": "Sledujte nás",
+    "faq": "Časté dotazy",
+    "privacy": "Ochrana osobních údajů",
+    "imprint": "Právní informace",
+    "shelter": "Útulek / shelter",
+    "shelterAddress": "Malotice 6, 281 63 Kostelec nad Labem",
+    "ico": "IČO: 270 64 201",
+    "rights": "Všechna práva vyhrazena",
+    "column2Title": "Adresa útulku",
+    "column2Body": "Lhotky 60\n281 63 Malotice",
+    "column3Title": "Sídlo organizace a korespondenční kontakt",
+    "column3Body": "Dogpoint o.p.s.\nMilánská 452\n109 00 Praha 15\n\nID Datové schránky: fkb79bk\nIČO: 22887253\nSpisová značka: O 1478\nvedená u Městského soudu v Praze",
+    "copyrightEntity": "Dogpoint o. p. s."
+  },
+  "notFound": {
+    "title": "Stránka nenalezena (404)",
+    "hint": "Zkontrolujte adresu nebo přejděte na domovskou stránku.",
+    "back": "Zpět na domů"
+  }
+}

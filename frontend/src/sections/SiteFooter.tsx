@@ -10,132 +10,101 @@ import {
   Divider,
 } from '@mui/material'
 import { Link as RouterLink } from 'react-router-dom'
+import { clientConfig } from '../config/clientConfig'
+import { t } from '../i18n/t'
 
 export default function SiteFooter() {
+  const socials = clientConfig.socialLinks
+  const showSocials = socials.length > 0
+
+  const col2 = clientConfig.footerAddressOverride || t('footer.column2Body')
+  const col3 = clientConfig.footerLegalOverride || t('footer.column3Body')
+
+  const privacyIsExternal = Boolean(clientConfig.legalPrivacyUrl?.trim())
+  const impressum = clientConfig.legalImprintUrl?.trim()
+
   return (
     <Box sx={{ bgcolor: 'brand.dark', color: 'white', py: { xs: 4, md: 6 } }}>
       <Container>
-        {/* Top: Title + columns */}
         <Stack gap={{ xs: 3, md: 4 }}>
           <Typography
             variant="h6"
             sx={{ fontWeight: 900, letterSpacing: 0.5 }}
           >
-            DOGPOINT
+            {t('footer.brandTitle')}
           </Typography>
 
           <Grid container spacing={{ xs: 3, md: 4 }}>
-            {/* Column 1 */}
             <Grid item xs={12} md={4}>
               <Stack gap={1}>
                 <Typography variant="body2" sx={{ fontWeight: 700 }}>
-                  Kontakty
+                  {t('footer.contacts')}
                 </Typography>
 
                 <Typography variant="body2">
-                  Telefon:{' '}
+                  {t('footer.phone')}:{' '}
                   <Link
-                    href="tel:+420607018218"
+                    href={`tel:${clientConfig.supportPhoneTel}`}
                     color="inherit"
                     underline="hover"
                   >
-                    +420 607 018 218
+                    {clientConfig.supportPhone}
                   </Link>
                 </Typography>
 
                 <Typography variant="body2">
-                  E-mail:{' '}
+                  {t('footer.email')}:{' '}
                   <Link
-                    href="mailto:info@dog-point.cz"
+                    href={`mailto:${clientConfig.supportEmail}`}
                     color="inherit"
                     underline="hover"
                   >
-                    info@dog-point.cz
+                    {clientConfig.supportEmail}
                   </Link>
                 </Typography>
 
-                <Typography variant="body2" sx={{ fontWeight: 700, mt: 2 }}>
-                  Sledujte nás
-                </Typography>
-
-                <Stack direction="row" gap={2} flexWrap="wrap">
-                  <Link
-                    href="https://www.tiktok.com/@utulek_dogpoint"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    color="inherit"
-                    underline="hover"
-                  >
-                    TikTok
-                  </Link>
-                  <Link
-                    href="https://www.instagram.com/utulek_dogpoint/?hl=cs"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    color="inherit"
-                    underline="hover"
-                  >
-                    Instagram
-                  </Link>
-                  <Link
-                    href="https://www.facebook.com/Dogpoint/?locale=cs_CZ"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    color="inherit"
-                    underline="hover"
-                  >
-                    Facebook
-                  </Link>
-                  <Link
-                    href="https://www.youtube.com/channel/UC_rdqxvvUhWZuqk-_h-5rBQ"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    color="inherit"
-                    underline="hover"
-                  >
-                    YouTube
-                  </Link>
-                </Stack>
+                {showSocials && (
+                  <>
+                    <Typography variant="body2" sx={{ fontWeight: 700, mt: 2 }}>
+                      {t('footer.follow')}
+                    </Typography>
+                    <Stack direction="row" gap={2} flexWrap="wrap">
+                      {socials.map((s) => (
+                        <Link
+                          key={s.href}
+                          href={s.href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          color="inherit"
+                          underline="hover"
+                        >
+                          {s.label}
+                        </Link>
+                      ))}
+                    </Stack>
+                  </>
+                )}
               </Stack>
             </Grid>
 
-            {/* Column 2 */}
             <Grid item xs={12} md={4}>
               <Stack gap={1}>
                 <Typography variant="body2" sx={{ fontWeight: 700 }}>
-                  Adresa útulku
+                  {t('footer.column2Title')}
                 </Typography>
-                <Typography variant="body2" sx={{ opacity: 0.9 }}>
-                  Lhotky 60
-                  <br />
-                  281 63 Malotice
+                <Typography variant="body2" sx={{ opacity: 0.9, whiteSpace: 'pre-line' }}>
+                  {col2}
                 </Typography>
               </Stack>
             </Grid>
 
-            {/* Column 3 */}
             <Grid item xs={12} md={4}>
               <Stack gap={1}>
                 <Typography variant="body2" sx={{ fontWeight: 700 }}>
-                  Sídlo organizace a korespondenční kontakt
+                  {t('footer.column3Title')}
                 </Typography>
-
-                <Typography variant="body2" sx={{ opacity: 0.9 }}>
-                  Dogpoint o.p.s.
-                  <br />
-                  Milánská 452
-                  <br />
-                  109 00 Praha 15
-                </Typography>
-
-                <Typography variant="body2" sx={{ opacity: 0.9 }}>
-                  ID Datové schránky: fkb79bk
-                  <br />
-                  IČO: 22887253
-                  <br />
-                  Spisová značka: O 1478
-                  <br />
-                  vedená u Městského soudu v Praze
+                <Typography variant="body2" sx={{ opacity: 0.9, whiteSpace: 'pre-line' }}>
+                  {col3}
                 </Typography>
               </Stack>
             </Grid>
@@ -143,10 +112,9 @@ export default function SiteFooter() {
 
           <Divider sx={{ borderColor: 'rgba(255,255,255,0.12)' }} />
 
-          {/* Bottom line */}
           <Typography variant="caption" component="div" sx={{ opacity: 0.85 }}>
             <Box component="span" sx={{ opacity: 0.75 }}>
-              © {new Date().getFullYear()} Dogpoint o. p. s.
+              © {new Date().getFullYear()} {t('footer.copyrightEntity')}
             </Box>
             {' · '}
             <Link
@@ -155,17 +123,43 @@ export default function SiteFooter() {
               color="inherit"
               sx={{ fontWeight: 700, textDecoration: 'underline', textUnderlineOffset: 3, opacity: 1 }}
             >
-              Časté dotazy
+              {t('footer.faq')}
             </Link>
             {' · '}
-            <Link
-              component={RouterLink}
-              to="/ochrana-osobnich-udaju"
-              color="inherit"
-              sx={{ fontWeight: 700, textDecoration: 'underline', textUnderlineOffset: 3, opacity: 1 }}
-            >
-              Ochrana osobních údajů
-            </Link>
+            {privacyIsExternal ? (
+              <Link
+                href={clientConfig.legalPrivacyUrl}
+                color="inherit"
+                target="_blank"
+                rel="noopener noreferrer"
+                sx={{ fontWeight: 700, textDecoration: 'underline', textUnderlineOffset: 3, opacity: 1 }}
+              >
+                {t('footer.privacy')}
+              </Link>
+            ) : (
+              <Link
+                component={RouterLink}
+                to="/ochrana-osobnich-udaju"
+                color="inherit"
+                sx={{ fontWeight: 700, textDecoration: 'underline', textUnderlineOffset: 3, opacity: 1 }}
+              >
+                {t('footer.privacy')}
+              </Link>
+            )}
+            {impressum && (
+              <>
+                {' · '}
+                <Link
+                  href={impressum}
+                  color="inherit"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  sx={{ fontWeight: 700, textDecoration: 'underline', textUnderlineOffset: 3, opacity: 1 }}
+                >
+                  {t('footer.imprint')}
+                </Link>
+              </>
+            )}
           </Typography>
         </Stack>
       </Container>

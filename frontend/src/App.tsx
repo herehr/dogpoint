@@ -44,13 +44,14 @@ import InviteAccept from './pages/InviteAccept'
 import FaqPage from './pages/FaqPage'
 import AdminTax from './pages/AdminTax'
 import AdminTaxCertificates from './pages/AdminTaxCertificates'
+import { t } from './i18n/t'
 
 import 'react-quill/dist/quill.snow.css'
 
 function AppLayout() {
   return (
     <>
-      <Header logoSrc="/logo1.png" />
+      <Header />
       <Outlet />
     </>
   )
@@ -60,13 +61,13 @@ function NotFound() {
   return (
     <Container maxWidth="sm" sx={{ py: 8 }}>
       <Typography variant="h5" sx={{ fontWeight: 900, mb: 1 }}>
-        Stránka nenalezena (404)
+        {t('notFound.title')}
       </Typography>
       <Typography color="text.secondary" sx={{ mb: 2 }}>
-        Zkontrolujte adresu nebo přejděte na domovskou stránku.
+        {t('notFound.hint')}
       </Typography>
       <Button component={Link} to="/" variant="contained">
-        Zpět na domů
+        {t('notFound.back')}
       </Button>
     </Container>
   )

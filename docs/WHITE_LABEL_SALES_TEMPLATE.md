@@ -13,7 +13,7 @@ Use this when you maintain a **separate repository** from DogPoint CZ: **German-
 **Recommended for sales:** keep a **golden template** repo (German UI, neutral branding). For each sale:
 
 1. **Duplicate** the template → new Codeberg project (e.g. `tierheim-muster-adoption`).
-2. Fill **`client.config`** (see §4) + env + deploy.
+2. Fill **`client.config`** (see `docs/CLIENT_CONFIG.md` + `frontend/src/config/clientConfig.ts`) + env + deploy.
 3. Optional: add the client as **collaborator** or hand over the repo after training.
 
 ## 2. What to strip or neutralize (Czech / DogPoint-specific)
@@ -41,7 +41,7 @@ Aim for **one config object** (plus env for secrets):
 - `VITE_SOCIAL_*` (or empty)
 - `VITE_LOGO_URL` or static asset in `/public/logo.svg`
 - `VITE_PRIMARY_COLOR` / `VITE_SECONDARY_COLOR` (optional — feed MUI theme)
-- `VITE_BANK_ENABLED`, `VITE_GA_ID` (optional)
+- `VITE_BANK_ENABLED`, `VITE_GA_MEASUREMENT_ID` (optional; see `docs/CLIENT_CONFIG.md`)
 
 **Backend (server-only)**
 
@@ -67,6 +67,8 @@ Refactor the codebase so **DogPoint strings live in config/env**, not scattered 
 - Push template to Codeberg; enable **Actions** (Forgejo).
 - Pipeline stages: `backend` typecheck + build, `frontend` build, optional `prisma validate`.
 - Deploy: SSH to UpCloud server and `docker compose pull && up -d`, or push images to a registry — store SSH keys and env in **Codeberg secrets**.
+
+Step-by-step for this stack: **`docs/CODEBERG_UPCLOUD.md`**.
 
 ## 6. UpCloud (typical DE stack)
 
@@ -94,4 +96,4 @@ This file describes the **fork you maintain for DACH sales**. You can periodical
 
 ---
 
-*Next step in code:* introduce `clientBrand` modules + env keys in the template fork, then replace hardcoded “Dogpoint” references with `getClientBrand()` calls.
+*Implemented in this repo (partial):* `frontend/src/config/clientConfig.ts` + `frontend/src/i18n/messages/{cs,de}.json`; set `VITE_FIO_IMPORT_UI=false` for Stripe-only admin; see `docs/CLIENT_CONFIG.md` for a deploy matrix. Remaining hardcoded copy can be migrated incrementally; use `docs/REBRAND_GREP.md` to find literals.

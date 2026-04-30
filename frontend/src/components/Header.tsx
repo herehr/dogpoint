@@ -15,20 +15,24 @@ import {
 import NotificationsNoneIcon from '@mui/icons-material/NotificationsNone'
 import NotificationsIcon from '@mui/icons-material/Notifications'
 import AccountCircleIcon from '@mui/icons-material/AccountCircle'
+import { useTheme } from '@mui/material/styles'
 import { useAuth } from '../context/AuthContext'
 import { fetchMyNotifications } from '../services/api'
+import { clientConfig } from '../config/clientConfig'
+import { t } from '../i18n/t'
 
 type Props = {
   logoSrc?: string
   subtitle?: string
 }
 
-const LAST_SEEN_KEY = 'dp:lastSeenNotificationTs'
+const LAST_SEEN_KEY = `${clientConfig.storagePrefix}:lastSeenNotificationTs`
 
 export default function Header({
-  logoSrc = '/logo1.png',
-  subtitle = 'Adopce na dálku',
+  logoSrc = clientConfig.logoUrl,
+  subtitle = t('header.subtitle'),
 }: Props) {
+  const theme = useTheme()
   const navigate = useNavigate()
   const { token, role, user, logout } = useAuth()
 
@@ -113,7 +117,10 @@ export default function Header({
   )
 
   return (
-    <Box component="header" sx={headerWrap}>
+    <Box
+      component="header"
+      sx={{ ...headerWrap, backgroundColor: theme.palette.primary.main }}
+    >
       <Container maxWidth="lg" sx={headerInner}>
         <Stack direction="row" alignItems="center" justifyContent="space-between" gap={2}>
           {/* Logo + subtitle */}
@@ -125,7 +132,7 @@ export default function Header({
             aria-label="Domů"
           >
             <Stack direction="column" spacing={0} alignItems="flex-start">
-              <Box component="img" src={logoSrc} alt="DOGPOINT" sx={logoImg} />
+              <Box component="img" src={logoSrc} alt={clientConfig.appName} sx={logoImg} />
               <Box component="span" sx={subtitleSx}>
                 {subtitle}
               </Box>
@@ -261,7 +268,6 @@ export default function Header({
 
 const headerWrap = {
   position: 'relative',
-  backgroundColor: '#26E6EA',
   color: '#000',
   overflow: 'hidden',
 } as const
